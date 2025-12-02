@@ -81,61 +81,61 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     return [letters1, digits, letters2].filter(Boolean).join('-');
   };
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
-
-  // Host/propose waiting states
-  if (myActiveSpot) {
-    const isExpired =
-      myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0);
-
-    if (myActiveSpot.status === 'booked') {
-      return (
-       className="h-screen overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <User className="text-orange-600" />
-              </div>
-              <div>
-                <p className="font-bold text-lg">{myActiveSpot.bookerName}</p>
-                <p className="text-sm text-gray-500">{t('arrivingIn', 'Arriving in ~3 min')}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <label className="block text-sm font-medium text-gray-700 text-center">{t('verifyLicensePlate', 'Verify License Plate')}</label>
-              <input
-                type="text"
-                placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
-                className="w-full border-2 border-gray-200 rounded-xl p-4 text-center text-2xl font-mono uppercase tracking-widest focus:border-orange-500 outline-none transition"
-                value={plateInput}
-                onChange={(e) => setPlateInput(formatPlate(e.target.value))}
-              />
-              <div className="flex justify-center">
-                <button
-                  onClick={() => {
-                    const formatted = formatPlate(plateInput);
-                    if (!isFullPlate(formatted)) return;
-                    onConfirmPlate?.(myActiveSpot.id, formatted);
-                  }}
-                  className="w-full max-w-xs bg-green-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-green-700 transition"
-                >
-                  {t('confirmPlate', 'Confirm Plate')}
-                </button>
-              </div>
-            </div>
+if (myActiveSpot.status === 'booked') {
+  return (
+    <div className="h-screen overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
+      <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+            <User className="text-orange-600" />
           </div>
-
-          {onCancel && (
-            <button
-              onClick={() => onCancel(myActiveSpot.id)}
-              className="mt-2 px-5 py-3 border border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 transition"
-            >
-              {t('cancelReturn', 'Cancel & return')}
-            </button>
-          )}
+          <div>
+            <p className="font-bold text-lg">{myActiveSpot.bookerName}</p>
+            <p className="text-sm text-gray-500">
+              {t('arrivingIn', 'Arriving in ~3 min')}
+            </p>
+          </div>
         </div>
-      );
-    }
+
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-gray-700 text-center">
+            {t('verifyLicensePlate', 'Verify License Plate')}
+          </label>
+
+          <input
+            type="text"
+            placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
+            className="w-full border-2 border-gray-200 rounded-xl p-4 text-center text-2xl font-mono uppercase tracking-widest focus:border-orange-500 outline-none transition"
+            value={plateInput}
+            onChange={(e) => setPlateInput(formatPlate(e.target.value))}
+          />
+
+          <div className="flex justify-center">
+            <button
+              onClick={() => {
+                const formatted = formatPlate(plateInput);
+                if (!isFullPlate(formatted)) return;
+                onConfirmPlate?.(myActiveSpot.id, formatted);
+              }}
+              className="w-full max-w-xs bg-green-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-green-700 transition"
+            >
+              {t('confirmPlate', 'Confirm Plate')}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {onCancel && (
+        <button
+          onClick={() => onCancel(myActiveSpot.id)}
+          className="mt-2 px-5 py-3 border border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 transition"
+        >
+          {t('cancelReturn', 'Cancel & return')}
+        </button>
+      )}
+    </div>
+  );
+}
 
     if (myActiveSpot.status === 'confirmed') {
       return (

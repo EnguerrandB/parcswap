@@ -13,3 +13,6 @@
   to = "https://parkswap-36bb2.firebaseapp.com/__/firebase/:splat"
   status = 200
   force = true
+
+[build.environment]
+SECRETS_SCAN_ENABLED = "false"

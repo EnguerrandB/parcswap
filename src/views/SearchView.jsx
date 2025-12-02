@@ -1,0 +1,511 @@
+// src/views/SearchView.jsx
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { X, MapPin, Bell } from 'lucide-react';
+import Map from '../components/Map';
+
+// --- UTILITAIRES ---
+const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
+const CARD_COLORS = ['#a9dbff', '#b8f1c7', '#f6d1b1']; // soft Apple-like pastels
+const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
+const getDistanceMeters = (spot) => {
+  if (!spot) return Infinity;
+  if (spot.distanceMeters != null) return Number(spot.distanceMeters);
+  if (spot.distance != null) return Number(spot.distance);
+  if (spot.distanceKm != null) return Number(spot.distanceKm) * 1000;
+  // If missing, treat as very close so it shows up
+  return 0;
+};
+const formatDistance = (m) => {
+  if (!Number.isFinite(m)) return '> 1 km';
+  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
+  return `${Math.round(m)} m`;
+};
+const getRemainingMs = (spot, nowMs = Date.now()) => {
+  if (!spot) return null;
+  const { createdAt, time } = spot;
+  if (time == null) return null;
+
+  let createdMs = null;
+  if (createdAt?.toMillis) {
+    createdMs = createdAt.toMillis();
+  } else if (typeof createdAt === 'number') {
+    createdMs = createdAt;
+  } else if (typeof createdAt === 'string') {
+    const parsed = Date.parse(createdAt);
+    createdMs = Number.isNaN(parsed) ? null : parsed;
+  }
+  if (!createdMs) return null;
+
+  const remainingMs = createdMs + Number(time) * 60_000 - nowMs;
+  return remainingMs;
+};
+
+const formatDuration = (ms) => {
+  if (ms == null) return null;
+  const clamped = Math.max(0, ms);
+  const totalSeconds = Math.floor(clamped / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
+// --- COMPOSANT CARTE (SWIPE) ---
+const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark }) => {
+  const { t } = useTranslation('common');
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    setOffset({ x: 0, y: 0 });
+  }, [spot?.id]);
+
+  const handleStart = (clientX, clientY) => {
+    if (!active) return;
+    setDragStart({ x: clientX, y: clientY });
+    setIsDragging(true);
+  };
+
+  const handleMove = (clientX, clientY) => {
+    if (!isDragging || !active) return;
+    const deltaX = clientX - dragStart.x;
+    const deltaY = clientY - dragStart.y;
+    setOffset({ x: deltaX, y: deltaY });
+  };
+
+  const handleEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    const threshold = 100;
+
+    if (offset.x > threshold) {
+      setOffset({ x: 500, y: offset.y });
+      setTimeout(() => onSwipe('right'), 200);
+    } else if (offset.x < -threshold) {
+      setOffset({ x: -500, y: offset.y });
+      setTimeout(() => onSwipe('left'), 200);
+    } else {
+      setOffset({ x: 0, y: 0 });
+    }
+  };
+
+  // Events Mouse/Touch
+  const onMouseDown = (e) => handleStart(e.clientX, e.clientY);
+  const onMouseMove = (e) => handleMove(e.clientX, e.clientY);
+  const onMouseUp = () => handleEnd();
+  const onTouchStart = (e) => handleStart(e.touches[0].clientX, e.touches[0].clientY);
+  const onTouchMove = (e) => handleMove(e.touches[0].clientX, e.touches[0].clientY);
+  const onTouchEnd = () => handleEnd();
+
+  // Style de la pile
+  const scale = Math.max(1 - index * 0.03, 0.95); // subtle elegance
+  const translateY = index * 6;
+  const translateX = index * 12; // slight peek
+  const opacity = Math.max(1 - index * 0.2, 0);
+  const baseRotation = index === 0 ? 0 : index === 1 ? -6 : 6; // mimic stacked tilt
+  const rotation = isDragging ? offset.x * 0.05 : baseRotation;
+  const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
+  const cardColor = CARD_COLORS[index % CARD_COLORS.length];
+  const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
+  const remainingMs = getRemainingMs(spot, nowMs);
+  const preciseTime = formatDuration(remainingMs);
+  const appleShadow = active
+    ? isDark
+      ? '0 26px 90px -38px rgba(0,0,0,0.65), 0 16px 44px -26px rgba(0,0,0,0.45), 0 1px 0 0 rgba(255,255,255,0.06) inset'
+      : '0 28px 90px -38px rgba(15,23,42,0.45), 0 16px 40px -26px rgba(15,23,42,0.18), 0 2px 0 0 rgba(255,255,255,0.65) inset'
+    : isDark
+      ? '0 20px 60px -40px rgba(0,0,0,0.55), 0 10px 34px -30px rgba(0,0,0,0.35), 0 1px 0 0 rgba(255,255,255,0.04) inset'
+      : '0 20px 60px -40px rgba(15,23,42,0.20), 0 10px 34px -30px rgba(15,23,42,0.12), 0 1px 0 0 rgba(255,255,255,0.55) inset';
+  const textStrong = isDark ? 'text-slate-50' : 'text-slate-900';
+  const textMuted = isDark ? 'text-slate-300' : 'text-gray-500';
+  const pillBg = isDark
+    ? 'bg-slate-800/80 border border-white/10 text-slate-50'
+    : 'bg-white/90 border border-white text-slate-900';
+  const infoRowBg = isDark
+    ? 'bg-slate-800/70 border border-white/10 text-slate-100 shadow-sm shadow-black/20'
+    : 'bg-white/70 border border-white/60 text-slate-900 shadow-sm';
+  const cardBackground = isDark
+    ? `linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.86)), ${cardColor}`
+    : `linear-gradient(145deg, rgba(255,255,255,0.95), rgba(250,250,255,0.85)), ${cardColor}`;
+  const cardBorder = isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.75)';
+
+  if (!spot) return null;
+
+  return (
+    <div
+      ref={active ? activeCardRef : cardRef}
+      className={`absolute w-[84%] max-w-[330px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-5 backdrop-blur-xl ${cursorClass}`}
+      style={{
+        zIndex: 10 - index,
+        transform: `translate(${offset.x + translateX}px, ${offset.y + translateY}px) rotate(${rotation}deg) scale(${scale})`,
+        opacity,
+        transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease',
+        boxShadow: appleShadow,
+        background: cardBackground,
+        backdropFilter: 'blur(16px)',
+        border: cardBorder
+      }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Header strip */}
+      <div className={`flex items-center justify-between w-full mb-6 ${textStrong}`}>
+        <div className="flex items-center space-x-2">
+          <div className={`w-8 h-8 rounded-full shadow-sm flex items-center justify-center font-bold text-lg text-orange-500 ${pillBg}`}>
+            {carEmoji}
+          </div>
+          <span className={`text-sm font-semibold px-3 py-1 rounded-full ${pillBg}`}>
+            {spot.carModel || t('carLabel', 'Car')}
+          </span>
+        </div>
+        <div
+          className={`rounded-full px-4 py-1.5 shadow-sm font-bold text-lg ${
+            isDark ? 'bg-slate-800/80 border border-white/10 text-slate-50' : 'bg-white/90 border border-white text-slate-900'
+          }`}
+        >
+          {formatPrice(spot.price)}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex flex-col items-center justify-center h-full space-y-6">
+        <h2 className={`text-3xl font-black text-center px-4 leading-tight ${textStrong}`}>
+          {spot.hostName || 'Driver'}
+        </h2>
+        <div className={`space-y-3 font-semibold text-center leading-tight text-lg w-full ${textStrong}`}>
+          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
+            <div className="flex items-center space-x-2">
+              <span role="img" aria-label="car">🚗</span>
+              <span>{t('lengthLabel', 'Length')}</span>
+            </div>
+            <span>{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</span>
+          </div>
+          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
+            <div className="flex items-center space-x-2">
+              <span role="img" aria-label="pin">📍</span>
+              <span>{t('distanceLabel', 'Distance')}</span>
+            </div>
+            <span>{formatDistance(getDistanceMeters(spot))}</span>
+          </div>
+          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
+            <div className="flex items-center space-x-2">
+              <span role="img" aria-label="clock">⏰</span>
+              <span>{t('etaLabel', 'ETA')}</span>
+            </div>
+            <span>{preciseTime || t('etaFallback', '4:10')}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- VUE PRINCIPALE ---
+const SearchView = ({
+  spots = [],
+  onBookSpot,
+  onCancelBooking,
+  selectedSpot: controlledSelectedSpot,
+  setSelectedSpot: setControlledSelectedSpot,
+}) => {
+  const { t } = useTranslation('common');
+  const isDark =
+    (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
+    (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
+  const viewRef = useRef(null);
+  const visualAreaRef = useRef(null);
+  const cardStackRef = useRef(null);
+  const activeCardRef = useRef(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const actionRef = useRef(null);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [internalSelectedSpot, setInternalSelectedSpot] = useState(null);
+  const selectedSpot = controlledSelectedSpot ?? internalSelectedSpot;
+  const setSelectedSpot = setControlledSelectedSpot ?? setInternalSelectedSpot;
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [radius, setRadius] = useState(2);
+  const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+
+  const availableSpots = (spots || []).filter((spot) => getDistanceMeters(spot) <= radius * 1000);
+  const outOfCards = currentIndex >= availableSpots.length;
+  const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 2); // primary + a hint of next
+  const noSpots = availableSpots.length === 0;
+  const showEmpty = (noSpots || outOfCards) && !selectedSpot;
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [spots]);
+
+  // Tick every second to refresh countdowns
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [actionPos, setActionPos] = useState({ top: null, left: '50%' });
+
+  const trackActionPosition = () => {
+    const root = viewRef.current;
+    const cardEl = activeCardRef.current;
+    if (!root || !cardEl) return;
+    const rootRect = root.getBoundingClientRect();
+    const cardRect = cardEl.getBoundingClientRect();
+    const navRect = document.getElementById('bottom-nav')?.getBoundingClientRect();
+    const desiredLeft = cardRect.left + cardRect.width / 2 - rootRect.left;
+    let desiredTop = cardRect.bottom - 50 - rootRect.top;
+    if (navRect) {
+      const maxTop = navRect.top - rootRect.top - 100; // keep above nav but closer
+      desiredTop = Math.min(desiredTop, maxTop);
+    }
+    setActionPos({ top: desiredTop, left: desiredLeft });
+  };
+
+  useLayoutEffect(() => {
+    let raf = null;
+    const loop = () => {
+      trackActionPosition();
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+    const onResize = () => trackActionPosition();
+    window.addEventListener('resize', onResize);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    trackActionPosition();
+  }, [visibleSpots?.length, selectedSpot]);
+
+  const handleSwipe = (direction, spot) => {
+    if (!spot) return;
+
+    if (direction === 'right') {
+      onBookSpot?.(spot);
+      setSelectedSpot(spot);
+      setCurrentIndex((prev) => prev + 1);
+    } else {
+      setCurrentIndex((prev) => prev + 1);
+    }
+  };
+
+  const handleEnableNotifications = async () => {
+    if (notificationsEnabled) {
+      setNotificationsEnabled(false);
+      return;
+    }
+    if (!('Notification' in window)) {
+      alert(t('notificationsUnsupported', 'Notifications are not supported on this device.'));
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      setNotificationsEnabled(true);
+    } else {
+      alert(t('notificationsDenied', 'Notifications are disabled. Please allow them in your browser settings.'));
+    }
+  };
+
+  return (
+    <div
+      ref={viewRef}
+      className={`h-full w-full flex flex-col relative overflow-hidden font-sans app-surface ${
+        isDark ? 'bg-gradient-to-br from-slate-900 via-slate-950 to-black' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+      }`}
+      style={{ touchAction: 'pan-x' }}
+    >
+      {!selectedSpot && showRadiusPicker && (
+        <div
+          className="absolute inset-0 z-30"
+          onClick={() => setShowRadiusPicker(false)}
+        />
+      )}
+      {/* Header */}
+      {!selectedSpot && (
+        <>
+          <div className="px-6 pt-5 pb-2 flex justify-between items-center z-20">
+            <div>
+              <p className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
+                {t('liveNearby', 'Live nearby')}
+              </p>
+              <button
+                onClick={() => setShowRadiusPicker((s) => !s)}
+                className={`mt-1 text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
+                  isDark
+                    ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+                    : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
+                }`}
+              >
+                {t('radiusLabel', {
+                  city: 'Paris',
+                  value: radius.toFixed(1),
+                  defaultValue: 'Paris • {{value}} km radius',
+                })}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleEnableNotifications}
+              className={`p-2 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition border shadow-md ${
+                isDark ? 'bg-slate-800 border-white/10 shadow-black/40' : 'bg-white border-white/60'
+              }`}
+              aria-label={notificationsEnabled ? t('notificationsOn', 'Notifications on') : t('enableNotifications', 'Enable notifications')}
+            >
+              {notificationsEnabled ? (
+                <Bell size={18} className="text-orange-500" />
+              ) : (
+                <span className="relative inline-flex items-center justify-center">
+                  <Bell size={18} className="text-gray-400" />
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="4" y1="4" x2="20" y2="20" />
+                    </svg>
+                  </span>
+                </span>
+              )}
+            </button>
+          </div>
+
+          {showRadiusPicker && (
+            <div className="absolute top-16 left-6 right-6 z-30">
+              <div
+                className={`backdrop-blur-lg rounded-2xl shadow-2xl border p-4 ${
+                  isDark ? 'bg-slate-900/90 border-white/10 shadow-black/40' : 'bg-white/95 border-white/80'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+                    {t('searchRadius', 'Search radius')}
+                  </span>
+                  <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
+                    {t('radiusValue', {
+                      value: radius.toFixed(1),
+                      defaultValue: '{{value}} km',
+                    })}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.1"
+                  value={radius}
+                  onChange={(e) => setRadius(parseFloat(e.target.value))}
+                  className="w-full accent-orange-500"
+                />
+                <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
+                  <span>100 m</span>
+                  <span>500 m</span>
+                  <span>1 km</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Stack de Cartes + Actions */}
+      <div className="flex-1 flex flex-col relative z-10 overflow-hidden pb-[110px]">
+        <div
+          ref={visualAreaRef}
+          className="flex-1 flex flex-col items-center justify-center -mt-2"
+        >
+          {showEmpty ? (
+            <div className="text-center space-y-4 max-w-sm empty-state">
+              <div
+                className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center border shadow-xl ${
+                  isDark ? 'bg-slate-900 border-white/10 shadow-black/40' : 'bg-white border-white'
+                }`}
+              >
+                <MapPin size={42} className="text-orange-500" />
+              </div>
+              <div>
+                <h3 className={`text-2xl font-bold mb-1 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                  {t('noSpotsTitle', 'No spots in range')}
+                </h3>
+                <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} text-sm`}>
+                  {t('noSpotsSubtitle', 'Try expanding the radius or check back soon.')}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {visibleSpots.length > 0 && (
+                <>
+                  <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center">
+                    {visibleSpots
+                      .map((spot, i) => (
+                        <SwipeCard
+                          key={spot.id}
+                          spot={spot}
+                          index={i}
+                          active={i === 0}
+                          nowMs={nowMs}
+                          activeCardRef={activeCardRef}   // ✅ AJOUT ICI
+                          onSwipe={(dir) => handleSwipe(dir, spot)}
+                          isDark={isDark}
+                        />
+                      ))
+                      .reverse()}
+                  </div>
+
+                  <div className="mt-4 text-amber-300 text-sm font-medium">
+                    {t('swipeHint', 'Swipe right to book, left to pass')}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {selectedSpot && <Map spot={selectedSpot} onClose={() => setSelectedSpot(null)} onCancelBooking={onCancelBooking} />}
+
+        {!noSpots && visibleSpots.length > 0 && (
+          <div
+            ref={actionRef}
+            className="px-6 flex justify-between items-center z-20 w-[84%] max-w-[330px] mx-auto absolute pointer-events-auto"
+            style={
+              actionPos.top != null
+                ? { top: `${actionPos.top}px`, left: `${actionPos.left}px`, transform: 'translate(-50%, 0)' }
+                : { bottom: '130px', left: '50%', transform: 'translate(-50%, 0)' }
+            }
+          >
+            <button
+              onClick={() => handleSwipe('left', visibleSpots[0])}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition active:scale-95 hover:scale-105 border ${
+                isDark
+                  ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg shadow-black/50'
+                  : 'bg-white text-rose-500 border-white/60 shadow-lg shadow-slate-200'
+              }`}
+            >
+              <X size={32} strokeWidth={2.5} />
+            </button>
+
+            <button
+              onClick={() => handleSwipe('right', visibleSpots[0])}
+              className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition active:scale-95 font-bold text-base hover:scale-105 border ${
+                isDark
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-xl shadow-orange-900/60 border-white/10'
+                  : 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-xl shadow-orange-200 border-white/60'
+              }`}
+            >
+              {t('book', 'Book')}
+            </button>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+};
+
+export default SearchView;

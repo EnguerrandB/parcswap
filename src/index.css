@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  background: #f8fafc;
+}
+
+body {
+  margin: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Soft floating animation for active cards */
+@keyframes floatCard {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0px); }
+}
+
+.card-float {
+  animation: floatCard 9s ease-in-out infinite;
+}
+
+/* Gentle logo pulse */
+@keyframes logoPulse {
+  0% { transform: translateY(0) scale(1); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+  50% { transform: translateY(-4px) scale(1.02); box-shadow: 0 10px 26px rgba(0,0,0,0.16); }
+  100% { transform: translateY(0) scale(1); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+}
+
+.logo-pulse {
+  animation: logoPulse 4.5s ease-in-out infinite;
+  will-change: transform, box-shadow;
+}
+
+/* Subtle glossy sheen for cards */
+@keyframes cardSheen {
+  0% { background-position: -150% 0; }
+  100% { background-position: 150% 0; }
+}
+
+.card-sheen {
+  background: linear-gradient(120deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.08) 40%, rgba(255,255,255,0.0) 60%);
+  background-size: 200% 200%;
+  animation: cardSheen 6s ease-in-out infinite;
+}
+
+/* Slide animations for tab transitions */
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Book-like page turn */
+@keyframes pageTurnLeft {
+  0% { opacity: 0; transform: perspective(1200px) rotateY(-22deg) translateX(30px) scale(0.98); transform-origin: left center; }
+  60% { opacity: 1; transform: perspective(1200px) rotateY(-10deg) translateX(10px) scale(1.01); }
+  100% { opacity: 1; transform: perspective(1200px) rotateY(0deg) translateX(0) scale(1); }
+}
+@keyframes pageTurnRight {
+  0% { opacity: 0; transform: perspective(1200px) rotateY(22deg) translateX(-30px) scale(0.98); transform-origin: right center; }
+  60% { opacity: 1; transform: perspective(1200px) rotateY(10deg) translateX(-10px) scale(1.01); }
+  100% { opacity: 1; transform: perspective(1200px) rotateY(0deg) translateX(0) scale(1); }
+}
+
+@keyframes crownBounce {
+  0%, 100% { transform: translate(-50%, 0) scale(1); }
+  50% { transform: translate(-50%, -4px) scale(1.05); }
+}
+.crown-bounce {
+  animation: crownBounce 1.2s ease-in-out infinite;
+}
+.slide-in-left {
+  animation: slideInLeft 0.25s ease both;
+}
+.slide-in-right {
+  animation: slideInRight 0.25s ease both;
+}
+.page-turn-left {
+  animation: pageTurnLeft 0.45s cubic-bezier(0.25, 0.8, 0.4, 1) both;
+  backface-visibility: hidden;
+  transform-origin: left center;
+}
+.page-turn-right {
+  animation: pageTurnRight 0.45s cubic-bezier(0.25, 0.8, 0.4, 1) both;
+  backface-visibility: hidden;
+  transform-origin: right center;
+}
+
+@keyframes pulseFade {
+  0% { box-shadow: 0 0 0 0 rgba(249,115,22,0.35); }
+  70% { box-shadow: 0 0 0 12px rgba(249,115,22,0); }
+  100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes invitePop {
+  0% { transform: translateY(10px) scale(0.96); opacity: 0; }
+  60% { transform: translateY(-6px) scale(1.02); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.invite-pop {
+  animation: invitePop 0.35s ease-out both;
+}
+
+/* Simple light/dark theme surfaces */
+body[data-theme="dark"] {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+body[data-theme="dark"] .bg-white { background-color: #0f172a !important; color: #e5e7eb; }
+body[data-theme="dark"] .bg-white\/70 { background-color: rgba(15, 23, 42, 0.7) !important; color: #e5e7eb; }
+body[data-theme="dark"] .bg-white\/80 { background-color: rgba(15, 23, 42, 0.8) !important; color: #e5e7eb; }
+body[data-theme="dark"] .bg-white\/90 { background-color: rgba(15, 23, 42, 0.9) !important; color: #e5e7eb; }
+body[data-theme="dark"] .bg-gray-50 { background-color: #0b1220 !important; }
+body[data-theme="dark"] .bg-gray-100 { background-color: #0f172a !important; }
+body[data-theme="dark"] .bg-orange-50 { background-color: #132036 !important; }
+body[data-theme="dark"] .text-gray-900 { color: #f8fafc !important; }
+body[data-theme="dark"] .text-gray-800 { color: #e2e8f0 !important; }
+body[data-theme="dark"] .text-gray-700 { color: #cbd5e1 !important; }
+body[data-theme="dark"] .text-gray-600 { color: #cbd5e1 !important; }
+body[data-theme="dark"] .text-gray-500 { color: #94a3b8 !important; }
+body[data-theme="dark"] .text-gray-400 { color: #94a3b8 !important; }
+body[data-theme="dark"] .border-gray-200 { border-color: #1f2937 !important; }
+body[data-theme="dark"] .border-gray-100 { border-color: #1f2937 !important; }
+body[data-theme="dark"] .border-white\/60 { border-color: rgba(255, 255, 255, 0.08) !important; }
+body[data-theme="dark"] .border-white\/80 { border-color: rgba(255, 255, 255, 0.12) !important; }
+body[data-theme="dark"] .app-surface {
+  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), transparent 25%),
+              radial-gradient(circle at 80% 0%, rgba(249, 115, 22, 0.12), transparent 35%),
+              #0b1220;
+  color: #e5e7eb;
+}
+body[data-theme="dark"] .propose-publish-bar {
+  background: linear-gradient(to top, rgba(11, 18, 32, 0.96), rgba(11, 18, 32, 0.85), rgba(11, 18, 32, 0.7));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+body[data-theme="dark"] .empty-state h3 {
+  color: #f8fafc !important;
+}
+body[data-theme="dark"] .empty-state p {
+  color: #cbd5e1 !important;
+}
+body[data-theme="dark"] input,
+body[data-theme="dark"] textarea,
+body[data-theme="dark"] select {
+  background-color: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: #1f2937 !important;
+}
+body[data-theme="dark"] input::placeholder,
+body[data-theme="dark"] textarea::placeholder {
+  color: #94a3b8 !important;
+}

@@ -89,7 +89,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     if (myActiveSpot.status === 'booked') {
       return (
-        <div className="h-full min-h-screen overflow-hidden p-6 flex flex-col bg-gradient-to-b from-orange-50 to-white justify-center">
+       className="h-screen overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
           <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
             <div className="flex items-center space-x-3 mb-6">
               <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -277,7 +277,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   // Search accepted waiting overlay
   return (
     <div
-      className="h-full min-h-screen overflow-hidden w-full bg-gradient-to-b from-orange-50 via-white to-amber-50 flex flex-col items-center justify-center px-6 py-10 text-center app-surface"
+      className="h-screen overflow-hidden flex flex-col p-6 from-orange-50 via-white to-amber-50 flex flex-col items-center justify-center px-6 py-10 text-center app-surface"
       style={{
         minHeight: 'calc(100vh - 96px - env(safe-area-inset-bottom))',
         paddingBottom: 'calc(96px + env(safe-area-inset-bottom))',

@@ -291,7 +291,7 @@ const ProfileView = ({
                 setIsEditingProfile(true);
                 setInfoMsg('');
               }}
-              className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
+              className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
             >
               {t('editProfile', 'Edit')}
             </button>
@@ -434,19 +434,19 @@ const ProfileView = ({
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-        <div className="flex items-center space-x-3 mb-3">
-          <div className="bg-white p-2 rounded-lg border border-gray-100">
-            <Car size={20} style={iconStyle('vehicle')} />
-          </div>
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center space-x-3">
+            <div className="bg-white p-2 rounded-lg border border-gray-100">
+              <Car size={20} style={iconStyle('vehicle')} />
+            </div>
             <span className="font-semibold">{t('myVehicles')}</span>
-            <button
-              onClick={() => setShowModal(true)}
-              className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
-            >
-              {t('manageVehicles')}
-            </button>
           </div>
+          <button
+            onClick={() => setShowModal(true)}
+            className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
+          >
+            {t('manageVehicles')}
+          </button>
         </div>
 
         <div className="space-y-3">

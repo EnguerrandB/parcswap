@@ -914,42 +914,52 @@ const ProfileView = ({
               {transactions.length === 0 && (
                 <p className="text-sm text-gray-400">{t('noTransactions', 'No transactions yet.')}</p>
               )}
-              {transactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="border border-gray-100 rounded-xl px-3 py-2 flex items-center justify-between"
-                >
-                  <div className="pr-2">
-                    <p className="font-semibold text-gray-900">{tx.title || t('transactionHistory', 'Transaction')}</p>
-                    <p className="text-xs text-gray-500">
-                      {tx.createdAt?.toDate
-                        ? tx.createdAt.toDate().toLocaleString()
-                        : tx.createdAt?.toString?.() || ''}
-                    </p>
+              {transactions.map((tx) => {
+                const replaceUserName = (value) => {
+                  if (!value) return value;
+                  const name = user?.displayName;
+                  if (!name) return value;
+                  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  return value.replace(new RegExp(escaped, 'gi'), 'Me');
+                };
+                const title = replaceUserName(tx.title || t('transactionHistory', 'Transaction'));
+                return (
+                  <div
+                    key={tx.id}
+                    className="border border-gray-100 rounded-xl px-3 py-2 flex items-center justify-between"
+                  >
+                    <div className="pr-2">
+                      <p className="font-semibold text-gray-900">{title}</p>
+                      <p className="text-xs text-gray-500">
+                        {tx.createdAt?.toDate
+                          ? tx.createdAt.toDate().toLocaleString()
+                          : tx.createdAt?.toString?.() || ''}
+                      </p>
+                    </div>
+                    <div className="text-right flex flex-col items-end space-y-1">
+                      <p className="text-sm font-bold text-gray-900">
+                        {tx.amount != null ? `${tx.amount} €` : ''}
+                      </p>
+                      <p className="text-xs text-gray-500 capitalize">{tx.status || t('completed', 'completed')}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const body = `${title} - ${tx.amount != null ? `${tx.amount} €` : ''} - ${tx.status || ''}`;
+                          if (navigator.share) {
+                            navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
+                          } else if (navigator.clipboard?.writeText) {
+                            navigator.clipboard.writeText(body).catch(() => {});
+                            alert(t('copiedTx', 'Transaction copied to clipboard'));
+                          }
+                        }}
+                        className="text-[11px] text-orange-600 underline"
+                      >
+                        {t('share', 'Share')}
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-right flex flex-col items-end space-y-1">
-                    <p className="text-sm font-bold text-gray-900">
-                      {tx.amount != null ? `${tx.amount} €` : ''}
-                    </p>
-                    <p className="text-xs text-gray-500 capitalize">{tx.status || t('completed', 'completed')}</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const body = `${tx.title || 'Transaction'} - ${tx.amount != null ? `${tx.amount} €` : ''} - ${tx.status || ''}`;
-                        if (navigator.share) {
-                          navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
-                        } else if (navigator.clipboard?.writeText) {
-                          navigator.clipboard.writeText(body).catch(() => {});
-                          alert(t('copiedTx', 'Transaction copied to clipboard'));
-                        }
-                      }}
-                      className="text-[11px] text-orange-600 underline"
-                    >
-                      {t('share', 'Share')}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

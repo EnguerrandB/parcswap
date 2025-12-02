@@ -1,5 +1,5 @@
 // src/views/WaitingView.jsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
 import { formatPrice } from '../constants';
@@ -19,6 +19,16 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     animation: 'waiting-car-slide 9s ease-in-out infinite',
     animationFillMode: 'forwards',
   };
+
+  // Prevent background scrolling while waiting overlay is shown
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   // Ensure keyframes exist globally so the animation always plays
   React.useEffect(() => {

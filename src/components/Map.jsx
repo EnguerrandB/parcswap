@@ -331,6 +331,35 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
     };
   }, [navReady, navGeometry, navSteps.length, mapboxToken]);
 
+  // Keep centering the map on the user's live location and log it every 5s
+  useEffect(() => {
+    if (!navReady || !mapLoaded || !mapRef.current || !navigator?.geolocation) return undefined;
+    const map = mapRef.current;
+    let cancelled = false;
+    const logAndCenter = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (cancelled) return;
+          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          console.log('[MapNav] user location', coords);
+          map.easeTo({
+            center: [coords.lng, coords.lat],
+            duration: 500,
+            essential: true,
+          });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 },
+      );
+    };
+    logAndCenter();
+    const id = setInterval(logAndCenter, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [navReady, mapLoaded]);
+
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center">
       <div className="relative w-full h-full bg-black">

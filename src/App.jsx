@@ -67,6 +67,7 @@ export default function ParkSwapApp() {
   const [authNotice, setAuthNotice] = useState('');
   const [showInvite, setShowInvite] = useState(false);
   const [inviteMessage, setInviteMessage] = useState('');
+  const lastKnownLocationRef = useRef(null);
 
   // Try to lock orientation to portrait (best-effort; may fail on some browsers)
   useEffect(() => {
@@ -132,20 +133,35 @@ const logCurrentLocation = async (contextLabel = 'location') => {
     console.log(`[${contextLabel}] Geolocation API not available`);
     return null;
   }
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        console.log(`[${contextLabel}] lat=${coords.lat}, lng=${coords.lng}`);
-        resolve(coords);
-      },
-      (err) => {
-        console.log(`[${contextLabel}] Geolocation failed: ${err?.message || err}`);
-        resolve(null);
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
-    );
-  });
+  const fallbackLocation = { lat: 48.8738, lng: 2.295 };
+  const attempt = (opts) =>
+    new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          console.log(`[${contextLabel}] lat=${coords.lat}, lng=${coords.lng}`);
+          lastKnownLocationRef.current = coords;
+          resolve(coords);
+        },
+        (err) => {
+          console.log(`[${contextLabel}] Geolocation failed: ${err?.message || err}`);
+          resolve(null);
+        },
+        opts,
+      );
+    });
+
+  // Try high accuracy first, then fallback to a more lenient request to avoid timeouts
+  const first = await attempt({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 });
+  if (first) return first;
+  const second = await attempt({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 20_000 });
+  if (second) return second;
+  if (lastKnownLocationRef.current) {
+    console.log(`[${contextLabel}] Using last known location`);
+    return lastKnownLocationRef.current;
+  }
+  console.log(`[${contextLabel}] Falling back to default location (Arc de Triomphe)`);
+  return fallbackLocation;
 };
   const [spots, setSpots] = useState([]);
   const [myActiveSpot, setMyActiveSpot] = useState(null);

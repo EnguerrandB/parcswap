@@ -40,7 +40,6 @@ const decodePolyline = (str, precision = 6) => {
   return coordinates;
 };
 
-// Calculate bearing between two points
 const computeBearing = (from, to) => {
   if (!from || !to) return 0;
   const [lng1, lat1] = from;
@@ -52,6 +51,18 @@ const computeBearing = (from, to) => {
   const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
   const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+};
+
+const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; 
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 };
 
 // --- Icons ---
@@ -102,7 +113,7 @@ const CAR_SVG = `
 class MapErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null, info: null };
+    this.state = { error: null };
   }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { console.error('Map error', error, info); }
@@ -131,6 +142,9 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
   const markerRef = useRef(null);
   const destMarkerRef = useRef(null);
   const watchIdRef = useRef(null);
+  
+  // Ref to prevent double fetching
+  const routeFetchedRef = useRef(false);
 
   const isValidCoord = (lng, lat) => (
     typeof lng === 'number' && typeof lat === 'number' &&
@@ -144,6 +158,7 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
     return [2.295, 48.8738];
   };
 
+  // Initial Location
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -166,6 +181,7 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
     setNavSteps([]);
     setNavIndex(0);
     setMapLoaded(false);
+    routeFetchedRef.current = false; // Reset fetch lock
     if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -184,16 +200,7 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
   const calculateDistanceKm = (origin, dest) => {
     if (!origin || !dest) return null;
     if (!isValidCoord(origin.lng, origin.lat) || !isValidCoord(dest.lng, dest.lat)) return null;
-    const toRad = (deg) => (deg * Math.PI) / 180;
-    const R = 6371; 
-    const dLat = toRad(dest.lat - origin.lat);
-    const dLon = toRad(dest.lng - origin.lng);
-    const lat1 = toRad(origin.lat);
-    const lat2 = toRad(dest.lat);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return getDistanceFromLatLonInKm(origin.lat, origin.lng, dest.lat, dest.lng);
   };
 
   const distanceKm = useMemo(() => calculateDistanceKm(userLoc, spot), [userLoc, spot]);
@@ -233,10 +240,13 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
 
   // --- Fetch Directions ---
   useEffect(() => {
-    if (!navReady || !shouldUseMapboxNav || !userLoc) return undefined;
+    // FIX 1: Prevent duplicate requests by checking ref and removing userLoc dependency
+    if (!navReady || !shouldUseMapboxNav || !userLoc || routeFetchedRef.current) return undefined;
+    
     const controller = new AbortController();
     
     const fetchDirections = async () => {
+      routeFetchedRef.current = true;
       try {
         const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLoc.lng},${userLoc.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&access_token=${mapboxToken}`;
         const res = await fetch(url, { signal: controller.signal });
@@ -247,6 +257,7 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
         if (!route || !polyline) throw new Error('No route');
         
         let geometry = decodePolyline(polyline, 6);
+        // Prepend user location to ensure connection, but don't rely on it for bearing
         if (userLoc) geometry = [[userLoc.lng, userLoc.lat], ...geometry];
         geometry.push([spot.lng, spot.lat]);
 
@@ -257,12 +268,13 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
         if (!controller.signal.aborted) {
              setNavError(err.message);
              setNavGeometry([]);
+             routeFetchedRef.current = false;
         }
       }
     };
     fetchDirections();
     return () => controller.abort();
-  }, [navReady, shouldUseMapboxNav, userLoc, spot, mapboxToken]);
+  }, [navReady, shouldUseMapboxNav, spot, mapboxToken]);
 
   // --- Map Init ---
   useEffect(() => {
@@ -314,11 +326,11 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
 
        if (!markerRef.current) {
          const el = document.createElement('div');
-         el.className = 'car-marker-container';
+         // FIX 2: Smooth CSS transition for the car icon
+         el.className = 'car-marker-container transition-transform duration-1000 linear'; 
          el.innerHTML = CAR_SVG;
          el.style.transformOrigin = 'center';
          
-         // Start car at user location
          markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
              .setRotation(0)
@@ -327,21 +339,22 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
 
        // --- START TRACKING ---
        if (navigator.geolocation) {
-           const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
-           let prevCoords = userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0];
+           const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
            
-           // Initial Bearing: Face towards the first route segment if stationary
-           const initialBearing = computeBearing(prevCoords, navGeometry[1] || navGeometry[0]);
+           // FIX 3: Initialize prevCoords as null to prevent jumping/bad bearing calculation on start
+           let prevCoords = null; 
 
-           // *** KEY CHANGE 1: Initial FlyTo with Padding ***
-           // We push the map "down" by 300px (top padding) so the center is visually lower
+           // Initial FlyTo - Align with the first route segment
+           const startPoint = userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0];
+           const initialBearing = computeBearing(startPoint, navGeometry[1] || navGeometry[navGeometry.length-1]);
+           
            map.flyTo({ 
-               center: prevCoords, 
-               zoom: 17.5, 
-               pitch: 60, 
+               center: startPoint, 
+               zoom: 15, // FIX 4: Lower zoom level (15) reduces perceived speed/jitter
+               pitch: 45, // FIX 5: Lower pitch (45) improves visibility of road ahead
                bearing: initialBearing, 
-               padding: { top: 300, bottom: 20 }, // Pushes car to bottom
-               duration: 1500 
+               padding: { top: 120, bottom: 20 }, // FIX 6: Moderate padding to keep car centered but lower
+               duration: 2000 
             });
 
            watchIdRef.current = navigator.geolocation.watchPosition(
@@ -349,27 +362,37 @@ const MapInner = ({ spot, onClose, onCancelBooking }) => {
                    const { latitude, longitude, heading } = pos.coords;
                    const newCoords = [longitude, latitude];
                    
-                   // Determine Bearing: Device Heading > GPS Calc > Previous
-                   let bearingToUse = heading;
-                   if (!bearingToUse || isNaN(bearingToUse)) {
-                        const calculated = computeBearing(prevCoords, newCoords);
-                        // Only update bearing if we moved significantly to avoid jitter
-                        if (Math.abs(calculated - (map.getBearing() || 0)) > 5) {
-                            bearingToUse = calculated;
+                   // If this is the first point, just set it and wait for next one to calculate bearing
+                   if (!prevCoords) {
+                       prevCoords = newCoords;
+                       markerRef.current?.setLngLat(newCoords);
+                       return;
+                   }
+
+                   // Calculate distance moved
+                   const distMoved = getDistanceFromLatLonInKm(prevCoords[1], prevCoords[0], latitude, longitude);
+                   
+                   let bearingToUse = map.getBearing();
+
+                   // FIX 7: Bearing Logic - Only update if moved > 2 meters.
+                   // Prioritize GPS Heading if valid, otherwise compute from movement.
+                   if (distMoved > 0.002) { 
+                        if (heading && !isNaN(heading) && heading !== 0) {
+                            bearingToUse = heading;
                         } else {
-                            bearingToUse = map.getBearing();
+                            bearingToUse = computeBearing(prevCoords, newCoords);
                         }
                    }
 
-                   // *** KEY CHANGE 2: Continuous Camera Update with Padding ***
+                   // FIX 8: Consistent easeTo with linear easing for smooth "Course Up" tracking
                    map.easeTo({
                        center: newCoords,
-                       zoom: 17.5,
-                       pitch: 60,
+                       zoom: 15,
+                       pitch: 45,
                        bearing: bearingToUse,
-                       padding: { top: 300, bottom: 20 }, // Keeps car at bottom
-                       duration: 1000,
-                       easing: t => t // Linear easing for smooth tracking
+                       padding: { top: 120, bottom: 20 },
+                       duration: 1000, // Match typical GPS update freq (1Hz)
+                       easing: t => t
                    });
 
                    if (markerRef.current) {

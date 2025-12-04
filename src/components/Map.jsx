@@ -435,7 +435,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">
-      <div className="relative w-full h-full bg-gray-900 overflow-hidden">
+      <div
+        className="relative w-full h-full bg-gray-900 overflow-hidden"
+        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         
         {/* The Map */}
         <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
@@ -446,31 +449,36 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
 
         {/* --- STEP 1: PREVIEW --- */}
         {!showSteps && (
-           <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3 pointer-events-none z-10">
-              <div className="bg-white/90 rounded-xl shadow px-3 py-2 text-sm text-gray-800 pointer-events-auto">
-                <p className="font-semibold">{spot?.address || t('unknown', 'Unknown')}</p>
-                <p className="text-xs text-gray-600">
-                  {distanceKm != null ? `${distanceKm.toFixed(1)} km • ${etaMinutes != null ? `${etaMinutes} min` : ''}` : t('distancePending', 'Fetching...')}
-                </p>
+          <div className="absolute inset-0 flex flex-col justify-end pb-[calc(env(safe-area-inset-bottom)+20px)] px-6 z-20 pointer-events-none">
+            <div className="bg-white/90 rounded-2xl shadow-lg border border-gray-200 px-4 py-3 mb-4 pointer-events-auto">
+              <p className="font-semibold text-gray-900">{spot?.address || t('unknown', 'Unknown')}</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {distanceKm != null ? `${distanceKm.toFixed(1)} km • ${etaMinutes != null ? `${etaMinutes} min` : ''}` : t('distancePending', 'Fetching...')}
+              </p>
+            </div>
+            {!showRoute && (
+              <div className="pointer-events-auto space-y-3">
+                <button
+                  onClick={() => {
+                    setShowRoute(true);
+                    setShowSteps(true);
+                  }}
+                  className="w-full bg-orange-600 text-white py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-orange-300/50 active:scale-98 transition"
+                >
+                  {t('acceptRoute', 'Accept')}
+                </button>
+                <button
+                  onClick={() => {
+                    if (onCancelBooking && spot) onCancelBooking(spot.id);
+                    onClose?.();
+                  }}
+                  className="w-full bg-white text-gray-900 py-4 rounded-2xl text-lg font-semibold border border-gray-200 shadow active:scale-98 transition"
+                >
+                  {t('decline', 'Decline')}
+                </button>
               </div>
-              
-              {!showRoute && (
-                <div className="flex items-center gap-2 pointer-events-auto">
-                    <button
-                      onClick={() => { if (onCancelBooking && spot) onCancelBooking(spot.id); onClose?.(); }}
-                      className="bg-white/90 text-gray-900 px-3 py-2 rounded-lg shadow font-medium"
-                    >
-                      {t('decline', 'Decline')}
-                    </button>
-                    <button
-                      onClick={() => setShowRoute(true)}
-                      className="bg-orange-600 text-white px-3 py-2 rounded-lg shadow font-semibold hover:bg-orange-700"
-                    >
-                      {t('acceptRoute', 'Accept')}
-                    </button>
-                </div>
-              )}
-           </div>
+            )}
+          </div>
         )}
 
        // ... inside MapInner return (...)
@@ -479,9 +487,9 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
 {showRoute && showSteps && (
   <>
     {/* Top: Instructions */}
-    <div className="absolute top-4 left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]">
-      <div className="bg-[#1c1c1e] text-white rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-gray-800">
-        <div className="flex p-4 items-center gap-4">
+            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]" style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}>
+              <div className="bg-[#1c1c1e] text-white rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-gray-800">
+                <div className="flex p-4 items-center gap-4">
           <div className="shrink-0 bg-gray-700/50 p-2 rounded-lg">
             {getManeuverIcon(stepsToShow[navIndex])}
           </div>
@@ -503,8 +511,8 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     </div>
 
     {/* Bottom: Summary */}
-    <div className="absolute bottom-6 left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]">
-      <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
+            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+              <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
          <div>
             <div className="flex items-baseline gap-3">
                  <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
@@ -574,7 +582,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
 
         {/* Recenter control */}
         {mapLoaded && mapMoved && (
-          <div className="absolute bottom-[156px] right-6 z-30 pointer-events-auto">
+          <div
+            className="absolute right-6 z-30 pointer-events-auto"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 140px)' }}
+          >
             <button
               type="button"
               aria-label="Recenter on me"

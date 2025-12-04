@@ -171,6 +171,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
   const [leaderboard, setLeaderboard] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
+  const [hideNav, setHideNav] = useState(false);
   const getInitialTheme = () => {
     if (typeof window === 'undefined') return 'light';
     const stored = window.localStorage?.getItem('theme');
@@ -771,6 +772,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
           onCancelBooking={handleCancelBooking}
           selectedSpot={selectedSearchSpot}
           setSelectedSpot={setSelectedSearchSpot}
+          onNavStateChange={setHideNav}
         />
       );
     }
@@ -886,7 +888,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
         setDragging(false);
       }}
     >
-      <div className="fixed top-4 inset-x-0 z-[90] flex justify-center pointer-events-none">
+      <div className={`fixed top-4 inset-x-0 z-[90] flex justify-center pointer-events-none transition-opacity duration-300 ${hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <button
           type="button"
           onClick={() => setShowInvite(true)}
@@ -1005,7 +1007,9 @@ const logCurrentLocation = async (contextLabel = 'location') => {
             );
           })()}
         </div>
-        <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
+        <div className={`transition-opacity duration-300 ${hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+          <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
+        </div>
       </div>
     </div>
   );

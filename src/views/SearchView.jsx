@@ -214,6 +214,7 @@ const SearchView = ({
   onCancelBooking,
   selectedSpot: controlledSelectedSpot,
   setSelectedSpot: setControlledSelectedSpot,
+  onNavStateChange,
 }) => {
   const { t } = useTranslation('common');
   const isDark =
@@ -238,6 +239,7 @@ const SearchView = ({
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 2); // primary + a hint of next
   const noSpots = availableSpots.length === 0;
   const showEmpty = (noSpots || outOfCards) && !selectedSpot;
+  const isMapOpen = !!selectedSpot;
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -257,7 +259,7 @@ const SearchView = ({
     if (!root || !cardEl) return;
     const rootRect = root.getBoundingClientRect();
     const cardRect = cardEl.getBoundingClientRect();
-    const navRect = document.getElementById('bottom-nav')?.getBoundingClientRect();
+    const navRect = isMapOpen ? null : document.getElementById('bottom-nav')?.getBoundingClientRect();
     const desiredLeft = cardRect.left + cardRect.width / 2 - rootRect.left;
     let desiredTop = cardRect.bottom - 50 - rootRect.top;
     if (navRect) {
@@ -467,9 +469,16 @@ const SearchView = ({
           )}
         </div>
 
-        {selectedSpot && <Map spot={selectedSpot} onClose={() => setSelectedSpot(null)} onCancelBooking={onCancelBooking} />}
+        {selectedSpot && (
+          <Map
+            spot={selectedSpot}
+            onClose={() => setSelectedSpot(null)}
+            onCancelBooking={onCancelBooking}
+            onNavStateChange={onNavStateChange}
+          />
+        )}
 
-        {!noSpots && visibleSpots.length > 0 && (
+        {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
           <div
             ref={actionRef}
             className="px-6 flex justify-between items-center z-20 w-[84%] max-w-[330px] mx-auto absolute pointer-events-auto"

@@ -52,25 +52,38 @@ const computeBearing = (from, to) => {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };
 
-const buildMapUrl = (spot, userLoc, mapsKey, showRoute) => {
-  const destination = spot?.lat != null && spot?.lng != null ? `${spot.lat},${spot.lng}` : (spot?.address || 'Paris');
-  const origin = userLoc?.lat != null && userLoc?.lng != null ? `${userLoc.lat},${userLoc.lng}` : null;
-  const destQuery = encodeURIComponent(destination);
-  const originQuery = origin ? encodeURIComponent(origin) : null;
-  if (!destQuery) return 'about:blank';
-  // If an embed API key is provided and the route was accepted, request a directions embed (origin -> destination).
-  if (mapsKey && originQuery && showRoute) {
-    return `https://www.google.com/maps/embed/v1/directions?key=${mapsKey}&origin=${originQuery}&destination=${destQuery}&mode=driving&zoom=15`;
+class MapErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
   }
-  // Fallback: use a directions URL embed (often still draws a route) after acceptance.
-  if (originQuery && showRoute) {
-    return `https://www.google.com/maps/dir/?api=1&origin=${originQuery}&destination=${destQuery}&travelmode=driving&output=embed&zoom=15`;
-  }
-  // Preview: only show destination location.
-  return `https://www.google.com/maps?q=${destQuery}&output=embed&zoom=15`;
-};
 
-const Map = ({ spot, onClose, onCancelBooking }) => {
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Map boundary caught', error, info);
+    this.setState({ error, info });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="fixed inset-0 z-[90] bg-black/70 text-white flex items-center justify-center px-6 text-center">
+          <div className="bg-white text-red-700 rounded-2xl shadow-xl px-5 py-4 max-w-md w-full">
+            <p className="font-bold mb-1">Map failed to load</p>
+            <p className="text-sm mb-2">{this.state.error?.message || String(this.state.error)}</p>
+            <p className="text-xs text-gray-600">Check console for details; try closing and reopening the map.</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const MapInner = ({ spot, onClose, onCancelBooking }) => {
   const { t } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -82,19 +95,51 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
   const [navError, setNavError] = useState('');
   const [navIndex, setNavIndex] = useState(0);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY;
+  const [fatalError, setFatalError] = useState(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markerRef = useRef(null);
+  const destMarkerRef = useRef(null);
+
+  // --- 1. Robust Coordinate Validator ---
+  const isValidCoord = (lng, lat) => {
+    return (
+      typeof lng === 'number' &&
+      typeof lat === 'number' &&
+      !isNaN(lng) &&
+      !isNaN(lat) &&
+      Math.abs(lng) <= 180 &&
+      Math.abs(lat) <= 90
+    );
+  };
+
+  // --- 2. Safe Center Calculation ---
+  const getSafeCenter = () => {
+    // 1. Try User Location
+    if (userLoc && isValidCoord(userLoc.lng, userLoc.lat)) {
+      return [userLoc.lng, userLoc.lat];
+    }
+    // 2. Try Spot Location
+    if (spot && isValidCoord(spot.lng, spot.lat)) {
+      return [spot.lng, spot.lat];
+    }
+    // 3. Fallback (Paris) to prevent black screen
+    console.warn('Map: Defaulting to fallback center (Paris)');
+    return [2.295, 48.8738];
+  };
 
   useEffect(() => {
     if (!navigator?.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        // Only update if coordinates are valid numbers
+        if (isValidCoord(pos.coords.longitude, pos.coords.latitude)) {
+           setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        }
       },
-      () => {
+      (err) => {
+        console.warn('Geolocation failed', err);
         setUserLoc(null);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
@@ -123,9 +168,11 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
   }, [showRoute, spot?.id]);
 
   const calculateDistanceKm = (origin, dest) => {
-    if (!origin || dest?.lat == null || dest?.lng == null) return null;
+    if (!origin || !dest) return null;
+    if (!isValidCoord(origin.lng, origin.lat) || !isValidCoord(dest.lng, dest.lat)) return null;
+
     const toRad = (deg) => (deg * Math.PI) / 180;
-    const R = 6371; // km
+    const R = 6371; 
     const dLat = toRad(dest.lat - origin.lat);
     const dLon = toRad(dest.lng - origin.lng);
     const lat1 = toRad(origin.lat);
@@ -140,20 +187,16 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
   const distanceKm = useMemo(() => calculateDistanceKm(userLoc, spot), [userLoc, spot]);
   const etaMinutes = useMemo(() => {
     if (distanceKm == null) return null;
-    const avgSpeedKmh = 30; // conservative city driving
+    const avgSpeedKmh = 30; 
     return Math.round((distanceKm / avgSpeedKmh) * 60);
   }, [distanceKm]);
-
-  const embedUrl = useMemo(
-    () => buildMapUrl(spot, userLoc, mapsKey, showRoute),
-    [spot, userLoc, mapsKey, showRoute],
-  );
 
   const providedSteps = Array.isArray(spot?.turnByTurn)
     ? spot.turnByTurn
     : Array.isArray(spot?.routeSteps)
       ? spot.routeSteps
       : null;
+      
   const fallbackSteps = useMemo(() => {
     if (!spot?.address) return [];
     const estDistance = distanceKm != null ? `${distanceKm.toFixed(1)} km` : t('distancePending', 'Nearby');
@@ -164,21 +207,22 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
       `${t('stepArrive', 'Arrive at destination')} • ${estEta}`,
     ];
   }, [spot?.address, distanceKm, etaMinutes, t]);
+  
   const stepsToShow =
     navReady && navSteps.length > 0
       ? navSteps
       : providedSteps && providedSteps.length > 0
         ? providedSteps
         : fallbackSteps;
+        
   const navBlockReason = useMemo(() => {
     if (!mapboxToken) return t('navMissingToken', 'Map navigation requires a Mapbox token.');
     if (!userLoc) return t('navNeedsLocation', 'Allow location to start live navigation.');
     return '';
   }, [mapboxToken, userLoc, t]);
 
-  const shouldUseMapboxNav = !!mapboxToken && !!userLoc && spot?.lat != null && spot?.lng != null;
+  const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
 
-  // Delay before switching to Mapbox navigation view
   useEffect(() => {
     if (!showRoute || !shouldUseMapboxNav) {
       setNavReady(false);
@@ -188,12 +232,16 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
     return () => clearTimeout(timer);
   }, [showRoute, shouldUseMapboxNav]);
 
-  // Fetch Mapbox directions when ready
   useEffect(() => {
-    if (!navReady || !shouldUseMapboxNav) return undefined;
+    if (!navReady || !shouldUseMapboxNav || !userLoc) return undefined;
     const controller = new AbortController();
+    
     const fetchDirections = async () => {
       try {
+        if (!isValidCoord(userLoc.lng, userLoc.lat) || !isValidCoord(spot.lng, spot.lat)) {
+             throw new Error('Invalid coordinates for navigation');
+        }
+
         const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLoc.lng},${userLoc.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&access_token=${mapboxToken}`;
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) throw new Error('Directions request failed');
@@ -203,7 +251,10 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
         const polyline = route?.geometry;
         if (!route || !polyline) throw new Error('No route geometry');
         const decoded = decodePolyline(polyline, 6);
-        // Ensure the geometry starts at the user's origin (some providers may return reversed coords)
+        if (!decoded || decoded.length === 0) {
+          throw new Error('Empty route geometry');
+        }
+        
         const distFromStartToUser = calculateDistanceKm(
           { lat: decoded[0]?.[1], lng: decoded[0]?.[0] },
           userLoc,
@@ -215,11 +266,15 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
         let geometry = distFromStartToUser != null && distFromStartToSpot != null && distFromStartToUser > distFromStartToSpot
           ? [...decoded].reverse()
           : decoded;
-        // Force start/end to be user and destination to avoid starting at the target
+        
         if (userLoc) {
-          geometry = [[userLoc.lng, userLoc.lat], ...geometry.slice(1)];
+          if (geometry.length === 1) {
+            geometry = [[userLoc.lng, userLoc.lat], [spot.lng, spot.lat]];
+          } else {
+            geometry = [[userLoc.lng, userLoc.lat], ...geometry.slice(1)];
+          }
         }
-        if (spot?.lng != null && spot?.lat != null) {
+        if (isValidCoord(spot.lng, spot.lat) && geometry.length > 0) {
           geometry[geometry.length - 1] = [spot.lng, spot.lat];
         }
         setNavGeometry(geometry);
@@ -230,6 +285,7 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
         setNavError('');
       } catch (err) {
         if (controller.signal.aborted) return;
+        console.error('Nav fetch error:', err);
         setNavError(err?.message || 'Unable to load navigation');
         setNavGeometry([]);
         setNavSteps([]);
@@ -240,98 +296,186 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
     return () => controller.abort();
   }, [navReady, shouldUseMapboxNav, userLoc, spot?.lat, spot?.lng, mapboxToken]);
 
-  // Mapbox rendering and marker animation
+  // --- 3. Initialize Mapbox map (FIXED) ---
   useEffect(() => {
-    if (!navReady || navGeometry.length === 0 || !mapContainerRef.current) return undefined;
-    setMapLoaded(false);
+    if (!mapboxToken || !mapContainerRef.current) return undefined;
+    if (mapRef.current) return undefined; // Map already exists
+
     mapboxgl.accessToken = mapboxToken;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: navGeometry[0] || (userLoc ? [userLoc.lng, userLoc.lat] : undefined),
-      pitch: 60,
-      bearing: 0,
-      zoom: 15.2,
-      interactive: true,
-    });
+    const center = getSafeCenter(); // Use the safe center function
+
+    console.log('Map: Initializing at', center);
+
+    let map;
+    try {
+      map = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center,
+        pitch: 60,
+        bearing: 0,
+        zoom: 15.2,
+        interactive: true,
+      });
+    } catch (err) {
+      console.error('Mapbox init failed', err);
+      setFatalError(`Map init failed: ${err?.message || err}`);
+      return undefined;
+    }
+
     mapRef.current = map;
+    
     const handleLoad = () => {
-      map.addSource('route', {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: navGeometry,
-          },
-        },
-      });
-      map.addLayer({
-        id: 'route-line',
-        type: 'line',
-        source: 'route',
-        paint: {
-          'line-color': '#f97316',
-          'line-width': 6,
-          'line-opacity': 0.9,
-        },
-      });
-      const marker = new mapboxgl.Marker({ color: '#f97316' }).setLngLat(navGeometry[0]).addTo(map);
-      markerRef.current = marker;
+      console.log('Map: Loaded successfully');
       setMapLoaded(true);
+      map.resize(); // Force resize to ensure canvas fills container
     };
+    
     const handleError = (e) => {
-      console.error('Mapbox navigation error', e?.error || e);
+      console.error('Mapbox fatal error:', e?.error || e);
       setNavError(t('navLoadError', 'Navigation failed to load.'));
       setMapLoaded(false);
-      setNavReady(false);
     };
+
     map.on('load', handleLoad);
     map.on('error', handleError);
 
-    let idx = 0;
-    const tick = () => {
-      idx = Math.min(idx + 1, navGeometry.length - 1);
-      const nextIdx = Math.min(idx + 1, navGeometry.length - 1);
-      const bearing = computeBearing(navGeometry[idx], navGeometry[nextIdx]);
-      map.easeTo({
-        center: navGeometry[idx],
-        bearing,
-        duration: 900,
-        pitch: 60,
-        zoom: 15.4,
-        easing: (t) => t,
-      });
-      if (markerRef.current) {
-        markerRef.current.setLngLat(navGeometry[idx]).setRotation(bearing);
-      }
-      const stepIdx =
-        navSteps.length > 0
-          ? Math.min(
-              navSteps.length - 1,
-              Math.floor((idx / Math.max(navGeometry.length - 1, 1)) * navSteps.length),
-            )
-          : 0;
-      setNavIndex(stepIdx);
-      if (idx >= navGeometry.length - 1) return;
-      animationId = requestAnimationFrame(tick);
+    return () => {
+      map.off('load', handleLoad);
+      map.off('error', handleError);
+      map.remove();
+      mapRef.current = null;
     };
+  }, [mapboxToken, userLoc, spot?.lat, spot?.lng]); // Removed t from dependency to prevent re-init on language change
 
-    let animationId = requestAnimationFrame(tick);
+  // Destination marker for preview
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    if (!isValidCoord(spot?.lng, spot?.lat)) return;
+
+    try {
+      if (!destMarkerRef.current) {
+        destMarkerRef.current = new mapboxgl.Marker({ color: '#111827' })
+          .setLngLat([spot.lng, spot.lat])
+          .addTo(mapRef.current);
+      } else {
+        destMarkerRef.current.setLngLat([spot.lng, spot.lat]);
+      }
+    } catch (err) {
+      console.error('Dest marker error', err);
+    }
+  }, [mapLoaded, spot?.lng, spot?.lat]);
+
+  // Route rendering
+  useEffect(() => {
+    if (!navReady || !mapLoaded || !mapRef.current) return;
+    if (!Array.isArray(navGeometry) || navGeometry.length < 2) return;
+    
+    // Safety Check: Ensure the first point is valid
+    if (!isValidCoord(navGeometry[0][0], navGeometry[0][1])) return;
+
+    let animationId;
+    try {
+      const map = mapRef.current;
+
+      if (!map.getSource('route')) {
+        map.addSource('route', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: navGeometry,
+            },
+          },
+        });
+        map.addLayer({
+          id: 'route-line',
+          type: 'line',
+          source: 'route',
+          paint: {
+            'line-color': '#f97316',
+            'line-width': 6,
+            'line-opacity': 0.9,
+          },
+        });
+      } else {
+        const src = map.getSource('route');
+        src.setData({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: navGeometry },
+        });
+      }
+
+      if (!markerRef.current) {
+        markerRef.current = new mapboxgl.Marker({ color: '#f97316', rotationAlignment: 'map' })
+          .setLngLat(navGeometry[0])
+          .addTo(map);
+      } else {
+        markerRef.current.setLngLat(navGeometry[0]).setRotation(0);
+      }
+
+      map.flyTo({ center: navGeometry[0], zoom: 15.4, pitch: 60, bearing: 0, speed: 0.8 });
+
+      let idx = 0;
+      const tick = () => {
+        idx = Math.min(idx + 1, navGeometry.length - 1);
+        const nextIdx = Math.min(idx + 1, navGeometry.length - 1);
+        const currentPos = navGeometry[idx];
+
+        // IMPORTANT: Prevent crash during animation loop
+        if (!currentPos || !isValidCoord(currentPos[0], currentPos[1])) {
+             animationId = requestAnimationFrame(tick);
+             return;
+        }
+
+        const bearing = computeBearing(navGeometry[idx], navGeometry[nextIdx]);
+        map.easeTo({
+          center: currentPos,
+          bearing,
+          duration: 900,
+          pitch: 60,
+          zoom: 15.4,
+          easing: (t) => t,
+        });
+        if (markerRef.current) {
+          markerRef.current.setLngLat(currentPos).setRotation(bearing);
+        }
+        const stepIdx =
+          navSteps.length > 0
+            ? Math.min(
+                navSteps.length - 1,
+                Math.floor((idx / Math.max(navGeometry.length - 1, 1)) * navSteps.length),
+              )
+            : 0;
+        setNavIndex(stepIdx);
+        if (idx >= navGeometry.length - 1) return;
+        animationId = requestAnimationFrame(tick);
+      };
+
+      animationId = requestAnimationFrame(tick);
+    } catch (err) {
+      console.error('Map navigation render failed', err);
+    }
 
     return () => {
       cancelAnimationFrame(animationId);
-      map.off('load', handleLoad);
-      map.off('error', handleError);
       if (markerRef.current) {
         markerRef.current.remove();
         markerRef.current = null;
       }
-      map.remove();
+      if (mapRef.current) {
+        if (mapRef.current.getLayer('route-line')) {
+          mapRef.current.removeLayer('route-line');
+        }
+        if (mapRef.current.getSource('route')) {
+          mapRef.current.removeSource('route');
+        }
+      }
     };
-  }, [navReady, navGeometry, navSteps.length, mapboxToken]);
+  }, [navReady, navGeometry, navSteps.length, mapLoaded]);
 
-  // Keep centering the map on the user's live location and log it every 5s
+  // Keep centering the map
   useEffect(() => {
     if (!navReady || !mapLoaded || !mapRef.current || !navigator?.geolocation) return undefined;
     const map = mapRef.current;
@@ -341,12 +485,17 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
         (pos) => {
           if (cancelled) return;
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          console.log('[MapNav] user location', coords);
-          map.easeTo({
-            center: [coords.lng, coords.lat],
-            duration: 500,
-            essential: true,
-          });
+          try {
+            if(isValidCoord(coords.lng, coords.lat)) {
+                map.easeTo({
+                    center: [coords.lng, coords.lat],
+                    duration: 500,
+                    essential: true,
+                });
+            }
+          } catch (err) {
+            console.error('Map recenter failed', err);
+          }
         },
         () => {},
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 5000 },
@@ -363,31 +512,32 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center">
       <div className="relative w-full h-full bg-black">
-        {!(navReady && shouldUseMapboxNav && navGeometry.length > 0 && mapLoaded) && (
-          <iframe
-            title="map"
-            src={embedUrl}
-            className="w-full h-full border-0"
-            allowFullScreen
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
+        {mapboxToken ? (
+          <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-white bg-black/70 text-sm px-6 text-center">
+            {t('navMissingToken', 'Map navigation requires a Mapbox token.')}
+          </div>
         )}
-        {navReady && shouldUseMapboxNav && navGeometry.length > 0 ? (
-          <div
-  ref={mapContainerRef}
-  className="absolute inset-0"
-  style={{ minHeight: "100%", minWidth: "100%" }}
-></div>
-        ) : null}
-        {navReady && shouldUseMapboxNav && !mapLoaded ? (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="bg-black/60 text-white px-4 py-3 rounded-xl shadow">
-              {t('navLoading', 'Loading navigation...')}
+        
+        {/* Loading Overlay */}
+        {navReady && shouldUseMapboxNav && !mapLoaded && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
+             <div className="text-white bg-black/80 px-4 py-2 rounded-lg">Loading Map...</div>
+          </div>
+        )}
+
+        {fatalError ? (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6 z-[100]">
+            <div className="pointer-events-auto bg-white/95 border border-red-200 text-red-700 rounded-2xl shadow-xl px-4 py-3 max-w-md text-center text-sm">
+              <p className="font-semibold mb-1">{t('navFatal', 'Navigation error')}</p>
+              <p className="mb-1">{fatalError}</p>
             </div>
           </div>
         ) : null}
-        <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3 pointer-events-none">
+
+        {/* UI Controls */}
+        <div className="absolute top-4 left-4 right-4 flex items-start justify-between gap-3 pointer-events-none z-10">
           <div className="bg-white/90 rounded-xl shadow px-3 py-2 text-sm text-gray-800 pointer-events-auto">
             <p className="font-semibold">{spot?.address || t('unknown', 'Unknown')}</p>
             <p className="text-xs text-gray-600">
@@ -434,8 +584,10 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
             )}
           </div>
         </div>
+
+        {/* Turn by turn */}
         {showRoute && showSteps && stepsToShow.length > 0 && (
-          <div className="absolute bottom-4 left-4 right-4 pointer-events-auto">
+          <div className="absolute bottom-4 left-4 right-4 pointer-events-auto z-10">
             <div className="bg-white/90 rounded-2xl shadow px-4 py-3 border border-orange-100">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs uppercase tracking-[0.14em] text-orange-500 font-semibold">
@@ -456,18 +608,12 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
                 </span>
               </div>
             </div>
-            {navError ? (
-              <p className="mt-2 text-xs text-red-500 text-center bg-white/80 rounded-xl py-1">{navError}</p>
-            ) : null}
-            {!shouldUseMapboxNav && navBlockReason ? (
-              <p className="mt-2 text-xs text-gray-600 text-center bg-white/80 rounded-xl py-1 px-2">
-                {navBlockReason}
-              </p>
-            ) : null}
           </div>
         )}
+
+        {/* Cancel Confirmation */}
         {confirming && (
-          <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
+          <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
             <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-sm p-6 animate-[fadeIn_200ms_ease-out]">
               <p className="font-semibold text-gray-900 mb-4 text-center">
                 {t('confirmCancel', 'The parking spot will be listed again')}
@@ -499,5 +645,11 @@ const Map = ({ spot, onClose, onCancelBooking }) => {
     </div>
   );
 };
+
+const Map = (props) => (
+  <MapErrorBoundary>
+    <MapInner {...props} />
+  </MapErrorBoundary>
+);
 
 export default Map;

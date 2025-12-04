@@ -511,12 +511,12 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     </div>
 
     {/* Bottom: Summary */}
-            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}>
+            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}>
               <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
-         <div>
-            <div className="flex items-baseline gap-3">
-                 <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
-                 <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">{distanceKm?.toFixed(1)} km</span>
+                 <div>
+                    <div className="flex items-baseline gap-3">
+                         <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
+                         <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">{distanceKm?.toFixed(1)} km</span>
             </div>
             <p className="text-gray-500 text-sm font-medium mt-1">
                 {t('arrival', 'Arrival')} {arrivalTime || '--:--'}
@@ -571,7 +571,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
             setConfirming(false);
             onClose?.();
           }}
-          className="flex-1 py-2.5 rounded-xl font-semibold bg-red-600 text-white hover:bg-red-700"
+          className="flex-1 py-2.5 rounded-xl font-semibold bg-orange-600 text-white hover:bg-orange-700"
         >
           {t('end', 'Exit')}
         </button>

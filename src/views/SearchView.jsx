@@ -70,6 +70,16 @@ const getRemainingMs = (spot, nowMs = Date.now()) => {
   const remainingMs = createdMs + Number(time) * 60_000 - nowMs;
   return remainingMs;
 };
+const getCreatedMs = (spot) => {
+  const createdAt = spot?.createdAt;
+  if (createdAt?.toMillis) return createdAt.toMillis();
+  if (typeof createdAt === 'number') return createdAt;
+  if (typeof createdAt === 'string') {
+    const parsed = Date.parse(createdAt);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+};
 
 const formatDuration = (ms) => {
   if (ms == null) return null;
@@ -81,7 +91,20 @@ const formatDuration = (ms) => {
 };
 
 // --- COMPOSANT CARTE (SWIPE) ---
-const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark, leaderboard = [], userCoords, distanceOverrides = {} }) => {
+const SwipeCard = ({
+  spot,
+  index,
+  onSwipe,
+  active,
+  nowMs,
+  activeCardRef,
+  isDark,
+  leaderboard = [],
+  userCoords,
+  distanceOverrides = {},
+  exiting = false,
+  entering = false,
+}) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -162,21 +185,37 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
 
   if (!spot) return null;
 
+  const baseTx = active ? offset.x : translateX;
+  const baseTy = active ? offset.y : translateY;
+  const baseRot = active ? rotation : baseRotation;
+  const baseScale = scale;
+  const animation = exiting
+    ? 'card-exit 0.4s ease forwards'
+    : entering
+      ? 'card-enter 0.35s ease-out'
+      : undefined;
+
   return (
     <div
       ref={active ? activeCardRef : cardRef}
       className={`absolute w-[78%] max-w-[300px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
-  zIndex: 10 - index,
-  transform: active
-    ? `translate(${offset.x}px, ${offset.y}px) rotate(${rotation}deg) scale(${scale})`
-    : `translate(${translateX}px, ${translateY}px) rotate(${baseRotation}deg) scale(${scale})`,
-  opacity,
-  transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease',
-  boxShadow: appleShadow,
-  background: cardBackground,
-  border: cardBorder
-}}
+        zIndex: 10 - index,
+        '--card-tx': `${baseTx}px`,
+        '--card-ty': `${baseTy}px`,
+        '--card-rot': `${baseRot}deg`,
+        '--card-scale': `${baseScale}`,
+        transform: `translate(${baseTx}px, ${baseTy}px) rotate(${baseRot}deg) scale(${baseScale})`,
+        opacity,
+        transition: isDragging
+          ? 'none'
+          : 'transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease',
+        boxShadow: appleShadow,
+        background: cardBackground,
+        border: cardBorder,
+        animation,
+        animationFillMode: 'both',
+      }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
@@ -297,8 +336,43 @@ const SearchView = ({
   const [radius, setRadius] = useState(2);
   const [showRadiusPicker, setShowRadiusPicker] = useState(false);
   const [distanceOverrides, setDistanceOverrides] = useState({});
+  const [exitingCards, setExitingCards] = useState([]);
+  const prevVisibleRef = useRef([]);
+  const [enteringIds, setEnteringIds] = useState([]);
 
-  const availableSpots = (spots || []).filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
+  // Inject lightweight keyframes for card enter/exit
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('search-card-anims')) return;
+    const style = document.createElement('style');
+    style.id = 'search-card-anims';
+    style.textContent = `
+      @keyframes card-enter {
+        from {
+          opacity: 0;
+          transform: translate(var(--card-tx), calc(var(--card-ty) + 24px)) rotate(var(--card-rot)) scale(calc(var(--card-scale) * 0.95));
+        }
+        to {
+          opacity: 1;
+          transform: translate(var(--card-tx), var(--card-ty)) rotate(var(--card-rot)) scale(var(--card-scale));
+        }
+      }
+      @keyframes card-exit {
+        from {
+          opacity: 1;
+          transform: translate(var(--card-tx), var(--card-ty)) rotate(var(--card-rot)) scale(var(--card-scale));
+        }
+        to {
+          opacity: 0;
+          transform: translate(calc(var(--card-tx) - 240px), calc(var(--card-ty) - 80px)) rotate(calc(var(--card-rot) - 8deg)) scale(calc(var(--card-scale) * 0.9));
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
+  const availableSpots = sortedSpots.filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableSpots.length === 0;
@@ -308,6 +382,49 @@ const SearchView = ({
   useEffect(() => {
     setCurrentIndex(0);
   }, [spots]);
+
+  // Track cards leaving the visible stack to animate them out
+  useEffect(() => {
+    const prev = prevVisibleRef.current;
+    const removed = prev.filter(
+      (prevItem) => !visibleSpots.find((v) => v.id === prevItem.spot.id),
+    );
+    if (removed.length) {
+      setExitingCards((prevExit) => {
+        const next = [...prevExit];
+        removed.forEach((item) => {
+          const key = `${item.spot.id}-${item.index}`;
+          if (!next.find((c) => c._exitKey === key)) {
+            next.push({ ...item.spot, _exitKey: key, _exitIndex: item.index });
+          }
+        });
+        return next;
+      });
+    }
+    const prevIds = new Set(prev.map((p) => p.spot.id));
+    const added = visibleSpots.filter((s) => !prevIds.has(s.id)).map((s) => s.id);
+    if (added.length) {
+      added.forEach((id) => {
+        setEnteringIds((prevEnter) => (prevEnter.includes(id) ? prevEnter : [...prevEnter, id]));
+        setTimeout(() => {
+          setEnteringIds((prevEnter) => prevEnter.filter((v) => v !== id));
+        }, 450);
+      });
+    }
+    prevVisibleRef.current = visibleSpots.map((spot, idx) => ({ spot, index: idx }));
+  }, [visibleSpots]);
+
+  useEffect(() => {
+    if (exitingCards.length === 0) return undefined;
+    const timers = exitingCards.map((card) =>
+      setTimeout(
+        () =>
+          setExitingCards((prev) => prev.filter((c) => c._exitKey !== card._exitKey)),
+        400,
+      ),
+    );
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, [exitingCards]);
 
   // Fetch Mapbox driving distances for spots near the user (fallback to haversine)
   useEffect(() => {
@@ -544,23 +661,32 @@ const SearchView = ({
               {visibleSpots.length > 0 && (
                 <>
                   <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center">
-                    {visibleSpots
-                      .map((spot, i) => (
-                        <SwipeCard
-                          key={spot.id}
-                          spot={spot}
-                          index={i}
-                      active={i === 0}
-                      nowMs={nowMs}
-                      activeCardRef={activeCardRef}   // ✅ AJOUT ICI
-                      onSwipe={(dir) => handleSwipe(dir, spot)}
-                      isDark={isDark}
-                      userCoords={userCoords}
-                      distanceOverrides={distanceOverrides}
-                      leaderboard={leaderboard}
-                    />
-                      ))
-                      .reverse()}
+                    {[...visibleSpots.map((spot, i) => ({ spot, index: i, exiting: false })), ...exitingCards
+                      .filter((c) => !visibleSpots.find((v) => v.id === c.id))
+                      .map((spotObj) => ({
+                        spot: spotObj,
+                        index: spotObj._exitIndex ?? visibleSpots.length,
+                        exiting: true,
+                      }))].map(({ spot, index, exiting }) => {
+                      const entering = enteringIds.includes(spot.id);
+                      return (
+                      <SwipeCard
+                        key={spot._exitKey || spot.id}
+                        spot={spot}
+                        index={index}
+                        active={!exiting && index === 0}
+                        nowMs={nowMs}
+                        activeCardRef={activeCardRef}
+                        onSwipe={(dir) => handleSwipe(dir, spot)}
+                        isDark={isDark}
+                        userCoords={userCoords}
+                        distanceOverrides={distanceOverrides}
+                        leaderboard={leaderboard}
+                        exiting={exiting}
+                        entering={entering}
+                      />
+                      );
+                    }).reverse()}
                   </div>
 
                   <div className="mt-4 text-amber-300 text-sm font-medium">

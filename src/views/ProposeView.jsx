@@ -83,7 +83,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   // --- Formulaire par défaut ---
   return (
     <div
-      className="h-full flex flex-col bg-white px-6 pb-8 pt-20 overflow-hidden relative app-surface"
+      className="h-full flex flex-col bg-white px-6 pt-20 pb-[220px] overflow-y-auto relative app-surface"
       style={{ touchAction: 'pan-x' }}
     >
       <div className="flex items-center space-x-2 text-orange-500 uppercase tracking-[0.15em] text-[11px] font-semibold -mt-4 mb-2">

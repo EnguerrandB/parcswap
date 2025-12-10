@@ -169,46 +169,47 @@ export default function ParkSwapApp() {
     }
   };
 
-const findSpotById = (spotId) => {
-  if (myActiveSpot?.id === spotId) return myActiveSpot;
-  if (bookedSpot?.id === spotId) return bookedSpot;
-  return spots.find((s) => s.id === spotId);
-};
-const logCurrentLocation = async (contextLabel = 'location') => {
-  if (!navigator?.geolocation) {
-    console.log(`[${contextLabel}] Geolocation API not available`);
-    return null;
-  }
-  const fallbackLocation = { lat: 48.8738, lng: 2.295 };
-  const attempt = (opts) =>
-    new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          console.log(`[${contextLabel}] lat=${coords.lat}, lng=${coords.lng}`);
-          lastKnownLocationRef.current = coords;
-          resolve(coords);
-        },
-        (err) => {
-          console.log(`[${contextLabel}] Geolocation failed: ${err?.message || err}`);
-          resolve(null);
-        },
-        opts,
-      );
-    });
+  const findSpotById = (spotId) => {
+    if (myActiveSpot?.id === spotId) return myActiveSpot;
+    if (bookedSpot?.id === spotId) return bookedSpot;
+    return spots.find((s) => s.id === spotId);
+  };
 
-  // Try high accuracy first, then fallback to a more lenient request to avoid timeouts
-  const first = await attempt({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 });
-  if (first) return first;
-  const second = await attempt({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 20_000 });
-  if (second) return second;
-  if (lastKnownLocationRef.current) {
-    console.log(`[${contextLabel}] Using last known location`);
-    return lastKnownLocationRef.current;
-  }
-  console.log(`[${contextLabel}] Falling back to default location (Arc de Triomphe)`);
-  return fallbackLocation;
-};
+  const logCurrentLocation = async (contextLabel = 'location') => {
+    if (!navigator?.geolocation) {
+      console.log(`[${contextLabel}] Geolocation API not available`);
+      return null;
+    }
+    const fallbackLocation = { lat: 48.8738, lng: 2.295 };
+    const attempt = (opts) =>
+      new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            console.log(`[${contextLabel}] lat=${coords.lat}, lng=${coords.lng}`);
+            lastKnownLocationRef.current = coords;
+            resolve(coords);
+          },
+          (err) => {
+            console.log(`[${contextLabel}] Geolocation failed: ${err?.message || err}`);
+            resolve(null);
+          },
+          opts,
+        );
+      });
+
+    // Try high accuracy first, then fallback to a more lenient request to avoid timeouts
+    const first = await attempt({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 });
+    if (first) return first;
+    const second = await attempt({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 20_000 });
+    if (second) return second;
+    if (lastKnownLocationRef.current) {
+      console.log(`[${contextLabel}] Using last known location`);
+      return lastKnownLocationRef.current;
+    }
+    console.log(`[${contextLabel}] Falling back to default location (Arc de Triomphe)`);
+    return fallbackLocation;
+  };
   const [spots, setSpots] = useState([]);
   const [myActiveSpot, setMyActiveSpot] = useState(null);
   const [bookedSpot, setBookedSpot] = useState(null);
@@ -219,6 +220,21 @@ const logCurrentLocation = async (contextLabel = 'location') => {
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
+  const [userCoords, setUserCoords] = useState(null);
+
+  // Fetch current user location for cards/navigation
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const coords = await logCurrentLocation('search_view');
+      if (!cancelled && coords) setUserCoords(coords);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
   const getInitialTheme = () => {
     if (typeof window === 'undefined') return 'light';
     const stored = window.localStorage?.getItem('theme');
@@ -434,7 +450,8 @@ const logCurrentLocation = async (contextLabel = 'location') => {
       }
       if (!updated) return prev;
       next.sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
-      return next.slice(0, 10);
+      const sliced = next.slice(0, 10);
+      return sliced.map((u, idx) => ({ ...u, rank: idx + 1 }));
     });
   }, [transactions, user]);
 
@@ -555,7 +572,8 @@ const logCurrentLocation = async (contextLabel = 'location') => {
           pseudoIndex += 1;
         }
         topUsers.sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
-        setLeaderboard(topUsers);
+        const withRanks = topUsers.map((u, idx) => ({ ...u, rank: idx + 1 }));
+        setLeaderboard(withRanks);
       },
       (error) => {
         console.error('Error fetching leaderboard:', error);
@@ -901,6 +919,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
             leaderboard={leaderboard}
+            userCoords={userCoords}
           />
         </SafeView>
       );
@@ -1157,6 +1176,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
           onSelectionStep={handleSelectionStep}
           initialStep={selectionSnapshot?.step || (bookedSpot ? 'booked' : null)}
           currentUserId={user?.uid || null}
+          userCoords={userCoords}
         />
       )}
     </div>

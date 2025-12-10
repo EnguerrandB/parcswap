@@ -119,7 +119,7 @@ class MapErrorBoundary extends React.Component {
   }
 }
 
-const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId }) => {
+const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId, userCoords }) => {
   const { t, i18n } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -154,7 +154,8 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   );
 
   const getSafeCenter = () => {
-    if (userLoc && isValidCoord(userLoc.lng, userLoc.lat)) return [userLoc.lng, userLoc.lat];
+    const candidate = userLoc || userCoords;
+    if (candidate && isValidCoord(candidate.lng, candidate.lat)) return [candidate.lng, candidate.lat];
     if (spot && isValidCoord(spot.lng, spot.lat)) return [spot.lng, spot.lat];
     return [2.295, 48.8738];
   };

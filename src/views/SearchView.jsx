@@ -7,8 +7,21 @@ import { X, MapPin, Bell } from 'lucide-react';
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
 const CARD_COLORS = ['#0f1d33', '#112640', '#0d2039', '#0c192f']; // deep navy gradients per card
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
-const getDistanceMeters = (spot) => {
+const getDistanceMeters = (spot, userPosition = null) => {
   if (!spot) return Infinity;
+  if (userPosition && spot.lat != null && spot.lng != null) {
+    const R = 6371e3; // meters
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(spot.lat - userPosition.lat);
+    const dLon = toRad(spot.lng - userPosition.lng);
+    const lat1 = toRad(userPosition.lat);
+    const lat2 = toRad(spot.lat);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
   if (spot.distanceMeters != null) return Number(spot.distanceMeters);
   if (spot.distance != null) return Number(spot.distance);
   if (spot.distanceKm != null) return Number(spot.distanceKm) * 1000;
@@ -50,7 +63,7 @@ const formatDuration = (ms) => {
 };
 
 // --- COMPOSANT CARTE (SWIPE) ---
-const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark, leaderboard = [] }) => {
+const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark, leaderboard = [], userCoords, distanceOverrides = {} }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -121,8 +134,11 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
   const textMuted = isDark ? 'text-slate-300' : 'text-gray-500';
   const cardBackground = `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
   const cardBorder = '1px solid rgba(255,255,255,0.08)';
-  const rank = spot?.rank || spot?.position || index + 1;
-  const transactions = leaderboard.find((u) => u.id === spot?.hostId)?.transactions ?? 0;
+  const leaderEntry = leaderboard.find((u) => u.id === spot?.hostId);
+  const rank =
+    leaderEntry?.rank ??
+    (leaderEntry ? leaderboard.findIndex((u) => u.id === spot?.hostId) + 1 : spot?.rank || spot?.position || index + 1);
+  const transactions = leaderEntry?.transactions ?? 0;
   const [showRank, setShowRank] = useState(false);
 
   if (!spot) return null;
@@ -162,9 +178,8 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
           </button>
         </div>
 
-        {/* Headline: price */}
+        {/* Headline: price only */}
         <div className="mt-3">
-          <p className="text-white text-sm uppercase tracking-[0.18em] opacity-70 mb-1">{t('priceLabel', 'Price')}</p>
           <p className="text-white text-4xl font-extrabold drop-shadow">{formatPrice(spot.price)}</p>
         </div>
 
@@ -185,13 +200,13 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
               <span>{t('distanceLabel', 'Distance')}</span>
             </div>
             <div className="text-lg font-bold">
-              {formatDistance(getDistanceMeters(spot))}
+              {formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}
             </div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
             <div className="flex items-center gap-2 text-base font-semibold">
               <span role="img" aria-label="clock">⏱️</span>
-              <span>{t('etaLabel', 'ETA')}</span>
+              <span>{t('leavingInLabel', 'Départ dans')}</span>
             </div>
             <div className="text-lg font-bold">
               {preciseTime || t('etaFallback', '4:10')}
@@ -242,6 +257,7 @@ const SearchView = ({
   setSelectedSpot: setControlledSelectedSpot,
   onSelectionStep,
   leaderboard = [],
+  userCoords = null,
 }) => {
   const { t } = useTranslation('common');
   const isDark =
@@ -260,8 +276,9 @@ const SearchView = ({
   const [nowMs, setNowMs] = useState(Date.now());
   const [radius, setRadius] = useState(2);
   const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+  const [distanceOverrides, setDistanceOverrides] = useState({});
 
-  const availableSpots = (spots || []).filter((spot) => getDistanceMeters(spot) <= radius * 1000);
+  const availableSpots = (spots || []).filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 2); // primary + a hint of next
   const noSpots = availableSpots.length === 0;
@@ -271,6 +288,41 @@ const SearchView = ({
   useEffect(() => {
     setCurrentIndex(0);
   }, [spots]);
+
+  // Fetch Mapbox driving distances for spots near the user (fallback to haversine)
+  useEffect(() => {
+    if (!userCoords || !import.meta.env.VITE_MAPBOX_TOKEN) return undefined;
+    const controller = new AbortController();
+    const candidates = (spots || [])
+      .filter((s) => s?.lat != null && s?.lng != null)
+      .slice(0, 10); // limit to first 10 to avoid rate limits
+
+    const fetchDistances = async () => {
+      const results = await Promise.all(
+        candidates.map(async (spot) => {
+          try {
+            const url = `https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${userCoords.lng},${userCoords.lat};${spot.lng},${spot.lat}?annotations=distance&access_token=${import.meta.env.VITE_MAPBOX_TOKEN}`;
+            const res = await fetch(url, { signal: controller.signal });
+            if (!res.ok) throw new Error('matrix_failed');
+            const data = await res.json();
+            const dist = data?.distances?.[0]?.[1];
+            if (Number.isFinite(dist)) return [spot.id, dist];
+          } catch (_) {
+            return [spot.id, getDistanceMeters(spot, userCoords)];
+          }
+          return [spot.id, getDistanceMeters(spot, userCoords)];
+        }),
+      );
+      const next = {};
+      results.forEach(([id, dist]) => {
+        if (id != null && Number.isFinite(dist)) next[id] = dist;
+      });
+      setDistanceOverrides((prev) => ({ ...prev, ...next }));
+    };
+
+    fetchDistances();
+    return () => controller.abort();
+  }, [userCoords, spots]);
 
   // Tick every second to refresh countdowns
   useEffect(() => {
@@ -478,13 +530,15 @@ const SearchView = ({
                           key={spot.id}
                           spot={spot}
                           index={i}
-                          active={i === 0}
-                          nowMs={nowMs}
-                          activeCardRef={activeCardRef}   // ✅ AJOUT ICI
-                          onSwipe={(dir) => handleSwipe(dir, spot)}
-                          isDark={isDark}
-                          leaderboard={leaderboard}
-                        />
+                      active={i === 0}
+                      nowMs={nowMs}
+                      activeCardRef={activeCardRef}   // ✅ AJOUT ICI
+                      onSwipe={(dir) => handleSwipe(dir, spot)}
+                      isDark={isDark}
+                      userCoords={userCoords}
+                      distanceOverrides={distanceOverrides}
+                      leaderboard={leaderboard}
+                    />
                       ))
                       .reverse()}
                   </div>

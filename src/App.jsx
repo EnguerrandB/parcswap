@@ -220,6 +220,50 @@ export default function ParkSwapApp() {
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
+  const [logoOffset, setLogoOffset] = useState(0); // horizontal drag offset for the logo
+  const logoDragRef = useRef(false);
+  const logoDragStart = useRef({ x: 0, offset: 0 });
+  const logoMovedRef = useRef(false);
+
+  const clampLogoOffset = (value) => {
+    if (typeof window === 'undefined') return 0;
+    const max = Math.max(0, window.innerWidth / 2 - 48); // keep logo fully visible
+    return Math.min(Math.max(value, -max), max);
+  };
+
+  const handleLogoClick = () => {
+    // Only trigger sharing if this interaction wasn't a drag
+    if (logoMovedRef.current) return;
+    setShowInvite(true);
+  };
+
+  const handleLogoPointerDown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    logoDragRef.current = true;
+    logoMovedRef.current = false;
+    logoDragStart.current = { x: startX, offset: logoOffset };
+
+    const onMove = (ev) => {
+      if (!logoDragRef.current) return;
+      const delta = ev.clientX - logoDragStart.current.x;
+      if (Math.abs(delta) > 3) {
+        logoMovedRef.current = true;
+      }
+      setLogoOffset(clampLogoOffset(logoDragStart.current.offset + delta));
+    };
+
+    const onEnd = () => {
+      logoDragRef.current = false;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  };
 
   // Fetch current user location for cards/navigation
   useEffect(() => {
@@ -452,6 +496,7 @@ export default function ParkSwapApp() {
     const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
 
     // Ensure the profile doc exists with basic defaults
+    // Ensure doc exists without resetting transaction count
     setDoc(
       userRef,
       {
@@ -459,7 +504,8 @@ export default function ParkSwapApp() {
         email: user.email,
         phone: user.phone,
         language: user.language || i18n.language || 'en',
-        transactions: user.transactions ?? 0,
+        // increment(0) preserves existing transactions and initializes to 0 if missing
+        transactions: increment(0),
         createdAt: serverTimestamp(),
       },
       { merge: true },
@@ -492,59 +538,13 @@ export default function ParkSwapApp() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        let topUsers = snapshot.docs.map((docSnap) => ({
+        const topUsers = snapshot.docs.map((docSnap) => ({
           id: docSnap.id,
           ...docSnap.data(),
         }));
-        if (user?.uid && !topUsers.find((u) => u.id === user.uid)) {
-          topUsers = [
-            ...topUsers,
-            {
-              id: user.uid,
-              displayName: user.displayName,
-              email: user.email,
-              transactions: user.transactions ?? 0,
-            },
-          ];
-        }
-        if (topUsers.length === 0 && user?.uid) {
-          topUsers = [
-            {
-              id: user.uid,
-              displayName: user.displayName,
-              email: user.email,
-              transactions: user.transactions ?? 0,
-            },
-          ];
-        }
-        const pseudonyms = [
-          'CosmoFox',
-          'VelvetRoad',
-          'OrangeBolt',
-          'SkylineRider',
-          'MintyDrive',
-          'NeonTrail',
-          'UrbanPulse',
-          'SilverNest',
-          'CloudyPath',
-          'SunnyLane',
-        ];
-        let pseudoIndex = 0;
-        while (topUsers.length < 10 && pseudoIndex < pseudonyms.length) {
-          const name = pseudonyms[pseudoIndex];
-          const pseudoId = `pseudo-${pseudoIndex}`;
-          if (!topUsers.find((u) => u.id === pseudoId)) {
-            topUsers.push({
-              id: pseudoId,
-              displayName: name,
-              email: '',
-              transactions: Math.floor(Math.random() * 5),
-            });
-          }
-          pseudoIndex += 1;
-        }
-        topUsers.sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
-        const withRanks = topUsers.map((u, idx) => ({ ...u, rank: idx + 1 }));
+
+        const sorted = [...topUsers].sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
+        const withRanks = sorted.map((u, idx) => ({ ...u, rank: idx + 1 }));
         setLeaderboard(withRanks);
       },
       (error) => {
@@ -1012,12 +1012,19 @@ export default function ParkSwapApp() {
         setDragging(false);
       }}
     >
-      <div className={`fixed top-4 inset-x-0 z-[90] flex justify-center pointer-events-none transition-opacity duration-300 ${hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <div
+        className={`fixed top-4 left-1/2 z-[90] pointer-events-none transition-opacity duration-300 ${
+          hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+        style={{ transform: `translateX(${logoOffset}px)` }}
+      >
         <button
           type="button"
-          onClick={() => setShowInvite(true)}
+          onClick={handleLogoClick}
+          onPointerDown={handleLogoPointerDown}
           className="pointer-events-auto active:scale-95 transition"
           aria-label="Invite friends"
+          title="Glisser pour déplacer le logo"
         >
           <AppLogo size={64} />
         </button>

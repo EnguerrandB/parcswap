@@ -167,8 +167,8 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
       onTouchEnd={onTouchEnd}
     >
       <div className="flex flex-col items-center justify-center h-full space-y-6 text-center">
-        {/* Top row: rank badge */}
-        <div className="w-full flex items-start justify-start text-white/90">
+        {/* Top-left rank badge */}
+        <div className="absolute top-3 left-3 text-white/90">
           <button
             type="button"
             onClick={() => setShowRank(true)}

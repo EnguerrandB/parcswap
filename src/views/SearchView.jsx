@@ -120,6 +120,7 @@ const SwipeCard = ({
   distanceOverrides = {},
   exiting = false,
   entering = false,
+  colorSalt = 0,
 }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -176,7 +177,7 @@ const SwipeCard = ({
   const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const cardColor = spot._overrideColor || colorForSpot(spot, colorSaltRef.current || 0);
+  const cardColor = spot._overrideColor || colorForSpot(spot, colorSalt);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
@@ -716,6 +717,7 @@ const SearchView = ({
                         leaderboard={leaderboard}
                         exiting={exiting}
                         entering={entering}
+                        colorSalt={colorSaltRef.current || CARD_COLOR_SALT}
                       />
                       );
                     }).reverse()}

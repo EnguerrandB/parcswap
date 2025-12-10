@@ -31,6 +31,7 @@ import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
 import AppLogo from './components/AppLogo';
+import movingLogo from './assets/logo_moving.svg';
 import SafeView from './components/SafeView';
 import Map from './components/Map';
 
@@ -225,6 +226,7 @@ export default function ParkSwapApp() {
   const logoDragRef = useRef(false);
   const logoDragStart = useRef({ x: 0, offset: 0 });
   const logoMovedRef = useRef(false);
+  const [logoDragging, setLogoDragging] = useState(false);
 
   const clampLogoOffset = (value) => {
     if (typeof window === 'undefined') return 0;
@@ -243,6 +245,7 @@ export default function ParkSwapApp() {
     const startX = e.clientX;
     logoDragRef.current = true;
     logoMovedRef.current = false;
+    setLogoDragging(false);
     logoDragStart.current = { x: startX, offset: logoOffset };
 
     const onMove = (ev) => {
@@ -250,12 +253,14 @@ export default function ParkSwapApp() {
       const delta = ev.clientX - logoDragStart.current.x;
       if (Math.abs(delta) > 3) {
         logoMovedRef.current = true;
+        setLogoDragging(true);
       }
       setLogoOffset(clampLogoOffset(logoDragStart.current.offset + delta));
     };
 
     const onEnd = () => {
       logoDragRef.current = false;
+      setLogoDragging(false);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onEnd);
       window.removeEventListener('pointercancel', onEnd);
@@ -1011,7 +1016,7 @@ export default function ParkSwapApp() {
         setDragging(false);
       }}
     >
-      <div
+     <div
         className={`fixed top-4 left-1/2 z-[90] pointer-events-none transition-opacity duration-300 ${
           hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
@@ -1021,11 +1026,28 @@ export default function ParkSwapApp() {
           type="button"
           onClick={handleLogoClick}
           onPointerDown={handleLogoPointerDown}
-          className="pointer-events-auto active:scale-95 transition"
+          // Added 'relative w-16 h-16' to lock dimensions so it doesn't jump
+          className="pointer-events-auto relative w-16 h-16 flex items-center justify-center active:scale-95 transition-transform"
           aria-label="Invite friends"
           title="Glisser pour déplacer le logo"
         >
-          <AppLogo size={64} />
+          {/* 1. Static Logo: Always rendered, fades out when dragging */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ease-out ${
+              logoDragging ? 'opacity-0' : 'opacity-100'
+            }`}
+          >
+            <AppLogo size={64} />
+          </div>
+
+          {/* 2. Moving Logo: Always rendered (preloaded), fades in when dragging */}
+          <img
+            src={movingLogo}
+            alt="Logo"
+            className={`absolute inset-0 w-16 h-16 object-contain bg-white rounded-full p-1 shadow-lg border border-orange-100 transition-opacity duration-200 ease-out ${
+              logoDragging ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
         </button>
       </div>
       {showInvite && (

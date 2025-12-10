@@ -3,6 +3,13 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { collection, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { db, appId } from '../firebase';
+import carMarker from '../assets/car-marker.png';
+import userCar1 from '../assets/user-car-1.png';
+import userCar2 from '../assets/user-car-2.png';
+import userCar3 from '../assets/user-car-3.png';
+import userCar4 from '../assets/user-car-4.png';
 
 // --- Helpers ---
 
@@ -99,17 +106,6 @@ const getManeuverIcon = (instruction) => {
   );
 };
 
-const CAR_SVG = `
-<svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="50" cy="55" rx="25" ry="40" fill="black" fill-opacity="0.4"/>
-  <path d="M30 20 L70 20 Q80 20 80 40 L80 80 Q80 90 70 90 L30 90 Q20 90 20 80 L20 40 Q20 20 30 20" fill="#3b82f6" stroke="white" stroke-width="3"/>
-  <path d="M30 35 L70 35 L65 50 L35 50 Z" fill="#1e3a8a"/>
-  <path d="M35 75 L65 75 L68 85 L32 85 Z" fill="#1e3a8a"/>
-  <rect x="25" y="22" width="10" height="5" rx="2" fill="#fef08a"/>
-  <rect x="65" y="22" width="10" height="5" rx="2" fill="#fef08a"/>
-</svg>
-`;
-
 class MapErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -123,8 +119,8 @@ class MapErrorBoundary extends React.Component {
   }
 }
 
-const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
-  const { t } = useTranslation('common');
+const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId }) => {
+  const { t, i18n } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showRoute, setShowRoute] = useState(false);
@@ -142,10 +138,14 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
   const mapContainerRef = useRef(null);
   const markerRef = useRef(null);
   const destMarkerRef = useRef(null);
+  const otherUserMarkersRef = useRef(new globalThis.Map());
+  const otherUserIconsRef = useRef(new globalThis.Map());
+  const otherUserPositionsRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   
   // Ref to prevent double fetching
   const routeFetchedRef = useRef(false);
+  const lastPersistTsRef = useRef(0);
 
   const isValidCoord = (lng, lat) => (
     typeof lng === 'number' && typeof lat === 'number' &&
@@ -166,6 +166,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
       (pos) => {
         if (isValidCoord(pos.coords.longitude, pos.coords.latitude)) {
            setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+           persistUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         }
       },
       (err) => setUserLoc(null),
@@ -189,6 +190,14 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
         watchIdRef.current = null;
     }
   }, [spot?.id]);
+
+  // Auto-resume navigation if a persisted step indicates it was started
+  useEffect(() => {
+    if (initialStep === 'nav_started') {
+      setShowRoute(true);
+      setShowSteps(true);
+    }
+  }, [initialStep, spot?.id]);
 
   useEffect(() => {
     if (!showRoute) {
@@ -225,18 +234,56 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }, [etaMinutes]);
 
+  const locationName = spot?.placeName || spot?.name || spot?.parkingName || null;
+  const locationAddress = spot?.address || '';
+  const destinationLabel = locationName || locationAddress;
+
   const providedSteps = Array.isArray(spot?.turnByTurn) ? spot.turnByTurn : 
                         Array.isArray(spot?.routeSteps) ? spot.routeSteps : null;
       
   const fallbackSteps = useMemo(() => {
-    if (!spot?.address) return [];
-    return [`${t('stepHead', 'Head toward')} ${spot.address}`, `${t('stepArrive', 'Arrive at destination')}`];
-  }, [spot?.address, t]);
+    if (!destinationLabel) return [];
+    return [`${t('stepHead', 'Head toward')} ${destinationLabel}`, `${t('stepArrive', 'Arrive at destination')}`];
+  }, [destinationLabel, t]);
   
   const stepsToShow = navReady && navSteps.length > 0 ? navSteps : 
                       providedSteps && providedSteps.length > 0 ? providedSteps : fallbackSteps;
 
+  const navLanguage = i18n?.language || 'en';
   const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
+  const fallbackOtherPositions = useMemo(
+    () => [
+      { lng: 2.2945, lat: 48.8584 }, // Tour Eiffel
+      { lng: 2.3499, lat: 48.8530 }, // Notre-Dame / Cité
+      { lng: 2.3730, lat: 48.8529 }, // Bastille
+      { lng: 2.3364, lat: 48.8606 }, // Louvre
+      { lng: 2.3212, lat: 48.8403 }, // Montparnasse
+      { lng: 2.3908, lat: 48.8339 }, // Bercy
+      { lng: 2.376, lat: 48.8976 }, // Parc de la Villette
+      { lng: 2.295, lat: 48.8790 }, // Ternes (un peu au nord)
+    ],
+    [],
+  );
+
+  const persistUserLocation = async (coords) => {
+    if (!currentUserId || !coords) return;
+    const now = Date.now();
+    if (now - lastPersistTsRef.current < 3000) return; // throttle
+    lastPersistTsRef.current = now;
+    try {
+      await setDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', currentUserId),
+        {
+          lat: coords.lat,
+          lng: coords.lng,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } catch (err) {
+      console.error('Error saving user location', err);
+    }
+  };
 
   useEffect(() => {
     if (!showRoute || !shouldUseMapboxNav) {
@@ -257,7 +304,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     const fetchDirections = async () => {
       routeFetchedRef.current = true;
       try {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLoc.lng},${userLoc.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&access_token=${mapboxToken}`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLoc.lng},${userLoc.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&language=${encodeURIComponent(navLanguage)}&access_token=${mapboxToken}`;
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) throw new Error('Directions request failed');
         const data = await res.json();
@@ -283,7 +330,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     };
     fetchDirections();
     return () => controller.abort();
-  }, [navReady, shouldUseMapboxNav, spot, mapboxToken]);
+  }, [navReady, shouldUseMapboxNav, spot, mapboxToken, navLanguage]);
 
   // --- Map Init ---
   useEffect(() => {
@@ -344,16 +391,20 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
        }
 
        if (!markerRef.current) {
-         const el = document.createElement('div');
+         const el = document.createElement('img');
          // FIX 2: Smooth CSS transition for the car icon
-         el.className = 'car-marker-container transition-transform duration-1000 linear'; 
-         el.innerHTML = CAR_SVG;
-         el.style.transformOrigin = 'center';
+         el.className = 'car-marker-container transition-transform duration-1000 linear';
+         el.src = carMarker;
+         el.alt = 'Car';
+         el.style.width = '48px';
+         el.style.height = '48px';
+         el.style.transformOrigin = 'center center';
+         el.draggable = false;
          
-         markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
-             .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
-             .setRotation(0)
-             .addTo(map);
+            markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
+              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
+              .setRotation(0)
+              .addTo(map);
        }
 
        // --- START TRACKING ---
@@ -419,7 +470,9 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
                        markerRef.current.setRotation(bearingToUse);
                    }
                    
-                   setUserLoc({ lat: latitude, lng: longitude });
+                   const coordObj = { lat: latitude, lng: longitude };
+                   setUserLoc(coordObj);
+                   persistUserLocation(coordObj);
                    prevCoords = newCoords;
                },
                (err) => console.warn('GPS Watch Error', err),
@@ -433,11 +486,83 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
     }
   }, [navReady, navGeometry, mapLoaded]);
 
+  // --- Subscribe to other users' locations and render markers ---
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current) return undefined;
+    const locRef = collection(db, 'artifacts', appId, 'public', 'data', 'userLocations');
+    const unsubscribe = onSnapshot(
+      locRef,
+      (snap) => {
+        const seen = new Set();
+        snap.docs.forEach((docSnap) => {
+          const uid = docSnap.id;
+          const data = docSnap.data();
+          if (uid === currentUserId) return;
+          if (!isValidCoord(data.lng, data.lat)) return;
+          seen.add(uid);
+          // Determine display position (jitter off Arc de Triomphe if needed) and stick to it
+          let displayPos = otherUserPositionsRef.current.get(uid);
+          if (!displayPos) {
+            const distFromArc = getDistanceFromLatLonInKm(48.8738, 2.295, data.lat, data.lng);
+            if (distFromArc < 0.5 && fallbackOtherPositions.length > 0) {
+              displayPos = fallbackOtherPositions[Math.floor(Math.random() * fallbackOtherPositions.length)];
+            } else {
+              displayPos = { lng: data.lng, lat: data.lat };
+            }
+            otherUserPositionsRef.current.set(uid, displayPos);
+          }
+          const existing = otherUserMarkersRef.current.get(uid);
+          if (existing) {
+            existing.setLngLat([displayPos.lng, displayPos.lat]);
+            return;
+          }
+          // pick or reuse a random icon for this user
+          let icon = otherUserIconsRef.current.get(uid);
+          if (!icon) {
+            const pool = [userCar1, userCar2, userCar3, userCar4];
+            icon = pool[Math.floor(Math.random() * pool.length)];
+            otherUserIconsRef.current.set(uid, icon);
+          }
+
+          const el = document.createElement('img');
+          el.src = icon;
+          el.alt = 'Other user';
+          el.style.width = '36px';
+          el.style.height = '36px';
+          el.style.transformOrigin = 'center';
+          el.draggable = false;
+          const marker = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
+            .setLngLat([displayPos.lng, displayPos.lat])
+            .addTo(mapRef.current);
+          otherUserMarkersRef.current.set(uid, marker);
+        });
+        // Cleanup markers not in snapshot
+        for (const [uid, marker] of otherUserMarkersRef.current.entries()) {
+          if (!seen.has(uid)) {
+            marker.remove();
+            otherUserMarkersRef.current.delete(uid);
+          }
+        }
+      },
+      (err) => console.error('Error watching user locations', err),
+    );
+
+    return () => {
+      unsubscribe();
+      for (const marker of otherUserMarkersRef.current.values()) {
+        marker.remove();
+      }
+      otherUserMarkersRef.current.clear();
+      otherUserIconsRef.current.clear();
+      otherUserPositionsRef.current.clear();
+    };
+  }, [mapLoaded, currentUserId]);
+
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">
       <div
         className="relative w-full h-full bg-gray-900 overflow-hidden"
-        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'var(--bottom-safe-offset, 96px)' }}
       >
         
         {/* The Map */}
@@ -449,19 +574,17 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
 
         {/* --- STEP 1: PREVIEW --- */}
         {!showSteps && (
-          <div className="absolute inset-0 flex flex-col justify-end pb-[calc(env(safe-area-inset-bottom)+20px)] px-6 z-20 pointer-events-none">
-            <div className="bg-white/90 rounded-2xl shadow-lg border border-gray-200 px-4 py-3 mb-4 pointer-events-auto">
-              <p className="font-semibold text-gray-900">{spot?.address || t('unknown', 'Unknown')}</p>
-              <p className="text-xs text-gray-600 mt-1">
-                {distanceKm != null ? `${distanceKm.toFixed(1)} km • ${etaMinutes != null ? `${etaMinutes} min` : ''}` : t('distancePending', 'Fetching...')}
-              </p>
-            </div>
+          <div
+            className="absolute inset-0 flex flex-col justify-end px-6 z-20 pointer-events-none"
+            style={{ paddingBottom: 'calc(var(--bottom-safe-offset, 96px) + 12px)' }}
+          >
             {!showRoute && (
               <div className="pointer-events-auto space-y-3">
                 <button
                   onClick={() => {
                     setShowRoute(true);
                     setShowSteps(true);
+                    onSelectionStep?.('nav_started', spot);
                   }}
                   className="w-full bg-orange-600 text-white py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-orange-300/50 active:scale-98 transition"
                 >
@@ -469,6 +592,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
                 </button>
                 <button
                   onClick={() => {
+                    onSelectionStep?.('declined', spot);
                     if (onCancelBooking && spot) onCancelBooking(spot.id);
                     onClose?.();
                   }}
@@ -481,110 +605,117 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
           </div>
         )}
 
-       // ... inside MapInner return (...)
-
-{/* --- STEP 2: REAL GPS --- */}
-{showRoute && showSteps && (
-  <>
-    {/* Top: Instructions */}
-            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]" style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}>
-              <div className="bg-[#1c1c1e] text-white rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-gray-800">
+        {/* --- STEP 2: REAL GPS --- */}
+        {showRoute && showSteps && (
+          <>
+            {/* Top: Instructions */}
+            <div
+              className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]"
+              style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
+            >
+              <div className="bg-orange-600 text-white rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-orange-500">
                 <div className="flex p-4 items-center gap-4">
-          <div className="shrink-0 bg-gray-700/50 p-2 rounded-lg">
-            {getManeuverIcon(stepsToShow[navIndex])}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xl font-bold leading-tight">
-              {stepsToShow[navIndex] || t('stepFollow', 'Follow route')}
-            </p>
-            {stepsToShow[navIndex + 1] && (
-               <p className="text-gray-400 text-sm mt-1 truncate">
-                 {t('then', 'Then')}: {stepsToShow[navIndex + 1]}
-               </p>
-            )}
-          </div>
-        </div>
-        <div className="h-1 bg-gray-700 w-full">
-           <div className="h-full bg-orange-500 transition-all duration-1000" style={{ width: `${Math.min(100, (navIndex / Math.max(1, stepsToShow.length)) * 100)}%` }}></div>
-        </div>
-      </div>
-    </div>
-
-    {/* Bottom: Summary */}
-            <div className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}>
-              <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
-                 <div>
-                    <div className="flex items-baseline gap-3">
-                         <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
-                         <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">{distanceKm?.toFixed(1)} km</span>
+                  <div className="shrink-0 bg-gray-700/50 p-2 rounded-lg">
+                    {getManeuverIcon(stepsToShow[navIndex])}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xl font-bold leading-tight">
+                      {stepsToShow[navIndex] || t('stepFollow', 'Follow route')}
+                    </p>
+                    {stepsToShow[navIndex + 1] && (
+                      <p className="text-orange-50 text-sm mt-1 truncate">
+                        {t('then', 'Then')}: {stepsToShow[navIndex + 1]}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="h-1 bg-orange-700/70 w-full">
+                  <div
+                    className="h-full bg-orange-500 transition-all duration-1000"
+                    style={{ width: `${Math.min(100, (navIndex / Math.max(1, stepsToShow.length)) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
             </div>
-            <p className="text-gray-500 text-sm font-medium mt-1">
-                {t('arrival', 'Arrival')} {arrivalTime || '--:--'}
-            </p>
-         </div>
-         
-         {/* FIX ADDED HERE: type="button" and explicit click handler */}
-        <button
-            type="button" 
-            onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setConfirming(true);
-            }}
-            className="bg-gray-100 hover:bg-red-50 text-red-600 p-3 rounded-full transition-colors border border-gray-200 shadow-md"
-         >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-         </button>
-      </div>
-    </div>
-  </>
-)}
 
-{/* Exit Modal */}
-{confirming && (
-  <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
-    {/* Removed custom animate-[scaleIn] and used standard Tailwind scale transition */}
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 transform transition-all animate-none scale-100">
-      <h3 className="font-bold text-lg text-center text-gray-900 mb-2">
-        {t('confirmCancelNav', 'Stop Navigation?')}
-      </h3>
-      <p className="text-sm text-gray-500 text-center mb-4">
-        {t('confirmCancelSub', 'The spot will be made available to other users.')}
-      </p>
-      <div className="flex gap-3 mt-4">
-        <button 
-          type="button"
-          onClick={() => setConfirming(false)} 
-          className="flex-1 py-2.5 rounded-xl font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200"
-        >
-          {t('resume', 'Resume')}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            // Cancel Logic
-            if (onCancelBooking && spot) {
-              onCancelBooking(spot.id);
-            }
-            setConfirming(false);
-            onClose?.();
-          }}
-          className="flex-1 py-2.5 rounded-xl font-semibold bg-orange-600 text-white hover:bg-orange-700"
-        >
-          {t('end', 'Exit')}
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+            {/* Bottom: Summary */}
+            <div
+              className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]"
+              style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 12px)' }}
+            >
+              <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
+                <div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
+                    <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">{distanceKm?.toFixed(1)} km</span>
+                  </div>
+                  <p className="text-gray-500 text-sm font-medium mt-1">
+                    {t('arrival', 'Arrival')} {arrivalTime || '--:--'}
+                  </p>
+                </div>
+
+                {/* FIX ADDED HERE: type="button" and explicit click handler */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setConfirming(true);
+                  }}
+                  className="bg-gray-100 hover:bg-red-50 text-red-600 p-3 rounded-full transition-colors border border-gray-200 shadow-md"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Exit Modal */}
+        {confirming && (
+          <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
+            {/* Removed custom animate-[scaleIn] and used standard Tailwind scale transition */}
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 transform transition-all animate-none scale-100">
+              <h3 className="font-bold text-lg text-center text-gray-900 mb-2">
+                {t('confirmCancelNav', 'Stop Navigation?')}
+              </h3>
+              <p className="text-sm text-gray-500 text-center mb-4">
+                {t('confirmCancelSub', 'The spot will be made available to other users.')}
+              </p>
+              <div className="flex gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200"
+                >
+                  {t('resume', 'Resume')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onCancelBooking && spot) {
+                      onCancelBooking(spot.id);
+                    }
+                    setConfirming(false);
+                    onClose?.();
+                    onSelectionStep?.('cleared', null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-orange-600 text-white hover:bg-orange-700"
+                >
+                  {t('end', 'Exit')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Recenter control */}
         {mapLoaded && mapMoved && (
           <div
             className="absolute right-6 z-30 pointer-events-auto"
-            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 140px)' }}
+            style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 150px)' }}
           >
             <button
               type="button"
@@ -599,16 +730,18 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange }) => {
                   center: candidate,
                   duration: 600,
                   pitch: 45,
-                  zoom: 15,
+                  zoom: 17,
                   essential: true,
                 });
                 setMapMoved(false);
               }}
-              className="rounded-full shadow-[0_16px_36px_-12px_rgba(0,0,0,0.35)] border border-white/30 bg-white/95 p-3 hover:scale-105 active:scale-95 transition"
+              className="rounded-3xl shadow-[0_22px_46px_-12px_rgba(0,0,0,0.55)] border border-orange-200 bg-gradient-to-br from-orange-500 to-amber-400 p-4 flex items-center justify-center hover:translate-y-[-3px] active:translate-y-[1px] transition transform-gpu"
             >
-              <svg className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v.01M12 18v.01M6 12h.01M18 12h.01M4 12a8 8 0 1116 0 8 8 0 01-16 0z" />
-              </svg>
+              <div className="relative w-9 h-9 flex items-center justify-center bg-white rounded-full shadow-inner shadow-orange-900/20">
+                <svg className="w-6 h-6 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 3.25c-.35 0-.66.2-.8.52l-3 7a.88.88 0 0 0 1.02 1.18l2.43-.52.13 8.07c.01.44.37.8.82.8s.81-.36.82-.8l.13-8.07 2.43.52a.88.88 0 0 0 1.02-1.18l-3-7a.86.86 0 0 0-.79-.52Z" />
+                </svg>
+              </div>
             </button>
           </div>
         )}

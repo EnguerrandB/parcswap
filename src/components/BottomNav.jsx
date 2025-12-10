@@ -7,8 +7,16 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
   const { t } = useTranslation('common');
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
-      <div id="bottom-nav" className="pointer-events-auto w-full max-w-md bg-white border-t border-gray-200 flex justify-around items-center p-4 h-20 pb-[calc(env(safe-area-inset-bottom)+8px)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+    <div
+      className="fixed bottom-0 left-0 right-0 z-[300] flex justify-center pointer-events-none"
+      data-role="bottom-nav-wrapper"
+      style={{ height: 'var(--bottom-nav-height, auto)' }}
+    >
+      <div
+        id="bottom-nav"
+        data-role="bottom-nav"
+        className="pointer-events-auto w-full max-w-md bg-white border-t border-gray-200 flex justify-around items-center p-4 h-20 pb-[calc(env(safe-area-inset-bottom)+8px)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]"
+      >
         <button
           onClick={() => setActiveTab('search')}
           className={`flex flex-col items-center space-y-1 ${activeTab === 'search' ? 'text-orange-600' : 'text-gray-400'}`}
@@ -26,6 +34,7 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
         </button>
 
         <button
+          id="propose-tab-button"
           onClick={() => setActiveTab('propose')}
           className={`flex flex-col items-center space-y-1 ${activeTab === 'propose' ? 'text-orange-600' : 'text-gray-400'}`}
         >

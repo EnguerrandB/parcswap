@@ -2,11 +2,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, MapPin, Bell } from 'lucide-react';
-import Map from '../components/Map';
 
 // --- UTILITAIRES ---
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
-const CARD_COLORS = ['#a9dbff', '#b8f1c7', '#f6d1b1']; // soft Apple-like pastels
+const CARD_COLORS = ['#0f1d33', '#112640', '#0d2039', '#0c192f']; // deep navy gradients per card
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
 const getDistanceMeters = (spot) => {
   if (!spot) return Infinity;
@@ -51,7 +50,7 @@ const formatDuration = (ms) => {
 };
 
 // --- COMPOSANT CARTE (SWIPE) ---
-const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark }) => {
+const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark, leaderboard = [] }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -120,23 +119,18 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark 
       : '0 20px 60px -40px rgba(15,23,42,0.20), 0 10px 34px -30px rgba(15,23,42,0.12), 0 1px 0 0 rgba(255,255,255,0.55) inset';
   const textStrong = isDark ? 'text-slate-50' : 'text-slate-900';
   const textMuted = isDark ? 'text-slate-300' : 'text-gray-500';
-  const pillBg = isDark
-    ? 'bg-slate-800/80 border border-white/10 text-slate-50'
-    : 'bg-white/90 border border-white text-slate-900';
-  const infoRowBg = isDark
-    ? 'bg-slate-800/70 border border-white/10 text-slate-100 shadow-sm shadow-black/20'
-    : 'bg-white/70 border border-white/60 text-slate-900 shadow-sm';
-  const cardBackground = isDark
-    ? `linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.86)), ${cardColor}`
-    : `linear-gradient(145deg, rgba(255,255,255,0.95), rgba(250,250,255,0.85)), ${cardColor}`;
-  const cardBorder = isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.75)';
+  const cardBackground = `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
+  const cardBorder = '1px solid rgba(255,255,255,0.08)';
+  const rank = spot?.rank || spot?.position || index + 1;
+  const transactions = leaderboard.find((u) => u.id === spot?.hostId)?.transactions ?? 0;
+  const [showRank, setShowRank] = useState(false);
 
   if (!spot) return null;
 
   return (
     <div
       ref={active ? activeCardRef : cardRef}
-      className={`absolute w-[84%] max-w-[330px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-5 backdrop-blur-xl ${cursorClass}`}
+      className={`absolute w-[78%] max-w-[300px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
         zIndex: 10 - index,
         transform: `translate(${offset.x + translateX}px, ${offset.y + translateY}px) rotate(${rotation}deg) scale(${scale})`,
@@ -155,54 +149,86 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark 
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Header strip */}
-      <div className={`flex items-center justify-between w-full mb-6 ${textStrong}`}>
-        <div className="flex items-center space-x-2">
-          <div className={`w-8 h-8 rounded-full shadow-sm flex items-center justify-center font-bold text-lg text-orange-500 ${pillBg}`}>
+      <div className="flex flex-col items-center justify-center h-full space-y-6 text-center">
+        {/* Top row: rank badge */}
+        <div className="w-full flex items-start justify-start text-white/90">
+          <button
+            type="button"
+            onClick={() => setShowRank(true)}
+            className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 text-2xl shadow-inner shadow-black/20 relative active:scale-95 transition"
+          >
+            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
             {carEmoji}
-          </div>
-          <span className={`text-sm font-semibold px-3 py-1 rounded-full ${pillBg}`}>
-            {spot.carModel || t('carLabel', 'Car')}
-          </span>
+          </button>
         </div>
-        <div
-          className={`rounded-full px-4 py-1.5 shadow-sm font-bold text-lg ${
-            isDark ? 'bg-slate-800/80 border border-white/10 text-slate-50' : 'bg-white/90 border border-white text-slate-900'
-          }`}
-        >
-          {formatPrice(spot.price)}
-        </div>
-      </div>
 
-      {/* Content */}
-      <div className="flex flex-col items-center justify-center h-full space-y-6">
-        <h2 className={`text-3xl font-black text-center px-4 leading-tight ${textStrong}`}>
-          {spot.hostName || 'Driver'}
-        </h2>
-        <div className={`space-y-3 font-semibold text-center leading-tight text-lg w-full ${textStrong}`}>
-          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
-            <div className="flex items-center space-x-2">
+        {/* Headline: price */}
+        <div className="mt-3">
+          <p className="text-white text-sm uppercase tracking-[0.18em] opacity-70 mb-1">{t('priceLabel', 'Price')}</p>
+          <p className="text-white text-4xl font-extrabold drop-shadow">{formatPrice(spot.price)}</p>
+        </div>
+
+        {/* Info cards */}
+        <div className="flex flex-col items-stretch gap-3 w-full text-left">
+          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+            <div className="flex items-center gap-2 text-base font-semibold">
               <span role="img" aria-label="car">🚗</span>
               <span>{t('lengthLabel', 'Length')}</span>
             </div>
-            <span>{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</span>
+            <div className="text-lg font-bold">
+              {t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}
+            </div>
           </div>
-          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
-            <div className="flex items-center space-x-2">
+          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+            <div className="flex items-center gap-2 text-base font-semibold">
               <span role="img" aria-label="pin">📍</span>
               <span>{t('distanceLabel', 'Distance')}</span>
             </div>
-            <span>{formatDistance(getDistanceMeters(spot))}</span>
+            <div className="text-lg font-bold">
+              {formatDistance(getDistanceMeters(spot))}
+            </div>
           </div>
-          <div className={`flex items-center justify-between rounded-2xl px-4 py-3 ${infoRowBg}`}>
-            <div className="flex items-center space-x-2">
-              <span role="img" aria-label="clock">⏰</span>
+          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+            <div className="flex items-center gap-2 text-base font-semibold">
+              <span role="img" aria-label="clock">⏱️</span>
               <span>{t('etaLabel', 'ETA')}</span>
             </div>
-            <span>{preciseTime || t('etaFallback', '4:10')}</span>
+            <div className="text-lg font-bold">
+              {preciseTime || t('etaFallback', '4:10')}
+            </div>
           </div>
         </div>
       </div>
+      {showRank && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowRank(false)} />
+          <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
+            <button
+              type="button"
+              onClick={() => setShowRank(false)}
+              className="absolute top-2 right-2 text-white/70 hover:text-white"
+              aria-label="Close"
+            >
+              ×
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 border border-white/15 text-2xl shadow-inner shadow-black/30">
+                {carEmoji}
+              </span>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-white/60">Rang</p>
+                <p className="text-2xl font-bold">#{rank}</p>
+              </div>
+            </div>
+            <div className="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/70">Transactions</span>
+                <span className="text-lg font-semibold">{transactions}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -214,7 +240,8 @@ const SearchView = ({
   onCancelBooking,
   selectedSpot: controlledSelectedSpot,
   setSelectedSpot: setControlledSelectedSpot,
-  onNavStateChange,
+  onSelectionStep,
+  leaderboard = [],
 }) => {
   const { t } = useTranslation('common');
   const isDark =
@@ -292,6 +319,7 @@ const SearchView = ({
     if (!spot) return;
 
     if (direction === 'right') {
+      onSelectionStep?.('selected', spot);
       onBookSpot?.(spot);
       setSelectedSpot(spot);
       setCurrentIndex((prev) => prev + 1);
@@ -416,7 +444,7 @@ const SearchView = ({
       )}
 
       {/* Stack de Cartes + Actions */}
-      <div className="flex-1 flex flex-col relative z-10 overflow-hidden pb-[110px]">
+      <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
           className="flex-1 flex flex-col items-center justify-center -mt-2"
@@ -455,6 +483,7 @@ const SearchView = ({
                           activeCardRef={activeCardRef}   // ✅ AJOUT ICI
                           onSwipe={(dir) => handleSwipe(dir, spot)}
                           isDark={isDark}
+                          leaderboard={leaderboard}
                         />
                       ))
                       .reverse()}
@@ -468,15 +497,6 @@ const SearchView = ({
             </>
           )}
         </div>
-
-        {selectedSpot && (
-          <Map
-            spot={selectedSpot}
-            onClose={() => setSelectedSpot(null)}
-            onCancelBooking={onCancelBooking}
-            onNavStateChange={onNavStateChange}
-          />
-        )}
 
         {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
           <div

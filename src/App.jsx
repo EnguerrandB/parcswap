@@ -32,6 +32,11 @@ import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
 import AppLogo from './components/AppLogo';
+import SafeView from './components/SafeView';
+import Map from './components/Map';
+
+const userSelectionRef = (uid) =>
+  doc(db, 'artifacts', appId, 'public', 'data', 'userSelections', uid);
 
 const vehiclesCollectionForUser = (uid) =>
   collection(db, 'artifacts', appId, 'public', 'data', 'users', uid, 'vehicles');
@@ -52,6 +57,15 @@ const getRemainingMs = (spot) => {
   return createdMs + Number(spot.time) * 60_000 - Date.now();
 };
 
+const BOTTOM_NAV_HEIGHT = 96; // fallback if we can't measure the nav
+const measureBottomSafeOffset = () => {
+  if (typeof document === 'undefined') return BOTTOM_NAV_HEIGHT;
+  const nav = document.getElementById('bottom-nav');
+  if (!nav) return BOTTOM_NAV_HEIGHT;
+  const rect = nav.getBoundingClientRect();
+  return Math.round(rect.height);
+};
+
 export default function ParkSwapApp() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
@@ -68,6 +82,8 @@ export default function ParkSwapApp() {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteMessage, setInviteMessage] = useState('');
   const lastKnownLocationRef = useRef(null);
+  const selectionWriteInFlight = useRef(false);
+  const selectionQueueRef = useRef(null);
 
   // Try to lock orientation to portrait (best-effort; may fail on some browsers)
   useEffect(() => {
@@ -123,6 +139,36 @@ export default function ParkSwapApp() {
     }
   };
 
+  const saveSelectionStep = async (step, spot) => {
+    if (!user?.uid) return;
+    const ref = userSelectionRef(user.uid);
+    const payload = {
+      step: step || null,
+      spotId: spot?.id || null,
+      updatedAt: serverTimestamp(),
+    };
+
+    // Simple queue to avoid overlapping writes on rapid UI taps
+    if (selectionWriteInFlight.current) {
+      selectionQueueRef.current = { step: payload.step, spotId: payload.spotId };
+      return;
+    }
+
+    selectionWriteInFlight.current = true;
+    try {
+      await setDoc(ref, payload, { merge: true });
+    } catch (err) {
+      console.error('Error persisting selection step:', err);
+    } finally {
+      selectionWriteInFlight.current = false;
+      if (selectionQueueRef.current) {
+        const next = selectionQueueRef.current;
+        selectionQueueRef.current = null;
+        saveSelectionStep(next.step, next.spotId ? { id: next.spotId } : null);
+      }
+    }
+  };
+
 const findSpotById = (spotId) => {
   if (myActiveSpot?.id === spotId) return myActiveSpot;
   if (bookedSpot?.id === spotId) return bookedSpot;
@@ -171,7 +217,8 @@ const logCurrentLocation = async (contextLabel = 'location') => {
   const [leaderboard, setLeaderboard] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
-  const [hideNav, setHideNav] = useState(false);
+  const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
+  const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const getInitialTheme = () => {
     if (typeof window === 'undefined') return 'light';
     const stored = window.localStorage?.getItem('theme');
@@ -185,6 +232,43 @@ const logCurrentLocation = async (contextLabel = 'location') => {
     document.body.dataset.theme = theme;
     window.localStorage?.setItem('theme', theme);
   }, [theme]);
+
+  // Keep a CSS variable in sync with the real bottom nav height so views can avoid overlap.
+  useEffect(() => {
+    const updateBottomPadding = () => {
+      if (typeof document === 'undefined') return;
+      const safeValue = measureBottomSafeOffset();
+      document.documentElement.style.setProperty('--bottom-safe-offset', `${safeValue}px`);
+    };
+    updateBottomPadding();
+
+    let observer = null;
+    const tryAttachObserver = () => {
+      if (typeof document === 'undefined' || !('ResizeObserver' in window)) return;
+      const navEl = document.getElementById('bottom-nav');
+      if (!navEl || observer) return;
+      observer = new ResizeObserver(updateBottomPadding);
+      observer.observe(navEl);
+      updateBottomPadding(); // ensure we capture the measured height once nav is present
+    };
+
+    // Poll briefly until the nav mounts, then rely on ResizeObserver + resize/orientation
+    const pollId = setInterval(() => {
+      tryAttachObserver();
+      const navEl = typeof document !== 'undefined' ? document.getElementById('bottom-nav') : null;
+      if (navEl) clearInterval(pollId);
+    }, 250);
+    tryAttachObserver();
+
+    window.addEventListener('resize', updateBottomPadding);
+    window.addEventListener('orientationchange', updateBottomPadding);
+    return () => {
+      window.removeEventListener('resize', updateBottomPadding);
+      window.removeEventListener('orientationchange', updateBottomPadding);
+      if (observer) observer.disconnect();
+      clearInterval(pollId);
+    };
+  }, []);
 
   // --- Auth subscription ---
   useEffect(() => {
@@ -259,6 +343,41 @@ const logCurrentLocation = async (contextLabel = 'location') => {
     );
     return () => unsubscribe();
   }, [user]);
+
+  // Restore selected spot (itinerary) from persisted state or current booking
+  useEffect(() => {
+    // First priority: persisted selection with a spotId
+    if (selectionSnapshot?.spotId) {
+      const match = findSpotById(selectionSnapshot.spotId);
+      if (match && (!selectedSearchSpot || selectedSearchSpot.id !== match.id)) {
+        setSelectedSearchSpot(match);
+        return;
+      }
+    }
+    // Fallback to an active booked spot
+    if (bookedSpot && (!selectedSearchSpot || selectedSearchSpot.id !== bookedSpot.id)) {
+      setSelectedSearchSpot(bookedSpot);
+      return;
+    }
+    // If no selection persists and no booking, clear local selection
+    if (!selectionSnapshot?.spotId && !bookedSpot && selectedSearchSpot) {
+      setSelectedSearchSpot(null);
+    }
+  }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
+
+  // --- Persisted selection subscription (to restore itinerary after reload) ---
+  useEffect(() => {
+    if (!user?.uid) return;
+    const ref = userSelectionRef(user.uid);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        setSelectionSnapshot(snap.exists() ? snap.data() : null);
+      },
+      (err) => console.error('Error watching selection state:', err),
+    );
+    return () => unsub();
+  }, [user?.uid]);
 
   // --- Transactions subscription (history) ---
   useEffect(() => {
@@ -500,6 +619,10 @@ const logCurrentLocation = async (contextLabel = 'location') => {
     }
   };
 
+  const handleSelectionStep = (step, spot) => {
+    saveSelectionStep(step, spot);
+  };
+
   const handleBookSpot = async (spot) => {
     if (!spot || !user) return;
     logCurrentLocation('book_spot');
@@ -523,6 +646,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
         role: 'host',
       });
       setActiveTab('search');
+      saveSelectionStep('booked', spot);
     } catch (err) {
       console.error('Error booking spot:', err);
     }
@@ -566,6 +690,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
       });
       setMyActiveSpot(null);
       setBookedSpot(null);
+      saveSelectionStep('cleared', null);
     } catch (err) {
       console.error('Error completing swap:', err);
     }
@@ -602,6 +727,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
         bookerName: null,
       });
       setBookedSpot(null);
+      saveSelectionStep('cleared', null);
     } catch (err) {
       console.error('Error canceling booking:', err);
     }
@@ -764,48 +890,55 @@ const logCurrentLocation = async (contextLabel = 'location') => {
   const renderTabContent = (tab) => {
     if (tab === 'search') {
       return (
-        <SearchView
-          spots={spots}
-          bookedSpot={bookedSpot}
-          onCompleteSwap={handleCompleteSwap}
-          onBookSpot={handleBookSpot}
-          onCancelBooking={handleCancelBooking}
-          selectedSpot={selectedSearchSpot}
-          setSelectedSpot={setSelectedSearchSpot}
-          onNavStateChange={setHideNav}
-        />
+        <SafeView className="h-full w-full" navHidden={false}>
+          <SearchView
+            spots={spots}
+            bookedSpot={bookedSpot}
+            onCompleteSwap={handleCompleteSwap}
+            onBookSpot={handleBookSpot}
+            onCancelBooking={handleCancelBooking}
+            selectedSpot={selectedSearchSpot}
+            setSelectedSpot={setSelectedSearchSpot}
+            onSelectionStep={handleSelectionStep}
+            leaderboard={leaderboard}
+          />
+        </SafeView>
       );
     }
     if (tab === 'propose') {
       return (
-        <ProposeView
-          myActiveSpot={myActiveSpot}
-          vehicles={vehicles}
-          onProposeSpot={handleProposeSpot}
-          onConfirmPlate={handleConfirmPlate}
-          onCancelSpot={handleCancelSpot}
-          onRenewSpot={handleRenewSpot}
-        />
+        <SafeView className="h-full w-full">
+          <ProposeView
+            myActiveSpot={myActiveSpot}
+            vehicles={vehicles}
+            onProposeSpot={handleProposeSpot}
+            onConfirmPlate={handleConfirmPlate}
+            onCancelSpot={handleCancelSpot}
+            onRenewSpot={handleRenewSpot}
+          />
+        </SafeView>
       );
     }
     return (
-          <ProfileView
-            user={user}
-            vehicles={vehicles}
-            onAddVehicle={handleAddVehicle}
-            onDeleteVehicle={handleDeleteVehicle}
-            onSelectVehicle={handleSelectVehicle}
-            onUpdateProfile={handleUpdateProfile}
-            leaderboard={leaderboard}
-            transactions={transactions}
-            onLogout={handleLogout}
-            theme={theme}
-            onChangeTheme={setTheme}
-            onInvite={handleInviteShare}
-            inviteMessage={inviteMessage}
-          />
-        );
-      };
+      <SafeView className="h-full w-full">
+        <ProfileView
+          user={user}
+          vehicles={vehicles}
+          onAddVehicle={handleAddVehicle}
+          onDeleteVehicle={handleDeleteVehicle}
+          onSelectVehicle={handleSelectVehicle}
+          onUpdateProfile={handleUpdateProfile}
+          leaderboard={leaderboard}
+          transactions={transactions}
+          onLogout={handleLogout}
+          theme={theme}
+          onChangeTheme={setTheme}
+          onInvite={handleInviteShare}
+          inviteMessage={inviteMessage}
+        />
+      </SafeView>
+    );
+  };
 
   // keep i18n in sync when profile already has a language
   useEffect(() => {
@@ -938,7 +1071,7 @@ const logCurrentLocation = async (contextLabel = 'location') => {
           </div>
         </div>
       )}
-      <div className="relative z-10 flex flex-col h-full">
+      <div className="relative flex flex-col h-full">
         <div className="flex-1 overflow-hidden relative" style={{ perspective: '1600px' }}>
           {(() => {
             const currentIndex = tabOrder.indexOf(activeTab);
@@ -1007,10 +1140,25 @@ const logCurrentLocation = async (contextLabel = 'location') => {
             );
           })()}
         </div>
-        <div className={`transition-opacity duration-300 ${hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div className="transition-opacity duration-300 opacity-100" style={{ '--bottom-nav-height': 'auto' }}>
           <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
         </div>
       </div>
+      {selectedSearchSpot && (
+        <Map
+          spot={selectedSearchSpot}
+          onClose={() => {
+            setSelectedSearchSpot(null);
+            handleSelectionStep('cleared', null);
+            setHideNav(false);
+          }}
+          onCancelBooking={handleCancelBooking}
+          onNavStateChange={setHideNav}
+          onSelectionStep={handleSelectionStep}
+          initialStep={selectionSnapshot?.step || (bookedSpot ? 'booked' : null)}
+          currentUserId={user?.uid || null}
+        />
+      )}
     </div>
   );
 }

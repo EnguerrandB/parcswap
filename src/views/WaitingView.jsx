@@ -89,7 +89,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     if (myActiveSpot.status === 'booked') {
       return (
-        <div className="h-screen overflow-hidden flex flex-col p-6 flex flex-col bg-gradient-to-b from-orange-50 to-white justify-center">
+        <div className="fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
           <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
             <div className="flex items-center space-x-3 mb-6">
               <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
@@ -139,7 +139,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     if (myActiveSpot.status === 'confirmed') {
       return (
-        <div className="h-full min-h-screen overflow-hidden flex flex-col items-center justify-center text-center">
+        <div className="fixed inset-0 overflow-hidden flex flex-col items-center justify-center text-center">
           <div className="bg-green-100 p-6 rounded-full mb-6">
             <CheckCircle size={48} className="text-green-600" />
           </div>
@@ -159,10 +159,9 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     return (
       <div
-      className="h-screen overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white app-surface"
+        className="fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white app-surface"
         style={{
-          minHeight: 'calc(100vh - 96px - env(safe-area-inset-bottom))',
-          paddingBottom: 'calc(96px + env(safe-area-inset-bottom))',
+          paddingBottom: 'var(--bottom-safe-offset, 96px)',
         }}
       >
         <div className="mt-16 mb-6 text-center">
@@ -277,12 +276,11 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   // Search accepted waiting overlay
   return (
     <div
-      className="h-screen overflow-hidden flex flex-col p-6 from-orange-50 via-white to-amber-50 flex flex-col items-center justify-center px-6 py-10 text-center app-surface"
-      style={{
-        minHeight: 'calc(100vh - 96px - env(safe-area-inset-bottom))',
-        paddingBottom: 'calc(96px + env(safe-area-inset-bottom))',
-      }}
-    >
+      className="fixed inset-0 overflow-hidden flex flex-col items-center justify-center px-6 py-10 text-center app-surface bg-gradient-to-b from-orange-50 via-white to-amber-50"
+        style={{
+          paddingBottom: 'var(--bottom-safe-offset, 96px)',
+        }}
+      >
       <div className="w-16 h-16 rounded-full bg-white shadow-lg border border-orange-100 flex items-center justify-center mb-4">
         <Car className="text-orange-500" size={32} />
       </div>

@@ -97,6 +97,13 @@ export default function ParkSwapApp() {
       }
     };
     lockOrientation();
+    const onOrientationChange = () => {
+      if (screen?.orientation?.type && !screen.orientation.type.includes('portrait')) {
+        lockOrientation();
+      }
+    };
+    window.addEventListener('orientationchange', onOrientationChange);
+    return () => window.removeEventListener('orientationchange', onOrientationChange);
   }, []);
   const upsertTransaction = async ({ spot, userId, status, role }) => {
     if (!spot || !userId) return;

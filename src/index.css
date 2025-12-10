@@ -11,12 +11,15 @@ html, body, #root {
   width: 100%;
   overflow-x: hidden;
   overscroll-behavior: none;
+  touch-action: manipulation;
   background: #f8fafc;
+  transform: rotate(0deg); /* noop but helps prevent orientation change */
 }
 
 body {
   margin: 0;
   padding-bottom: env(safe-area-inset-bottom);
+  transform: rotate(0deg); /* noop but helps prevent orientation change */
 }
 
 /* Soft floating animation for active cards */
@@ -74,6 +77,53 @@ body {
   0% { opacity: 0; transform: perspective(1200px) rotateY(22deg) translateX(-30px) scale(0.98); transform-origin: right center; }
   60% { opacity: 1; transform: perspective(1200px) rotateY(10deg) translateX(-10px) scale(1.01); }
   100% { opacity: 1; transform: perspective(1200px) rotateY(0deg) translateX(0) scale(1); }
+}
+
+@keyframes fadeScaleIn {
+  0% { opacity: 0; transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideUpFade {
+  0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideDownFadeOut {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(14px) scale(0.96); }
+}
+
+@keyframes modalIn {
+  0% { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(2px); }
+  60% { opacity: 1; transform: translateY(-4px) scale(1.02); filter: blur(0.6px); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes modalOut {
+  0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(18px) scale(0.95); filter: blur(2px); }
+}
+
+@keyframes overlayFade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes overlayFadeOut {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes accordionDown {
+  0% { opacity: 0; transform: translateY(-6px); height: 0; }
+  100% { opacity: 1; transform: translateY(0); height: var(--accordion-height, auto); }
+}
+
+@keyframes accordionUp {
+  0% { opacity: 1; transform: translateY(0); height: var(--accordion-height, auto); }
+  100% { opacity: 0; transform: translateY(-6px); height: 0; }
 }
 
 @keyframes crownBounce {

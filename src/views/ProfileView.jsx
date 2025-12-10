@@ -133,10 +133,56 @@ const ProfileView = ({
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showLegal, setShowLegal] = useState(false);
   const [achievements, setAchievements] = useState([
-    { id: 'achv-1', label: t('achievementPioneer', 'Pioneer'), enabled: true },
-    { id: 'achv-2', label: t('achievementTrusty', 'Trusty Trader'), enabled: false },
-    { id: 'achv-3', label: t('achievementSprinter', 'Sprinter'), enabled: false },
+    { id: 'achv-1', label: t('achievementPioneer', 'Pioneer'), enabled: true, icon: '/ranks/rank1.png', challenges: ['Faire ta première transaction'] },
+    { id: 'achv-2', label: t('achievementTrusty', 'Trusty Trader'), enabled: false, icon: '/ranks/rank2.png', challenges: ['Effectuer 10 transactions', 'Obtenir 3 évaluations positives'] },
+    { id: 'achv-3', label: t('achievementSprinter', 'Sprinter'), enabled: false, icon: '/ranks/rank3.png', challenges: ['Répondre en moins de 30s à une demande', 'Compléter 5 swaps en 24h'] },
+    { id: 'achv-4', label: 'Night Owl', enabled: false, icon: '/ranks/rank4.png', challenges: ['Faire un swap entre 1h et 5h du matin'] },
+    { id: 'achv-5', label: 'City Explorer', enabled: false, icon: '/ranks/rank5.png', challenges: ['Proposer une place dans 5 arrondissements différents'] },
+    { id: 'achv-6', label: 'Globetrotter', enabled: false, icon: '/ranks/rank1.png', challenges: ['Utiliser l’app dans 3 villes différentes'] },
+    { id: 'achv-7', label: 'Flash Deal', enabled: false, icon: '/ranks/rank2.png', challenges: ['Accepter une place en moins de 10s après notification'] },
+    { id: 'achv-8', label: 'Good Samaritan', enabled: false, icon: '/ranks/rank3.png', challenges: ['Proposer 3 places gratuites'] },
+    { id: 'achv-9', label: 'Social Bee', enabled: false, icon: '/ranks/rank4.png', challenges: ['Partager l’app avec 5 amis', 'Obtenir 2 nouveaux utilisateurs grâce à ton partage'] },
+    { id: 'achv-10', label: 'Consistency', enabled: false, icon: '/ranks/rank5.png', challenges: ['Faire au moins 1 swap par jour pendant 7 jours'] },
+    { id: 'achv-11', label: 'Weekend Warrior', enabled: false, icon: '/ranks/rank1.png', challenges: ['Réaliser 5 swaps sur un week-end'] },
+    { id: 'achv-12', label: 'Early Bird', enabled: false, icon: '/ranks/rank2.png', challenges: ['Proposer une place avant 7h du matin'] },
+    { id: 'achv-13', label: 'Lightning Booker', enabled: false, icon: '/ranks/rank3.png', challenges: ['Réserver une place à moins de 100 m'] },
+    { id: 'achv-14', label: 'Precision Driver', enabled: false, icon: '/ranks/rank4.png', challenges: ['Arriver à l’heure sur 5 réservations de suite'] },
+    { id: 'achv-15', label: 'Connector', enabled: false, icon: '/ranks/rank5.png', challenges: ['Inviter un ami ET compléter un swap avec lui/elle'] },
+    { id: 'achv-16', label: 'Feedback Hero', enabled: false, icon: '/ranks/rank1.png', challenges: ['Laisser 5 feedbacks constructifs'] },
+    { id: 'achv-17', label: 'High Roller', enabled: false, icon: '/ranks/rank2.png', challenges: ['Payer ou proposer une place à plus de 10€'] },
+    { id: 'achv-18', label: 'Streak Master', enabled: false, icon: '/ranks/rank3.png', challenges: ['Maintenir une série de 15 jours avec au moins une action'] },
+    { id: 'achv-19', label: 'Calm Navigator', enabled: false, icon: '/ranks/rank4.png', challenges: ['Suivre la navigation sans quitter l’app pendant 3 trajets'] },
+    { id: 'achv-20', label: 'Community Star', enabled: false, icon: '/ranks/rank5.png', challenges: ['Aider 3 nouveaux utilisateurs à réaliser leur premier swap'] },
   ]);
+  const [privacyCloseVisible, setPrivacyCloseVisible] = useState(true);
+  const [termsCloseVisible, setTermsCloseVisible] = useState(true);
+  const [closingModal, setClosingModal] = useState(false);
+  const [closingRank, setClosingRank] = useState(false);
+  const [closingPrivacy, setClosingPrivacy] = useState(false);
+  const [closingTerms, setClosingTerms] = useState(false);
+  const [closingHistory, setClosingHistory] = useState(false);
+  const [closingLeaderboard, setClosingLeaderboard] = useState(false);
+  const [showAchievementsModal, setShowAchievementsModal] = useState(false);
+  const [selectedAchievement, setSelectedAchievement] = useState(null);
+
+  useEffect(() => {
+    if (showModal) setClosingModal(false);
+  }, [showModal]);
+  useEffect(() => {
+    if (showRankInfo) setClosingRank(false);
+  }, [showRankInfo]);
+  useEffect(() => {
+    if (showPrivacy) setClosingPrivacy(false);
+  }, [showPrivacy]);
+  useEffect(() => {
+    if (showTerms) setClosingTerms(false);
+  }, [showTerms]);
+  useEffect(() => {
+    if (showHistory) setClosingHistory(false);
+  }, [showHistory]);
+  useEffect(() => {
+    if (showLeaderboard) setClosingLeaderboard(false);
+  }, [showLeaderboard]);
   const phoneChanged = profileForm.phone !== (user?.phone || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
@@ -149,6 +195,23 @@ const ProfileView = ({
   const userRank = selfLeaderboardEntry?.rank ?? null;
   const toggleTheme = () => onChangeTheme?.(theme === 'dark' ? 'light' : 'dark');
   const collapseLegal = () => setShowLegal(false);
+  const closeWithAnim = (setClosing, setShow) => {
+    setClosing(true);
+    setTimeout(() => {
+      setShow(false);
+      setClosing(false);
+    }, 260);
+  };
+  const openAchievement = (achv) => {
+    setSelectedAchievement(achv);
+    setShowAchievementsModal(true);
+  };
+  const openAchievementsModal = () => {
+    if (!selectedAchievement && achievements.length > 0) {
+      setSelectedAchievement(achievements[0]);
+    }
+    setShowAchievementsModal(true);
+  };
 
   useEffect(() => {
     setProfileForm({
@@ -453,7 +516,7 @@ const ProfileView = ({
             <span className="font-semibold">{t('myVehicles')}</span>
           </div>
           <button
-            onClick={() => setShowModal(true)}
+          onClick={() => setShowModal(true)}
             className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
           >
             {t('manageVehicles')}
@@ -496,35 +559,17 @@ const ProfileView = ({
             </div>
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
           </div>
-          <span className="text-xs text-gray-500">{t('toggleToEnable', 'Toggle to enable')}</span>
+          <button
+            type="button"
+            onClick={openAchievementsModal}
+            className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
+          >
+            {t('viewAchievements', 'Voir')}
+          </button>
         </div>
-        <div className="space-y-2">
-          {achievements.map((achv) => (
-            <label
-              key={achv.id}
-              className="flex items-center justify-between border border-gray-100 rounded-xl px-3 py-2 cursor-pointer hover:border-orange-200 transition"
-            >
-              <div className="flex items-center space-x-2">
-                <img
-                  src={rankIcon(achv.enabled ? 10 : 1)}
-                  alt="Badge"
-                  className="w-8 h-8 rounded-full border border-orange-100 object-cover"
-                />
-                <span className="font-semibold text-gray-900">{achv.label}</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={achv.enabled}
-                onChange={() =>
-                  setAchievements((prev) =>
-                    prev.map((a) => (a.id === achv.id ? { ...a, enabled: !a.enabled } : a)),
-                  )
-                }
-                className="h-5 w-5 accent-orange-500"
-              />
-            </label>
-          ))}
-        </div>
+        <p className="text-sm text-gray-500">
+          {t('achievementsHint', 'Découvre tous les badges et leurs défis dans la modale dédiée.')}
+        </p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-100 overflow-hidden">
@@ -668,7 +713,8 @@ const ProfileView = ({
             <div
               className={`px-4 pb-4 pt-2 grid grid-cols-3 gap-2 text-sm ${
                 isDark ? 'bg-slate-800/80' : 'bg-gray-50'
-              }`}
+              } animate-[accordionDown_0.25s_ease]`}
+              style={{ '--accordion-height': 'auto' }}
             >
               <button
                 type="button"
@@ -731,15 +777,19 @@ const ProfileView = ({
 
       {showModal && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowModal(false)}
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingModal ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingModal, setShowModal)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative"
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
+              closingModal ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              onClick={() => setShowModal(false)}
+              onClick={() => closeWithAnim(setClosingModal, setShowModal)}
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
             >
               ×
@@ -837,21 +887,88 @@ const ProfileView = ({
         </div>
       )}
 
-      {showLeaderboard && (
+      {showAchievementsModal && selectedAchievement && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowLeaderboard(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 animate-[overlayFade_0.2s_ease]"
+          onClick={() => setShowAchievementsModal(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative animate-[modalIn_0.28s_ease]"
             onClick={(e) => e.stopPropagation()}
           >
-              <button
-                onClick={() => setShowLeaderboard(false)}
-                className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-              >
-                ×
-              </button>
+            <button
+              onClick={() => setShowAchievementsModal(false)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
+            <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">
+              {t('achievements', 'Achievements')}
+            </p>
+            <div className="grid grid-cols-5 gap-3 mb-4">
+              {achievements.map((achv) => (
+                <button
+                  key={achv.id}
+                  type="button"
+                  onClick={() => setSelectedAchievement(achv)}
+                  className={`w-14 h-14 rounded-xl border transition flex items-center justify-center ${
+                    achv.id === selectedAchievement.id
+                      ? 'border-orange-400 bg-orange-50'
+                      : 'border-gray-200 bg-white hover:border-orange-200'
+                  }`}
+                >
+                  <img
+                    src={achv.icon || rankIcon(1)}
+                    alt={achv.label}
+                    className={`w-10 h-10 object-contain ${achv.enabled ? 'grayscale-0' : 'grayscale'} ${achv.enabled ? 'opacity-100' : 'opacity-60'}`}
+                  />
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center space-x-3 mb-3">
+              <img
+                src={selectedAchievement.icon || rankIcon(1)}
+                alt=""
+                className="w-12 h-12 rounded-full border border-gray-200 object-contain bg-white p-1"
+              />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500">
+                  {t('challenge', 'Défi')}
+                </p>
+                <p className="text-xl font-bold text-gray-900">{selectedAchievement.label}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {(selectedAchievement.challenges || []).map((c, idx) => (
+                <div key={idx} className="flex items-start space-x-2">
+                  <span className="text-orange-500 leading-[1.4]">•</span>
+                  <p className="text-sm text-gray-700 leading-[1.4]">{c}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLeaderboard && (
+        <div
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingLeaderboard ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingLeaderboard, setShowLeaderboard)}
+        >
+          <div
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
+              closingLeaderboard ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => closeWithAnim(setClosingLeaderboard, setShowLeaderboard)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
             <div className="flex items-center space-x-2 mb-4">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Trophy size={20} style={iconStyle('leaderboard')} />
@@ -943,19 +1060,23 @@ const ProfileView = ({
 
       {showHistory && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowHistory(false)}
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingHistory ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative"
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
+              closingHistory ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-              <button
-                onClick={() => setShowHistory(false)}
-                className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-              >
-                ×
-              </button>
+            <button
+              onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
             <div className="flex items-center space-x-2 mb-4">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <History size={20} style={iconStyle('history')} />
@@ -1019,15 +1140,19 @@ const ProfileView = ({
 
       {showRankInfo && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowRankInfo(null)}
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingRank ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingRank, setShowRankInfo)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-5 relative"
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-xs p-5 relative ${
+              closingRank ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              onClick={() => setShowRankInfo(null)}
+              onClick={() => closeWithAnim(setClosingRank, setShowRankInfo)}
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
             >
               ×
@@ -1043,15 +1168,24 @@ const ProfileView = ({
 
       {showPrivacy && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowPrivacy(false)}
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingPrivacy ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto"
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto ${
+              closingPrivacy ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
             onClick={(e) => e.stopPropagation()}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
+              setPrivacyCloseVisible(!atBottom);
+            }}
           >
             <button
-              onClick={() => setShowPrivacy(false)}
+              onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
             >
               ×
@@ -1136,21 +1270,43 @@ Contact us
 If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at enguerrand.boitel@gmail.com.`,
               )}
             </p>
+            <div className="sticky bottom-0 left-0 right-0 pt-4 mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowPrivacy(false)}
+                className={`mx-auto flex items-center justify-center w-12 h-12 bg-orange-500 text-white text-xl font-bold rounded-full shadow-[0_12px_24px_-12px_rgba(255,132,0,0.55)] hover:bg-orange-600 transition transform-gpu ${
+                  privacyCloseVisible
+                    ? 'animate-[slideUpFade_0.3s_ease]'
+                    : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
+                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
+              >
+                ×
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {showTerms && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4"
-          onClick={() => setShowTerms(false)}
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingTerms ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto"
+            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto ${
+              closingTerms ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
             onClick={(e) => e.stopPropagation()}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
+              setTermsCloseVisible(!atBottom);
+            }}
           >
             <button
-              onClick={() => setShowTerms(false)}
+              onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
             >
               ×
@@ -1217,6 +1373,19 @@ If it turns out that a particular term is not enforceable, this will not affect 
 The laws of France will apply to any disputes arising out of or relating to these terms or the Services. All claims arising out of or relating to these terms or the Services will be litigated exclusively in the courts of Paris, France, and you and LoulouPark consent to personal jurisdiction in those courts.`,
               )}
             </p>
+            <div className="sticky bottom-0 left-0 right-0 pt-4 mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowTerms(false)}
+                className={`mx-auto flex items-center justify-center w-12 h-12 bg-orange-500 text-white text-xl font-bold rounded-full shadow-[0_12px_24px_-12px_rgba(255,132,0,0.55)] hover:bg-orange-600 transition transform-gpu ${
+                  termsCloseVisible
+                    ? 'animate-[slideUpFade_0.3s_ease]'
+                    : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
+                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
+              >
+                ×
+              </button>
+            </div>
           </div>
         </div>
       )}

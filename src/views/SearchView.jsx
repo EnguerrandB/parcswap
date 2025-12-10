@@ -121,6 +121,7 @@ const SwipeCard = ({
   exiting = false,
   entering = false,
   colorSalt = 0,
+  onVerticalSwipe,
 }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -149,6 +150,9 @@ const SwipeCard = ({
     if (!isDragging) return;
     setIsDragging(false);
     const threshold = 100;
+    const verticalThreshold = 120;
+    const absX = Math.abs(offset.x);
+    const absY = Math.abs(offset.y);
 
     if (offset.x > threshold) {
       setOffset({ x: 500, y: offset.y });
@@ -156,6 +160,9 @@ const SwipeCard = ({
     } else if (offset.x < -threshold) {
       setOffset({ x: -500, y: offset.y });
       setTimeout(() => onSwipe('left'), 200);
+    } else if (offset.y < -verticalThreshold && absY > absX * 1.2) {
+      onVerticalSwipe?.('up');
+      setOffset({ x: 0, y: 0 });
     } else {
       setOffset({ x: 0, y: 0 });
     }
@@ -364,6 +371,7 @@ const SearchView = ({
   const [enteringIds, setEnteringIds] = useState([]);
   // Stable salt to keep card colors consistent across renders/tab switches
   const colorSaltRef = useRef(CARD_COLOR_SALT);
+  const [shareToast, setShareToast] = useState('');
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -543,6 +551,27 @@ const SearchView = ({
     }
   };
 
+  const handleVerticalShare = async (spot) => {
+    if (!spot) return;
+    const msg = t(
+      'shareJoke',
+      "Je partage ta place, pas ta playlist... promis ! 😅",
+    );
+    setShareToast(msg);
+    setTimeout(() => setShareToast(''), 2200);
+    if (navigator?.share) {
+      try {
+        await navigator.share({
+          title: spot.address || 'Place de parking',
+          text: msg,
+          url: window?.location?.href || '',
+        });
+      } catch (_) {
+        // ignore share cancellation
+      }
+    }
+  };
+
   const handleEnableNotifications = async () => {
     if (notificationsEnabled) {
       setNotificationsEnabled(false);
@@ -711,6 +740,7 @@ const SearchView = ({
                         nowMs={nowMs}
                         activeCardRef={activeCardRef}
                         onSwipe={(dir) => handleSwipe(dir, spot)}
+                        onVerticalSwipe={() => handleVerticalShare(spot)}
                         isDark={isDark}
                         userCoords={userCoords}
                         distanceOverrides={distanceOverrides}
@@ -723,14 +753,19 @@ const SearchView = ({
                     }).reverse()}
                   </div>
 
-                  <div className="mt-4 text-amber-300 text-sm font-medium">
-                    {''}
-                  </div>
                 </>
               )}
             </>
           )}
         </div>
+
+        {shareToast ? (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
+            <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">
+              {shareToast}
+            </div>
+          </div>
+        ) : null}
 
         {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
           <div

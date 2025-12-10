@@ -5,7 +5,25 @@ import { X, MapPin, Bell } from 'lucide-react';
 
 // --- UTILITAIRES ---
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
-const CARD_COLORS = ['#0f1d33', '#112640', '#0d2039', '#0c192f']; // deep navy gradients per card
+const CARD_COLORS = [
+  '#ff3b30', // vivid red
+  '#ffcc00', // vivid yellow
+  '#007aff', // vivid blue
+  '#34c759', // vivid green
+  '#5856d6', // vivid indigo
+  '#ff9500', // vivid orange
+  '#af52de', // vivid purple
+  '#0fb9b1', // vivid teal
+]; // bright primary-inspired palette for each card
+const colorForSpot = (spot) => {
+  if (!spot?.id) return CARD_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < spot.id.length; i += 1) {
+    hash = (hash * 31 + spot.id.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % CARD_COLORS.length;
+  return CARD_COLORS[idx];
+};
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
 const getDistanceMeters = (spot, userPosition = null) => {
   if (!spot) return Infinity;
@@ -112,14 +130,14 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
   const onTouchEnd = () => handleEnd();
 
   // Style de la pile
-  const scale = Math.max(1 - index * 0.03, 0.95); // subtle elegance
-  const translateY = index * 6;
-  const translateX = index * 12; // slight peek
-  const opacity = Math.max(1 - index * 0.2, 0);
-  const baseRotation = index === 0 ? 0 : index === 1 ? -6 : 6; // mimic stacked tilt
+  const scale = Math.max(1 - index * 0.05, 0.88); // tighter scale for 3 cards
+  const translateY = index * 8;
+  const translateX = index * 14; // slight peek
+  const opacity = Math.max(1 - index * 0.25, 0);
+  const baseRotation = 0; // keep cards aligned for cleaner multi-stack
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const cardColor = CARD_COLORS[index % CARD_COLORS.length];
+  const cardColor = colorForSpot(spot);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
@@ -281,7 +299,7 @@ const SearchView = ({
 
   const availableSpots = (spots || []).filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
   const outOfCards = currentIndex >= availableSpots.length;
-  const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 2); // primary + a hint of next
+  const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableSpots.length === 0;
   const showEmpty = (noSpots || outOfCards) && !selectedSpot;
   const isMapOpen = !!selectedSpot;
@@ -545,7 +563,7 @@ const SearchView = ({
                   </div>
 
                   <div className="mt-4 text-amber-300 text-sm font-medium">
-                    {t('swipeHint', 'Swipe right to book, left to pass')}
+                    {''}
                   </div>
                 </>
               )}

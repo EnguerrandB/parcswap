@@ -104,8 +104,9 @@ export default function ParkSwapApp() {
     const titleBooker = spot.hostName ? `${spot.hostName} ➜ You` : 'Swap';
     const title = role === 'host' ? titleHost : titleBooker;
     const amount = Number(spot.price || 0);
+    const txDoc = doc(db, 'artifacts', appId, 'public', 'data', 'transactions', txId);
     await setDoc(
-      doc(db, 'artifacts', appId, 'public', 'data', 'transactions', txId),
+      txDoc,
       {
         userId,
         spotId: spot.id,
@@ -446,18 +447,16 @@ export default function ParkSwapApp() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        let txs = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }));
-        if (txs.length === 0) {
-          // Fallback fake data
-          txs = [
-            { id: 'fake-1', title: 'Swap with Alice', amount: 8, status: 'completed', createdAt: new Date() },
-            { id: 'fake-2', title: 'Swap with Bob', amount: 5, status: 'completed', createdAt: new Date() },
-            { id: 'fake-3', title: 'Swap with Charlie', amount: 7, status: 'completed', createdAt: new Date() },
-          ];
-        }
+        const txs = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+          }))
+          .sort((a, b) => {
+            const getMs = (v) =>
+              v?.toMillis ? v.toMillis() : typeof v === 'number' ? v : Date.parse(v) || 0;
+            return getMs(b.updatedAt || b.createdAt) - getMs(a.updatedAt || a.createdAt);
+          });
         setTransactions(txs);
       },
       (error) => {

@@ -15,25 +15,23 @@ const CARD_COLORS = [
   '#af52de', // vivid purple
   '#0fb9b1', // vivid teal
 ]; // bright primary-inspired palette for each card
-const colorForSpot = (spot) => {
+const colorForSpot = (spot, salt = 0) => {
   if (!spot?.id) return CARD_COLORS[0];
   let hash = 0;
   for (let i = 0; i < spot.id.length; i += 1) {
     hash = (hash * 31 + spot.id.charCodeAt(i)) | 0;
   }
-  const idx = Math.abs(hash) % CARD_COLORS.length;
+  const idx = Math.abs(hash + salt) % CARD_COLORS.length;
   return CARD_COLORS[idx];
 };
-const colorsForOrderedSpots = (spots) => {
+const colorsForOrderedSpots = (spots, salt = 0) => {
   const assigned = [];
   let lastColor = null;
   spots.forEach((spot) => {
-    let color = colorForSpot(spot);
+    let color = colorForSpot(spot, salt);
     if (color === lastColor) {
-      const shuffled = [...CARD_COLORS].sort((a, b) =>
-        a === color ? 1 : b === color ? -1 : 0,
-      );
-      color = shuffled.find((c) => c !== lastColor) || color;
+      const rotated = CARD_COLORS.slice(1).concat(CARD_COLORS[0]);
+      color = rotated.find((c) => c !== lastColor) || color;
     }
     assigned.push(color);
     lastColor = color;
@@ -176,7 +174,7 @@ const SwipeCard = ({
   const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const cardColor = spot._overrideColor || colorForSpot(spot);
+  const cardColor = spot._overrideColor || colorForSpot(spot, colorSaltRef?.current || 0);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
@@ -246,8 +244,7 @@ const SwipeCard = ({
           <button
             type="button"
             onClick={() => setShowRank(true)}
-            style="border-radius:50%"
-            className="relative inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition overflow-visible"
+            className="relative inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
           >
             <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">
               {rank}
@@ -255,7 +252,7 @@ const SwipeCard = ({
             <img
               src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'}
               alt="Rang"
-              className="w-full h-full object-contain bg-white/20 p-1"
+              className="w-full h-full object-contain bg-white/20 p-1 rounded-full"
             />
           </button>
         </div>
@@ -362,6 +359,7 @@ const SearchView = ({
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
   const [enteringIds, setEnteringIds] = useState([]);
+  const colorSaltRef = useRef(Math.floor(Math.random() * 10_000));
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -396,7 +394,7 @@ const SearchView = ({
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
   const availableSpots = sortedSpots.filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
-  const availableColors = colorsForOrderedSpots(availableSpots);
+  const availableColors = colorsForOrderedSpots(availableSpots, colorSaltRef.current);
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableSpots.length === 0;
@@ -660,7 +658,8 @@ const SearchView = ({
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
-          className="flex-1 flex flex-col items-center justify-center -mt-2"
+          className="flex-1 flex flex-col items-center justify-center"
+          style={{ gap: '24px' }}
         >
           {showEmpty ? (
             <div className="text-center space-y-4 max-w-sm empty-state">

@@ -83,7 +83,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   // --- Formulaire par défaut ---
   return (
     <div
-      className="h-full flex flex-col bg-white px-6 pt-20 pb-[220px] overflow-y-auto relative app-surface"
+      className="h-full flex flex-col bg-white px-6 pt-20 pb-[320px] overflow-y-auto relative app-surface"
       style={{ touchAction: 'pan-x' }}
     >
       <div className="flex items-center space-x-2 text-orange-500 uppercase tracking-[0.15em] text-[11px] font-semibold -mt-4 mb-2">
@@ -213,8 +213,8 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
       </div>
 
       <div
-        className="fixed left-0 right-0 px-6 pb-6 pt-3 bg-gradient-to-t from-white via-white/90 to-white/40 z-40 propose-publish-bar"
-        style={{ bottom: 'var(--bottom-safe-offset, 96px)' }} // sit just above bottom nav
+        className="fixed left-0 right-0 px-6 pb-6 pt-3 bg-gradient-to-t from-white via-white/90 to-white/40 z-[120] propose-publish-bar"
+        style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 4px)' }} // sit just above bottom nav
       >
         <button
           onClick={() => onProposeSpot(proposeForm)}

@@ -131,10 +131,10 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
 
   // Style de la pile
   const scale = Math.max(1 - index * 0.05, 0.88); // tighter scale for 3 cards
-  const translateY = index * 8;
+  const translateY = index * -6; // lift subsequent cards so their top shows more
   const translateX = index * 14; // slight peek
   const opacity = Math.max(1 - index * 0.25, 0);
-  const baseRotation = 0; // keep cards aligned for cleaner multi-stack
+  const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
   const cardColor = colorForSpot(spot);
@@ -167,15 +167,16 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
       ref={active ? activeCardRef : cardRef}
       className={`absolute w-[78%] max-w-[300px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
-        zIndex: 10 - index,
-        transform: `translate(${offset.x + translateX}px, ${offset.y + translateY}px) rotate(${rotation}deg) scale(${scale})`,
-        opacity,
-        transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease',
-        boxShadow: appleShadow,
-        background: cardBackground,
-        backdropFilter: 'blur(16px)',
-        border: cardBorder
-      }}
+  zIndex: 10 - index,
+  transform: active
+    ? `translate(${offset.x}px, ${offset.y}px) rotate(${rotation}deg) scale(${scale})`
+    : `translate(${translateX}px, ${translateY}px) rotate(${baseRotation}deg) scale(${scale})`,
+  opacity,
+  transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease',
+  boxShadow: appleShadow,
+  background: cardBackground,
+  border: cardBorder
+}}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
@@ -497,7 +498,7 @@ const SearchView = ({
                 <input
                   type="range"
                   min="0.1"
-                  max="1"
+                  max="5"
                   step="0.1"
                   value={radius}
                   onChange={(e) => setRadius(parseFloat(e.target.value))}
@@ -506,7 +507,7 @@ const SearchView = ({
                 <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                   <span>100 m</span>
                   <span>500 m</span>
-                  <span>1 km</span>
+                  <span>5 km</span>
                 </div>
               </div>
             </div>

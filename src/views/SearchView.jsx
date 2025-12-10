@@ -24,6 +24,22 @@ const colorForSpot = (spot) => {
   const idx = Math.abs(hash) % CARD_COLORS.length;
   return CARD_COLORS[idx];
 };
+const colorsForOrderedSpots = (spots) => {
+  const assigned = [];
+  let lastColor = null;
+  spots.forEach((spot) => {
+    let color = colorForSpot(spot);
+    if (color === lastColor) {
+      const shuffled = [...CARD_COLORS].sort((a, b) =>
+        a === color ? 1 : b === color ? -1 : 0,
+      );
+      color = shuffled.find((c) => c !== lastColor) || color;
+    }
+    assigned.push(color);
+    lastColor = color;
+  });
+  return assigned;
+};
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
 const getDistanceMeters = (spot, userPosition = null) => {
   if (!spot) return Infinity;
@@ -160,7 +176,7 @@ const SwipeCard = ({
   const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const cardColor = colorForSpot(spot);
+  const cardColor = spot._overrideColor || colorForSpot(spot);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
@@ -230,10 +246,17 @@ const SwipeCard = ({
           <button
             type="button"
             onClick={() => setShowRank(true)}
-            className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 text-2xl shadow-inner shadow-black/20 relative active:scale-95 transition"
+            style="border-radius:50%"
+            className="relative inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition overflow-visible"
           >
-            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
-            {carEmoji}
+            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">
+              {rank}
+            </span>
+            <img
+              src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'}
+              alt="Rang"
+              className="w-full h-full object-contain bg-white/20 p-1"
+            />
           </button>
         </div>
 
@@ -373,6 +396,7 @@ const SearchView = ({
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
   const availableSpots = sortedSpots.filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
+  const availableColors = colorsForOrderedSpots(availableSpots);
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableSpots.length === 0;
@@ -661,7 +685,13 @@ const SearchView = ({
               {visibleSpots.length > 0 && (
                 <>
                   <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center">
-                    {[...visibleSpots.map((spot, i) => ({ spot, index: i, exiting: false })), ...exitingCards
+                    {[
+                      ...visibleSpots.map((spot, i) => ({
+                        spot: { ...spot, _overrideColor: availableColors[currentIndex + i] },
+                        index: i,
+                        exiting: false,
+                      })),
+                      ...exitingCards
                       .filter((c) => !visibleSpots.find((v) => v.id === c.id))
                       .map((spotObj) => ({
                         spot: spotObj,

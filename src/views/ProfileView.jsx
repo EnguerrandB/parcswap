@@ -62,11 +62,11 @@ const ProfileView = ({
   };
   const rankIcon = (count = 0) => {
     const n = Number(count) || 0;
-    if (n >= 20) return '🔥🚗';
-    if (n >= 15) return '🚀';
-    if (n >= 10) return '🏎️';
-    if (n >= 5) return '🚙';
-    return '🚗';
+    if (n >= 20) return '/ranks/rank5.png';
+    if (n >= 15) return '/ranks/rank4.png';
+    if (n >= 10) return '/ranks/rank3.png';
+    if (n >= 5) return '/ranks/rank2.png';
+    return '/ranks/rank1.png';
   };
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -132,6 +132,11 @@ const ProfileView = ({
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showLegal, setShowLegal] = useState(false);
+  const [achievements, setAchievements] = useState([
+    { id: 'achv-1', label: t('achievementPioneer', 'Pioneer'), enabled: true },
+    { id: 'achv-2', label: t('achievementTrusty', 'Trusty Trader'), enabled: false },
+    { id: 'achv-3', label: t('achievementSprinter', 'Sprinter'), enabled: false },
+  ]);
   const phoneChanged = profileForm.phone !== (user?.phone || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
@@ -253,9 +258,11 @@ const ProfileView = ({
       <div className="flex items-center justify-between mb-8 mt-4">
         <div>
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full bg-white border border-orange-100 flex items-center justify-center text-xl">
-              {rankIcon(userTransactionCount)}
-            </div>
+            <img
+              src={rankIcon(userTransactionCount)}
+              alt="Rang"
+              className="w-10 h-10 rounded-full border border-orange-100 object-contain bg-white p-1"
+            />
             <div>
               <h2 className="text-2xl font-bold text-gray-900">{user?.displayName || t('unknown', 'Unknown')}</h2>
               <p className="text-xs font-semibold text-orange-600 mt-1">{rankLabel(userTransactionCount)}</p>
@@ -476,6 +483,46 @@ const ProfileView = ({
                 <p className="text-xs text-gray-500 tracking-widest font-mono">{v.plate}</p>
               </div>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Achievements */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center space-x-3">
+            <div className="bg-orange-50 p-2 rounded-lg border border-orange-100">
+              🏅
+            </div>
+            <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
+          </div>
+          <span className="text-xs text-gray-500">{t('toggleToEnable', 'Toggle to enable')}</span>
+        </div>
+        <div className="space-y-2">
+          {achievements.map((achv) => (
+            <label
+              key={achv.id}
+              className="flex items-center justify-between border border-gray-100 rounded-xl px-3 py-2 cursor-pointer hover:border-orange-200 transition"
+            >
+              <div className="flex items-center space-x-2">
+                <img
+                  src={rankIcon(achv.enabled ? 10 : 1)}
+                  alt="Badge"
+                  className="w-8 h-8 rounded-full border border-orange-100 object-cover"
+                />
+                <span className="font-semibold text-gray-900">{achv.label}</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={achv.enabled}
+                onChange={() =>
+                  setAchievements((prev) =>
+                    prev.map((a) => (a.id === achv.id ? { ...a, enabled: !a.enabled } : a)),
+                  )
+                }
+                className="h-5 w-5 accent-orange-500"
+              />
+            </label>
           ))}
         </div>
       </div>
@@ -847,9 +894,11 @@ const ProfileView = ({
                         {idx + 1}
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 rounded-full bg-orange-50 border border-orange-100 flex items-center justify-center text-lg">
-                          {rankIcon(txnCount)}
-                        </div>
+                        <img
+                          src={rankIcon(txnCount)}
+                          alt="Rank"
+                          className="w-8 h-8 rounded-full border border-orange-100 object-contain bg-white p-1"
+                        />
                         <div className="truncate max-w-[180px]">
                           <p className="font-semibold text-gray-900 truncate">{u.displayName || t('unknown', 'Unknown')}</p>
                           <p className="text-[11px] font-semibold text-orange-600 truncate">{rankLabel(txnCount)}</p>
@@ -870,11 +919,11 @@ const ProfileView = ({
           </div>
           <div className="mt-4 grid grid-cols-5 gap-2 text-[11px] text-gray-600">
             {[
-              { icon: '🚗', label: 'Explorer', range: '0-5' },
-              { icon: '🚙', label: 'Silver', range: '5-10' },
-              { icon: '🏎️', label: 'Gold', range: '10-15' },
-              { icon: '🚀', label: 'Platinum', range: '15-20' },
-              { icon: '🔥🚗', label: 'Ultimate', range: '20+' },
+              { img: '/ranks/rank1.png', label: 'Explorer', range: '0-5' },
+              { img: '/ranks/rank2.png', label: 'Silver', range: '5-10' },
+              { img: '/ranks/rank3.png', label: 'Gold', range: '10-15' },
+              { img: '/ranks/rank4.png', label: 'Platinum', range: '15-20' },
+              { img: '/ranks/rank5.png', label: 'Ultimate', range: '20+' },
             ].map((tier) => (
               <button
                 key={tier.label}
@@ -882,7 +931,7 @@ const ProfileView = ({
                 onClick={() => setShowRankInfo({ label: tier.label, range: tier.range })}
                 className="flex flex-col items-center bg-orange-50 border border-orange-100 rounded-lg px-2 py-2 hover:bg-orange-100 transition"
               >
-                <span className="text-lg">{tier.icon}</span>
+                <img src={tier.img} alt={tier.label} className="w-10 h-10 object-contain" />
                 <span className="font-semibold text-orange-700">{tier.label}</span>
                 <span className="text-[10px] text-orange-500">{tier.range}</span>
               </button>

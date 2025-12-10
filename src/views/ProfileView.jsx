@@ -135,9 +135,13 @@ const ProfileView = ({
   const phoneChanged = profileForm.phone !== (user?.phone || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
-  const userTransactionCount = Array.isArray(transactions)
-    ? transactions.length
-    : Number(user?.transactions || 0);
+  const selfLeaderboardEntry = leaderboard.find((u) => u.id === user?.uid);
+  const userTransactionCount = Number(
+    selfLeaderboardEntry?.transactions ??
+      user?.transactions ??
+      (Array.isArray(transactions) ? transactions.length : 0),
+  );
+  const userRank = selfLeaderboardEntry?.rank ?? null;
   const toggleTheme = () => onChangeTheme?.(theme === 'dark' ? 'light' : 'dark');
   const collapseLegal = () => setShowLegal(false);
 
@@ -853,8 +857,7 @@ const ProfileView = ({
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs text-gray-500">{t('transactionsLabel', 'Transactions')}</p>
-                      <p className="text-sm font-bold text-gray-900">{txnCount}</p>
+                      <p className="text-base font-bold text-gray-900">{txnCount}</p>
                       <div className="mt-1 flex justify-end">
                         {idx === 0 && <Car size={16} style={iconStyle('tierCar')} />}
                         {idx > 0 && idx < 5 && <Laptop size={16} style={iconStyle('tierLaptop')} />}

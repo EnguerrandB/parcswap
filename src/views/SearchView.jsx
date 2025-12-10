@@ -135,10 +135,11 @@ const SwipeCard = ({ spot, index, onSwipe, active, nowMs, activeCardRef, isDark,
   const cardBackground = `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
   const cardBorder = '1px solid rgba(255,255,255,0.08)';
   const leaderEntry = leaderboard.find((u) => u.id === spot?.hostId);
-  const rank =
-    leaderEntry?.rank ??
-    (leaderEntry ? leaderboard.findIndex((u) => u.id === spot?.hostId) + 1 : spot?.rank || spot?.position || index + 1);
-  const transactions = leaderEntry?.transactions ?? 0;
+  const fallbackRank = spot?.rank || spot?.position;
+  const rank = leaderEntry?.rank ?? (fallbackRank != null ? fallbackRank : '—');
+  const transactions =
+    leaderEntry?.transactions ??
+    (Number.isFinite(spot?.transactions) ? Number(spot.transactions) : 0);
   const [showRank, setShowRank] = useState(false);
 
   if (!spot) return null;

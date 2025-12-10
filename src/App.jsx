@@ -13,7 +13,6 @@ import {
   writeBatch,
   where,
   setDoc,
-  getDoc,
   limit,
   increment,
 } from 'firebase/firestore';
@@ -424,37 +423,6 @@ export default function ParkSwapApp() {
     return () => unsubscribe();
   }, [user]);
 
-  // Sync leaderboard entry with local transaction count for current user
-  useEffect(() => {
-    if (!user) return;
-    const count = transactions.length;
-    setLeaderboard((prev) => {
-      let updated = false;
-      const next = prev.map((u) => {
-        if (u.id === user.uid) {
-          if (Number(u.transactions || 0) !== count) {
-            updated = true;
-            return { ...u, transactions: count };
-          }
-        }
-        return u;
-      });
-      if (!next.find((u) => u.id === user.uid)) {
-        updated = true;
-        next.push({
-          id: user.uid,
-          displayName: user.displayName,
-          email: user.email,
-          transactions: count,
-        });
-      }
-      if (!updated) return prev;
-      next.sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
-      const sliced = next.slice(0, 10);
-      return sliced.map((u, idx) => ({ ...u, rank: idx + 1 }));
-    });
-  }, [transactions, user]);
-
   // --- Vehicles subscription ---
   useEffect(() => {
     if (!user) return;
@@ -478,45 +446,49 @@ export default function ParkSwapApp() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- Ensure user profile doc exists / hydrate ---
+  // --- Ensure user profile doc exists / hydrate (live subscription) ---
   useEffect(() => {
     if (!user?.uid) return;
     const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
-    getDoc(userRef)
-      .then((snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setUser((prev) => ({
-            ...prev,
-            displayName: data.displayName || prev.displayName,
-            email: data.email || prev.email,
-            phone: data.phone || prev.phone,
-            language: data.language || prev.language || 'en',
-            transactions: data.transactions ?? prev.transactions ?? 0,
-          }));
-        } else {
-          setDoc(
-            userRef,
-            {
-              displayName: user.displayName,
-              email: user.email,
-              phone: user.phone,
-              language: user.language || i18n.language || 'en',
-              transactions: user.transactions ?? 0,
-              createdAt: serverTimestamp(),
-            },
-            { merge: true },
-          ).catch((err) => console.error('Error creating user profile:', err));
-        }
-      })
-      .catch((err) => console.error('Error fetching user profile:', err));
+
+    // Ensure the profile doc exists with basic defaults
+    setDoc(
+      userRef,
+      {
+        displayName: user.displayName,
+        email: user.email,
+        phone: user.phone,
+        language: user.language || i18n.language || 'en',
+        transactions: user.transactions ?? 0,
+        createdAt: serverTimestamp(),
+      },
+      { merge: true },
+    ).catch((err) => console.error('Error creating user profile:', err));
+
+    const unsub = onSnapshot(
+      userRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        setUser((prev) => ({
+          ...prev,
+          displayName: data.displayName || prev?.displayName,
+          email: data.email || prev?.email,
+          phone: data.phone ?? prev?.phone,
+          language: data.language || prev?.language || 'en',
+          transactions: data.transactions ?? prev?.transactions ?? 0,
+        }));
+      },
+      (err) => console.error('Error subscribing to user profile:', err),
+    );
+    return () => unsub();
   }, [user?.uid]);
 
   // --- Leaderboard subscription ---
   useEffect(() => {
     if (!user) return;
     const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-    const q = query(usersRef, orderBy('transactions', 'desc'), limit(10));
+    const q = query(usersRef, orderBy('transactions', 'desc'), limit(50));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {

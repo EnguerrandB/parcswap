@@ -15,6 +15,8 @@ const CARD_COLORS = [
   '#af52de', // vivid purple
   '#0fb9b1', // vivid teal
 ]; // bright primary-inspired palette for each card
+// Stable salt for color selection (module-level to avoid changes on remount/switch)
+const CARD_COLOR_SALT = Math.floor(Math.random() * 10_000);
 const colorForSpot = (spot, salt = 0) => {
   if (!spot?.id) return CARD_COLORS[0];
   let hash = 0;
@@ -174,7 +176,7 @@ const SwipeCard = ({
   const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const cardColor = spot._overrideColor || colorForSpot(spot, colorSaltRef?.current || 0);
+  const cardColor = spot._overrideColor || colorForSpot(spot, colorSaltRef.current || 0);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
@@ -359,7 +361,8 @@ const SearchView = ({
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
   const [enteringIds, setEnteringIds] = useState([]);
-  const colorSaltRef = useRef(Math.floor(Math.random() * 10_000));
+  // Stable salt to keep card colors consistent across renders/tab switches
+  const colorSaltRef = useRef(CARD_COLOR_SALT);
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {

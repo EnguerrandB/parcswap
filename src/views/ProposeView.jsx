@@ -1,5 +1,5 @@
 // src/views/ProposeView.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Car, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MOCK_CARS, formatPrice } from '../constants';
@@ -37,6 +37,8 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   });
   const [plateInput, setPlateInput] = useState('');
   const [remainingMs, setRemainingMs] = useState(null);
+  const timeSliderRef = useRef(null);
+  const lengthSliderRef = useRef(null);
 
   useEffect(() => {
     const next = vehicles.find((v) => v.isDefault) || vehicles[0];
@@ -81,6 +83,29 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   }
 
   // --- Formulaire par défaut ---
+  const startRangeDrag = (e, ref, min, max, step, setter, key) => {
+    if (!ref?.current) return;
+    e.preventDefault();
+    const updateValue = (clientX) => {
+      const rect = ref.current.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const raw = min + pct * (max - min);
+      const value = Math.round(raw / step) * step;
+      setter((prev) => ({ ...prev, [key]: value }));
+      ref.current.value = value;
+    };
+    updateValue(e.clientX);
+    const onMove = (ev) => updateValue(ev.clientX);
+    const onEnd = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  };
+
   return (
     <div
       className="h-full flex flex-col bg-white px-6 pt-20 pb-[320px] overflow-y-auto relative app-surface"
@@ -150,10 +175,12 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
           <div className="flex items-center space-x-4 bg-gray-50 p-4 rounded-xl">
             <Clock className="text-orange-500" />
             <input
+              ref={timeSliderRef}
               type="range"
               min="1"
               max="30"
               value={proposeForm.time}
+              onPointerDown={(e) => startRangeDrag(e, timeSliderRef, 1, 30, 1, setProposeForm, 'time')}
               onChange={(e) =>
                 setProposeForm({ ...proposeForm, time: parseInt(e.target.value, 10) })
               }
@@ -195,11 +222,13 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
           <div className="flex items-center space-x-4 bg-gray-50 p-4 rounded-xl">
             <Car className="text-orange-500" />
             <input
+              ref={lengthSliderRef}
               type="range"
               min="4"
               max="6"
               step="0.5"
               value={proposeForm.length}
+              onPointerDown={(e) => startRangeDrag(e, lengthSliderRef, 4, 6, 0.5, setProposeForm, 'length')}
               onChange={(e) =>
                 setProposeForm({ ...proposeForm, length: parseFloat(e.target.value) })
               }

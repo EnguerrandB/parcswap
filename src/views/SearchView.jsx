@@ -122,6 +122,7 @@ const SwipeCard = ({
   entering = false,
   colorSalt = 0,
   onVerticalSwipe,
+  onDrag,
 }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -144,11 +145,13 @@ const SwipeCard = ({
     const deltaX = clientX - dragStart.x;
     const deltaY = clientY - dragStart.y;
     setOffset({ x: deltaX, y: deltaY });
+    if (onDrag) onDrag(deltaX);
   };
 
   const handleEnd = () => {
     if (!isDragging) return;
     setIsDragging(false);
+    if (onDrag) onDrag(0);
     const threshold = 100;
     const verticalThreshold = 120;
     const absX = Math.abs(offset.x);
@@ -305,7 +308,7 @@ const SwipeCard = ({
       </div>
       {showRank && (
         <div className="absolute inset-0 z-30 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowRank(false)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[26px]" onClick={() => setShowRank(false)} />
           <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
             <button
               type="button"
@@ -372,6 +375,7 @@ const SearchView = ({
   // Stable salt to keep card colors consistent across renders/tab switches
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const [shareToast, setShareToast] = useState('');
+  const [dragX, setDragX] = useState(0);
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -399,6 +403,17 @@ const SearchView = ({
           opacity: 0;
           transform: translate(calc(var(--card-tx) - 240px), calc(var(--card-ty) - 80px)) rotate(calc(var(--card-rot) - 8deg)) scale(calc(var(--card-scale) * 0.9));
         }
+      }
+        /* NOUVEAU : Animation de tremblement "haptique" */
+      @keyframes tremble {
+        0% { transform: scale(1.3) rotate(0deg); }
+        25% { transform: scale(1.3) rotate(-3deg); }
+        50% { transform: scale(1.3) rotate(3deg); }
+        75% { transform: scale(1.3) rotate(-3deg); }
+        100% { transform: scale(1.3) rotate(0deg); }
+      }
+      .haptic-active {
+        animation: tremble 0.4s ease-in-out infinite;
       }
     `;
     document.head.appendChild(style);
@@ -689,8 +704,7 @@ const SearchView = ({
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
-          className="flex-1 flex flex-col items-center justify-center"
-          style={{ gap: '24px' }}
+          className="flex-1 flex flex-col items-center justify-center gap-6"
         >
           {showEmpty ? (
             <div className="text-center space-y-4 max-w-sm empty-state">
@@ -732,6 +746,7 @@ const SearchView = ({
                       return (
                       <SwipeCard
                         key={spot._exitKey || spot.id}
+                        onDrag={setDragX}
                         spot={spot}
                         index={index}
                         active={!exiting && index === 0}
@@ -755,7 +770,65 @@ const SearchView = ({
               )}
             </>
           )}
-        </div>
+        
+
+        
+
+        {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
+            <div className="flex justify-between items-center z-20 w-[84%] max-w-[330px] pointer-events-auto transition-all duration-200">
+              
+              {/* BOUTON GAUCHE (Refuser / X) */}
+              <button
+                onClick={() => handleSwipe('left', visibleSpots[0])}
+                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-75 border ${
+                  // On ajoute la classe de tremblement si on dépasse -100px (vers la gauche)
+                  dragX < -100 ? 'haptic-active' : ''
+                } ${
+                  isDark
+                    ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg'
+                    : 'bg-white text-rose-500 border-white/60 shadow-lg'
+                }`}
+                style={{
+                  // Logique Apple :
+                  // 1. Si on tire à gauche (dragX < 0), ce bouton grossit (max 1.3)
+                  // 2. Si on tire à droite (dragX > 0), il rétrécit (min 0.6) et devient transparent
+                  transform: `scale(${
+                    dragX < 0 
+                      ? 1 + Math.min(Math.abs(dragX) / 250, 0.3) // Grossit
+                      : Math.max(1 - dragX / 150, 0.6)           // Rétrécit
+                  })`,
+                  opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0.3) : 1, // Devient transparent si on va de l'autre côté
+                }}
+              >
+                <X size={32} strokeWidth={2.5} />
+              </button>
+
+              {/* BOUTON DROIT (Réserver / Book) */}
+              <button
+                onClick={() => handleSwipe('right', visibleSpots[0])}
+                className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
+                  // On ajoute la classe de tremblement si on dépasse 100px (vers la droite)
+                  dragX > 100 ? 'haptic-active' : ''
+                } ${
+                  isDark
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/10'
+                    : 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/60'
+                }`}
+                style={{
+                  // Même logique inversée
+                  transform: `scale(${
+                    dragX > 0 
+                      ? 1 + Math.min(dragX / 250, 0.3) // Grossit
+                      : Math.max(1 - Math.abs(dragX) / 150, 0.6) // Rétrécit
+                  })`,
+                  opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0.3) : 1,
+                }}
+              >
+                {t('book', 'Book')}
+              </button>
+            </div>
+          )}
+      </div>
 
         {shareToast ? (
           <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50">
@@ -764,42 +837,7 @@ const SearchView = ({
             </div>
           </div>
         ) : null}
-
-        {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
-          <div
-            ref={actionRef}
-            className="px-6 flex justify-between items-center z-20 w-[84%] max-w-[330px] mx-auto absolute pointer-events-auto"
-            style={
-              actionPos.top != null
-                ? { top: `${actionPos.top}px`, left: `${actionPos.left}px`, transform: 'translate(-50%, 0)' }
-                : { bottom: '130px', left: '50%', transform: 'translate(-50%, 0)' }
-            }
-          >
-            <button
-              onClick={() => handleSwipe('left', visibleSpots[0])}
-              className={`w-16 h-16 rounded-full flex items-center justify-center transition active:scale-95 hover:scale-105 border ${
-                isDark
-                  ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg shadow-black/50'
-                  : 'bg-white text-rose-500 border-white/60 shadow-lg shadow-slate-200'
-              }`}
-            >
-              <X size={32} strokeWidth={2.5} />
-            </button>
-
-            <button
-              onClick={() => handleSwipe('right', visibleSpots[0])}
-              className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition active:scale-95 font-bold text-base hover:scale-105 border ${
-                isDark
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-xl shadow-orange-900/60 border-white/10'
-                  : 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-xl shadow-orange-200 border-white/60'
-              }`}
-            >
-              {t('book', 'Book')}
-            </button>
-          </div>
-        )}
-      </div>
-
+    </div>
     </div>
   );
 };

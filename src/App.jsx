@@ -1142,7 +1142,7 @@ export default function ParkSwapApp() {
                 <div
                   className="absolute inset-0 will-change-transform bg-white/0"
                   style={{
-                    transform: activeTransform,
+                    transform: progress === 0 ? 'none' : activeTransform,
                     transformOrigin: origin,
                     transition: dragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease, filter 0.35s ease',
                     boxShadow: activeShadow,

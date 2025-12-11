@@ -123,8 +123,8 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
         {/* Car */}
         <div>
           <label className="block text-sm font-medium text-gray-500 mb-2">{t('myCarLabel', 'My Car')}</label>
-          <div className="w-full overflow-x-auto no-scrollbar -mx-2 px-2 pb-2 touch-pan-x">
-            <div className="flex space-x-3 pr-10 snap-x snap-mandatory">
+          <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+            <div className="flex space-x-3 snap-x snap-mandatory">
               {vehicles.map((v) => (
                 <button
                   key={v.id}

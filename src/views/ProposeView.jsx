@@ -241,11 +241,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
         </div>
       </div>
 
-      <div
-        className="fixed left-0 right-0 px-6 pb-6 pt-3 bg-gradient-to-t from-white via-white/90 to-white/40 z-[120] propose-publish-bar"
-        // Changement ici : + 12px au lieu de + 4px pour remonter le bouton
-        style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 12px)' }} 
-      >
+      <div className="mt-8 pb-8 pt-2">
         <button
           onClick={() => onProposeSpot(proposeForm)}
           className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-4 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition text-lg flex items-center justify-center space-x-2"

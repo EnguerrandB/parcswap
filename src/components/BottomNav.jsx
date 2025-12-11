@@ -15,8 +15,10 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
       <div
         id="bottom-nav"
         data-role="bottom-nav"
-        className="pointer-events-auto w-full max-w-md bg-white border-t border-gray-200 flex justify-around items-center p-4 h-20 pb-[calc(env(safe-area-inset-bottom)+8px)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]"
+        // Changement ici : remplacé 'h-20' par 'min-h-20 h-auto'
+        className="pointer-events-auto w-full max-w-md bg-white border-t border-gray-200 flex justify-around items-center p-4 min-h-20 h-auto pb-[calc(env(safe-area-inset-bottom)+8px)] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]"
       >
+        {/* ... le reste du contenu reste identique ... */}
         <button
           onClick={() => setActiveTab('search')}
           className={`flex flex-col items-center space-y-1 ${activeTab === 'search' ? 'text-orange-600' : 'text-gray-400'}`}

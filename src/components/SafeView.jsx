@@ -14,7 +14,8 @@ export default function SafeView({ children, className = '', style = {}, navHidd
     ...style,
   };
 
-  const mergedClassName = ['relative', 'overflow-hidden', 'bg-[#fff59d]', className].filter(Boolean).join(' ');
+  // MODIFICATION ICI : On retire 'overflow-hidden' pour ne pas couper les ombres/animations
+  const mergedClassName = ['relative', className].filter(Boolean).join(' ');
 
   return (
     <div className={mergedClassName} style={safeStyle} data-role="safe-view">

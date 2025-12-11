@@ -592,7 +592,7 @@ const SearchView = ({
   return (
     <div
       ref={viewRef}
-      className="h-full w-full flex flex-col relative overflow-hidden font-sans app-surface bg-[#fff59d]"
+      className="h-full w-full flex flex-col relative overflow-x-hidden font-sans app-surface bg-[#fff59d]"
       style={{ touchAction: 'pan-x' }}
     >
       {!selectedSpot && showRadiusPicker && (
@@ -689,7 +689,7 @@ const SearchView = ({
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
-          className="flex-1 flex flex-col items-center justify-center overflow-hidden"
+          className="flex-1 flex flex-col items-center justify-center"
           style={{ gap: '24px' }}
         >
           {showEmpty ? (
@@ -714,7 +714,7 @@ const SearchView = ({
             <>
               {visibleSpots.length > 0 && (
                 <>
-          <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center overflow-hidden">
+                  <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center overflow-visible">
                     {[
                       ...visibleSpots.map((spot, i) => ({
                         spot: { ...spot, _overrideColor: availableColors[currentIndex + i] },

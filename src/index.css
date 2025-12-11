@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* On force la hauteur à 100% et on désactive le scroll natif du body */
 html,
 body,
 #root {
@@ -11,9 +10,7 @@ body,
   margin: 0;
   padding: 0;
   overflow: hidden;
-  /* Empêche le rebond élastique de la page entière */
-  background: #f6dd00;
-  /* test: yellow background */
+
 
 }
 
@@ -21,8 +18,6 @@ body {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #3700ff;
-  /* test: yellow background */
 
 }
 

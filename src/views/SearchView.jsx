@@ -781,7 +781,6 @@ const SearchView = ({
               <button
                 onClick={() => handleSwipe('left', visibleSpots[0])}
                 className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-75 border ${
-                  // On ajoute la classe de tremblement si on dépasse -100px (vers la gauche)
                   dragX < -100 ? 'haptic-active' : ''
                 } ${
                   isDark
@@ -789,15 +788,17 @@ const SearchView = ({
                     : 'bg-white text-rose-500 border-white/60 shadow-lg'
                 }`}
                 style={{
-                  // Logique Apple :
-                  // 1. Si on tire à gauche (dragX < 0), ce bouton grossit (max 1.3)
-                  // 2. Si on tire à droite (dragX > 0), il rétrécit (min 0.6) et devient transparent
-                  transform: `scale(${
+                  // Si on tire à gauche (dragX < 0) :
+                  // 1. On déplace le bouton vers la droite (translateX positif) pour le centrer
+                  // 2. On le grossit
+                  transform: `translateX(${
+                    dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
+                  }px) scale(${
                     dragX < 0 
-                      ? 1 + Math.min(Math.abs(dragX) / 250, 0.3) // Grossit
-                      : Math.max(1 - dragX / 150, 0.6)           // Rétrécit
+                      ? 1 + Math.min(Math.abs(dragX) / 250, 0.3) 
+                      : Math.max(1 - dragX / 150, 0.6)
                   })`,
-                  opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0.3) : 1, // Devient transparent si on va de l'autre côté
+                  opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0) : 1, // Disparaît plus vite
                 }}
               >
                 <X size={32} strokeWidth={2.5} />
@@ -807,7 +808,6 @@ const SearchView = ({
               <button
                 onClick={() => handleSwipe('right', visibleSpots[0])}
                 className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
-                  // On ajoute la classe de tremblement si on dépasse 100px (vers la droite)
                   dragX > 100 ? 'haptic-active' : ''
                 } ${
                   isDark
@@ -815,13 +815,17 @@ const SearchView = ({
                     : 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/60'
                 }`}
                 style={{
-                  // Même logique inversée
-                  transform: `scale(${
+                  // Si on tire à droite (dragX > 0) :
+                  // 1. On déplace le bouton vers la gauche (translateX négatif) pour le centrer
+                  // 2. On le grossit
+                  transform: `translateX(${
+                    dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
+                  }px) scale(${
                     dragX > 0 
-                      ? 1 + Math.min(dragX / 250, 0.3) // Grossit
-                      : Math.max(1 - Math.abs(dragX) / 150, 0.6) // Rétrécit
+                      ? 1 + Math.min(dragX / 250, 0.3) 
+                      : Math.max(1 - Math.abs(dragX) / 150, 0.6)
                   })`,
-                  opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0.3) : 1,
+                  opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0) : 1,
                 }}
               >
                 {t('book', 'Book')}

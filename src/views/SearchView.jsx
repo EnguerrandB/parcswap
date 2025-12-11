@@ -691,7 +691,7 @@ const SearchView = ({
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
-          className="flex-1 flex flex-col items-center justify-center"
+          className="flex-1 flex flex-col items-center justify-center overflow-hidden"
           style={{ gap: '24px' }}
         >
           {showEmpty ? (
@@ -716,7 +716,7 @@ const SearchView = ({
             <>
               {visibleSpots.length > 0 && (
                 <>
-                  <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center">
+          <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center overflow-hidden">
                     {[
                       ...visibleSpots.map((spot, i) => ({
                         spot: { ...spot, _overrideColor: availableColors[currentIndex + i] },

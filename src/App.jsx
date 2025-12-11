@@ -967,7 +967,7 @@ export default function ParkSwapApp() {
 
   return (
     <div
-      className="relative h-screen w-full bg-gradient-to-br from-orange-50 via-white to-amber-50 font-sans overflow-hidden"
+      className="relative h-screen w-full bg-[#fff59d] font-sans overflow-hidden"
       onTouchStart={(e) => {
         if (!ENABLE_TAB_SWIPE) return;
         touchStartX.current = e.touches[0].clientX;

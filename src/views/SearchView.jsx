@@ -658,7 +658,7 @@ const SearchView = ({
                 <input
                   type="range"
                   min="0.1"
-                  max="5"
+                  max="2000"
                   step="0.1"
                   value={radius}
                   onChange={(e) => setRadius(parseFloat(e.target.value))}
@@ -667,7 +667,7 @@ const SearchView = ({
                 <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                   <span>100 m</span>
                   <span>500 m</span>
-                  <span>5 km</span>
+                  <span>2000 km</span>
                 </div>
               </div>
             </div>

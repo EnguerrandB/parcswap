@@ -109,7 +109,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   return (
     <div
       className="h-full flex flex-col bg-white px-6 pt-20 pb-[320px] overflow-y-auto relative app-surface"
-      style={{ touchAction: 'pan-x' }}
+      style={{ touchAction: 'pan-y' }}
     >
       <div className="flex items-center space-x-2 text-orange-500 uppercase tracking-[0.15em] text-[11px] font-semibold -mt-4 mb-2">
         <div className="w-9 h-9 rounded-full bg-orange-50 border border-orange-100 shadow-sm flex items-center justify-center text-lg leading-none">

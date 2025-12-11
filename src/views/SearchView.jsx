@@ -107,6 +107,8 @@ const formatDuration = (ms) => {
 };
 
 // --- COMPOSANT CARTE (SWIPE) ---
+// caca
+// --- COMPOSANT CARTE (SWIPE) CORRIGÉ ---
 const SwipeCard = ({
   spot,
   index,
@@ -122,7 +124,7 @@ const SwipeCard = ({
   entering = false,
   colorSalt = 0,
   onVerticalSwipe,
-  onDrag,
+  onDrag, // <--- Props pour communiquer avec le bouton
 }) => {
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -134,55 +136,74 @@ const SwipeCard = ({
     setOffset({ x: 0, y: 0 });
   }, [spot?.id]);
 
-  const handleStart = (clientX, clientY) => {
+  // --- NOUVELLE LOGIQUE SIMPLIFIÉE AVEC POINTER EVENTS ---
+  const handlePointerDown = (e) => {
     if (!active) return;
-    setDragStart({ x: clientX, y: clientY });
+    // 1. On capture le pointeur : tant que c'est pas lâché, on reçoit les événements
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault(); // Empêche le scroll de la page sur mobile
+    
+    setDragStart({ x: e.clientX, y: e.clientY });
     setIsDragging(true);
   };
 
-  const handleMove = (clientX, clientY) => {
+  const handlePointerMove = (e) => {
     if (!isDragging || !active) return;
-    const deltaX = clientX - dragStart.x;
-    const deltaY = clientY - dragStart.y;
+    const deltaX = e.clientX - dragStart.x;
+    const deltaY = e.clientY - dragStart.y;
     setOffset({ x: deltaX, y: deltaY });
+    
+    // On informe le parent en temps réel
     if (onDrag) onDrag(deltaX);
   };
 
-  const handleEnd = () => {
+  const handlePointerUp = (e) => {
     if (!isDragging) return;
+    
+    // 2. On relâche la capture
+    e.currentTarget.releasePointerCapture(e.pointerId);
     setIsDragging(false);
-    if (onDrag) onDrag(0);
-    const threshold = 100;
+
+    const threshold = 100; // Seuil pour valider le swipe
     const verticalThreshold = 120;
     const absX = Math.abs(offset.x);
     const absY = Math.abs(offset.y);
 
+    // LOGIQUE DE FIN
     if (offset.x > threshold) {
-      setOffset({ x: 500, y: offset.y });
-      setTimeout(() => onSwipe('right'), 200);
+      // --> VALIDÉ À DROITE (BOOK)
+      setOffset({ x: 500, y: offset.y }); // Ejecte la carte
+      // On attend la fin de l'animation avant de reset le bouton
+      setTimeout(() => {
+        onSwipe('right');
+        if (onDrag) onDrag(0); 
+      }, 200);
+
     } else if (offset.x < -threshold) {
-      setOffset({ x: -500, y: offset.y });
-      setTimeout(() => onSwipe('left'), 200);
+      // --> VALIDÉ À GAUCHE (X)
+      setOffset({ x: -500, y: offset.y }); // Ejecte la carte
+      setTimeout(() => {
+        onSwipe('left');
+        if (onDrag) onDrag(0);
+      }, 200);
+
     } else if (offset.y < -verticalThreshold && absY > absX * 1.2) {
+      // --> SWIPE VERTICAL (PARTAGE)
       onVerticalSwipe?.('up');
       setOffset({ x: 0, y: 0 });
+      if (onDrag) onDrag(0); // Reset immédiat (pas d'éjection latérale)
+
     } else {
+      // --> RETOUR AU CENTRE (ANNULATION)
       setOffset({ x: 0, y: 0 });
+      if (onDrag) onDrag(0); // Reset immédiat
     }
   };
 
-  // Events Mouse/Touch
-  const onMouseDown = (e) => handleStart(e.clientX, e.clientY);
-  const onMouseMove = (e) => handleMove(e.clientX, e.clientY);
-  const onMouseUp = () => handleEnd();
-  const onTouchStart = (e) => handleStart(e.touches[0].clientX, e.touches[0].clientY);
-  const onTouchMove = (e) => handleMove(e.touches[0].clientX, e.touches[0].clientY);
-  const onTouchEnd = () => handleEnd();
-
-  // Style de la pile
-  const scale = Math.max(1 - index * 0.05, 0.88); // tighter scale for 3 cards
-  const translateY = index * -6; // lift subsequent cards so their top shows more
-  const translateX = index * 14; // slight peek
+  // Styles calculés inchangés...
+  const scale = Math.max(1 - index * 0.05, 0.88);
+  const translateY = index * -6;
+  const translateX = index * 14;
   const opacity = Math.max(1 - index * 0.25, 0);
   const baseRotation = index * 1.2;
   const rotation = isDragging ? offset.x * 0.05 : baseRotation;
@@ -198,29 +219,20 @@ const SwipeCard = ({
     : isDark
       ? '0 20px 60px -40px rgba(0,0,0,0.55), 0 10px 34px -30px rgba(0,0,0,0.35), 0 1px 0 0 rgba(255,255,255,0.04) inset'
       : '0 20px 60px -40px rgba(15,23,42,0.20), 0 10px 34px -30px rgba(15,23,42,0.12), 0 1px 0 0 rgba(255,255,255,0.55) inset';
-  const textStrong = isDark ? 'text-slate-50' : 'text-slate-900';
-  const textMuted = isDark ? 'text-slate-300' : 'text-gray-500';
+  
   const cardBackground = `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
   const cardBorder = '1px solid rgba(255,255,255,0.08)';
   const leaderEntry = leaderboard.find((u) => u.id === spot?.hostId);
-  const fallbackRank = spot?.rank || spot?.position;
-  const rank = leaderEntry?.rank ?? (fallbackRank != null ? fallbackRank : '—');
-  const transactions =
-    leaderEntry?.transactions ??
-    (Number.isFinite(spot?.transactions) ? Number(spot.transactions) : 0);
+  const rank = leaderEntry?.rank ?? (spot?.rank || spot?.position || '—');
+  const transactions = leaderEntry?.transactions ?? (Number(spot?.transactions) || 0);
   const [showRank, setShowRank] = useState(false);
-
-  if (!spot) return null;
-
   const baseTx = active ? offset.x : translateX;
   const baseTy = active ? offset.y : translateY;
   const baseRot = active ? rotation : baseRotation;
   const baseScale = scale;
-  const animation = exiting
-    ? 'card-exit 0.4s ease forwards'
-    : entering
-      ? 'card-enter 0.35s ease-out'
-      : undefined;
+  const animation = exiting ? 'card-exit 0.4s ease forwards' : entering ? 'card-enter 0.35s ease-out' : undefined;
+
+  if (!spot) return null;
 
   return (
     <div
@@ -228,117 +240,78 @@ const SwipeCard = ({
       className={`absolute w-[78%] max-w-[300px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
         zIndex: 10 - index,
-        '--card-tx': `${baseTx}px`,
-        '--card-ty': `${baseTy}px`,
-        '--card-rot': `${baseRot}deg`,
-        '--card-scale': `${baseScale}`,
         transform: `translate(${baseTx}px, ${baseTy}px) rotate(${baseRot}deg) scale(${baseScale})`,
         opacity,
-        transition: isDragging
-          ? 'none'
-          : 'transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease',
+        // On enlève la transition quand on drag pour que ça suive le doigt parfaitement
+        transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease',
         boxShadow: appleShadow,
         background: cardBackground,
         border: cardBorder,
         animation,
-        animationFillMode: 'both',
+        touchAction: 'none', // INDISPENSABLE pour mobile
       }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
-      onMouseLeave={onMouseUp}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+      // On remplace tous les anciens events par ces 3 là :
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp} // Gère les cas d'interruption (appel entrant, etc.)
     >
-      <div className="flex flex-col items-center justify-center h-full space-y-6 text-center">
-        {/* Top-left rank badge */}
-        <div className="absolute top-3 left-3 text-white/90">
+      {/* Contenu interne avec pointer-events-none pour éviter les bugs de sélection */}
+      <div className="flex flex-col items-center justify-center h-full space-y-6 text-center pointer-events-none">
+        
+        {/* Badge Rang (on réactive les clicks ici) */}
+        <div className="absolute top-3 left-3 text-white/90 pointer-events-auto">
           <button
             type="button"
+            onPointerDown={(e) => e.stopPropagation()} 
             onClick={() => setShowRank(true)}
             className="relative inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
           >
-            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">
-              {rank}
-            </span>
-            <img
-              src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'}
-              alt="Rang"
-              className="w-full h-full object-contain bg-white/20 p-1 rounded-full"
-            />
+            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
+            <img src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'} alt="Rang" className="w-full h-full object-contain bg-white/20 p-1 rounded-full" />
           </button>
         </div>
 
-        {/* Headline: price only */}
-        <div className="mt-3">
-          <p className="text-white text-4xl font-extrabold drop-shadow">{formatPrice(spot.price)}</p>
-        </div>
+        <div className="mt-3"><p className="text-white text-4xl font-extrabold drop-shadow">{formatPrice(spot.price)}</p></div>
 
-        {/* Info cards */}
         <div className="flex flex-col items-stretch gap-3 w-full text-left">
+          {/* ... Cartes d'infos identiques ... */}
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold">
-              <span role="img" aria-label="car">🚗</span>
-              <span>{t('lengthLabel', 'Length')}</span>
-            </div>
-            <div className="text-lg font-bold">
-              {t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}
-            </div>
+            <div className="flex items-center gap-2 text-base font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
+            <div className="text-lg font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold">
-              <span role="img" aria-label="pin">📍</span>
-              <span>{t('distanceLabel', 'Distance')}</span>
-            </div>
-            <div className="text-lg font-bold">
-              {formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}
-            </div>
+            <div className="flex items-center gap-2 text-base font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
+            <div className="text-lg font-bold">{formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}</div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold">
-              <span role="img" aria-label="clock">⏱️</span>
-              <span>{t('leavingInLabel', 'Départ dans')}</span>
-            </div>
-            <div className="text-lg font-bold">
-              {preciseTime || t('etaFallback', '4:10')}
-            </div>
+            <div className="flex items-center gap-2 text-base font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Départ dans')}</span></div>
+            <div className="text-lg font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
           </div>
         </div>
       </div>
+
+      {/* Modal Rang (inchangé mais avec pointer-events-auto) */}
       {showRank && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center">
+        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-auto">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[26px]" onClick={() => setShowRank(false)} />
           <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
-            <button
-              type="button"
-              onClick={() => setShowRank(false)}
-              className="absolute top-2 right-2 text-white/70 hover:text-white"
-              aria-label="Close"
-            >
-              ×
-            </button>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 border border-white/15 text-2xl shadow-inner shadow-black/30">
-                {carEmoji}
-              </span>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/60">Rang</p>
-                <p className="text-2xl font-bold">#{rank}</p>
-              </div>
-            </div>
-            <div className="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-white/70">Transactions</span>
-                <span className="text-lg font-semibold">{transactions}</span>
-              </div>
-            </div>
+             {/* ... contenu modal identique ... */}
+             <button type="button" onClick={() => setShowRank(false)} className="absolute top-2 right-2 text-white/70 hover:text-white">×</button>
+             <div className="flex items-center gap-3 mb-4">
+                <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 border border-white/15 text-2xl shadow-inner shadow-black/30">{carEmoji}</span>
+                <div><p className="text-xs uppercase tracking-wide text-white/60">Rang</p><p className="text-2xl font-bold">#{rank}</p></div>
+             </div>
+             <div className="rounded-xl bg-white/10 border border-white/10 px-4 py-3">
+               <div className="flex items-center justify-between"><span className="text-sm text-white/70">Transactions</span><span className="text-lg font-semibold">{transactions}</span></div>
+             </div>
           </div>
         </div>
       )}
     </div>
   );
 };
+// caca2
 
 // --- VUE PRINCIPALE ---
 const SearchView = ({
@@ -776,61 +749,74 @@ const SearchView = ({
 
         
 
-        {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
-            <div className="flex justify-between items-center z-20 w-[84%] max-w-[330px] pointer-events-auto transition-all duration-200">
+        {/* --- BLOC BOUTONS CORRIGÉ --- */}
+          {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
+            <div className="flex justify-between items-center z-20 w-[84%] max-w-[330px] pointer-events-auto">
               
               {/* BOUTON GAUCHE (Refuser / X) */}
               <button
                 onClick={() => handleSwipe('left', visibleSpots[0])}
                 className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-75 border ${
-                  dragX < -100 ? 'haptic-active' : ''
-                } ${
                   isDark
                     ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg'
                     : 'bg-white text-rose-500 border-white/60 shadow-lg'
                 }`}
                 style={{
-                  // Si on tire à gauche (dragX < 0) :
-                  // 1. On déplace le bouton vers la droite (translateX positif) pour le centrer
-                  // 2. On le grossit
+                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
                     dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
-                  }px) scale(${
-                    dragX < 0 
-                      ? 1 + Math.min(Math.abs(dragX) / 250, 0.3) 
-                      : Math.max(1 - dragX / 150, 0.6)
-                  })`,
-                  opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0) : 1, // Disparaît plus vite
+                  }px)`,
+                  opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0) : 1,
                 }}
               >
-                <X size={32} strokeWidth={2.5} />
+                {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
+                <div
+                  className={`flex items-center justify-center w-full h-full transition-transform duration-75 ${
+                    dragX < -100 ? 'haptic-active' : ''
+                  }`}
+                  style={{
+                    transform: `scale(${
+                      dragX < 0 
+                        ? 1 + Math.min(Math.abs(dragX) / 250, 0.3) 
+                        : Math.max(1 - dragX / 150, 0.6)
+                    })`
+                  }}
+                >
+                  <X size={32} strokeWidth={2.5} />
+                </div>
               </button>
 
               {/* BOUTON DROIT (Réserver / Book) */}
               <button
                 onClick={() => handleSwipe('right', visibleSpots[0])}
                 className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
-                  dragX > 100 ? 'haptic-active' : ''
-                } ${
                   isDark
                     ? 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/10'
                     : 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/60'
                 }`}
                 style={{
-                  // Si on tire à droite (dragX > 0) :
-                  // 1. On déplace le bouton vers la gauche (translateX négatif) pour le centrer
-                  // 2. On le grossit
+                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
                     dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
-                  }px) scale(${
-                    dragX > 0 
-                      ? 1 + Math.min(dragX / 250, 0.3) 
-                      : Math.max(1 - Math.abs(dragX) / 150, 0.6)
-                  })`,
+                  }px)`,
                   opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0) : 1,
                 }}
               >
-                {t('book', 'Book')}
+                {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
+                <div 
+                  className={`flex items-center justify-center w-full h-full transition-transform duration-75 ${
+                    dragX > 100 ? 'haptic-active' : ''
+                  }`}
+                  style={{
+                     transform: `scale(${
+                      dragX > 0 
+                        ? 1 + Math.min(dragX / 250, 0.3) 
+                        : Math.max(1 - Math.abs(dragX) / 150, 0.6)
+                    })`
+                  }}
+                >
+                  {t('book', 'Book')}
+                </div>
               </button>
             </div>
           )}

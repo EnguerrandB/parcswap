@@ -12,7 +12,7 @@ html, body, #root {
   overflow-x: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
-  background: #f8fafc;
+  background: #fff59d; /* test: yellow background */
   transform: rotate(0deg); /* noop but helps prevent orientation change */
 }
 
@@ -20,6 +20,7 @@ body {
   margin: 0;
   padding-bottom: env(safe-area-inset-bottom);
   transform: rotate(0deg); /* noop but helps prevent orientation change */
+  background: #fff59d; /* test: yellow background */
 }
 
 /* Soft floating animation for active cards */

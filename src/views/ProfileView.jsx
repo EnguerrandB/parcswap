@@ -507,7 +507,18 @@ const ProfileView = ({
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+      <div
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 cursor-pointer hover:border-orange-200 transition"
+        role="button"
+        tabIndex={0}
+        onClick={() => setShowModal(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setShowModal(true);
+          }
+        }}
+      >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
             <div className="bg-white p-2 rounded-lg border border-gray-100">
@@ -515,12 +526,6 @@ const ProfileView = ({
             </div>
             <span className="font-semibold">{t('myVehicles')}</span>
           </div>
-          <button
-          onClick={() => setShowModal(true)}
-            className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
-          >
-            {t('manageVehicles')}
-          </button>
         </div>
 
         <div className="space-y-3">
@@ -551,7 +556,18 @@ const ProfileView = ({
       </div>
 
       {/* Achievements */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+      <div
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 cursor-pointer hover:border-orange-200 transition"
+        role="button"
+        tabIndex={0}
+        onClick={openAchievementsModal}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openAchievementsModal();
+          }
+        }}
+      >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
             <div className="bg-orange-50 p-2 rounded-lg border border-orange-100">
@@ -559,13 +575,6 @@ const ProfileView = ({
             </div>
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
           </div>
-          <button
-            type="button"
-            onClick={openAchievementsModal}
-            className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
-          >
-            {t('viewAchievements', 'Voir')}
-          </button>
         </div>
         <p className="text-sm text-gray-500">
           {t('achievementsHint', 'Découvre tous les badges et leurs défis dans la modale dédiée.')}

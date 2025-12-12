@@ -349,6 +349,30 @@ const SearchView = ({
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const [shareToast, setShareToast] = useState('');
   const [dragX, setDragX] = useState(0);
+  const radiusSliderRef = useRef(null);
+
+  const startRangeDrag = (e, ref, min, max, step, setter) => {
+    if (!ref?.current) return;
+    e.preventDefault();
+    const updateValue = (clientX) => {
+      const rect = ref.current.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const raw = min + pct * (max - min);
+      const value = Math.round(raw / step) * step;
+      setter(value);
+      ref.current.value = value;
+    };
+    updateValue(e.clientX);
+    const onMove = (ev) => updateValue(ev.clientX);
+    const onEnd = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  };
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -656,11 +680,15 @@ const SearchView = ({
                   </span>
                 </div>
                 <input
+                  ref={radiusSliderRef}
                   type="range"
                   min="0.1"
                   max="2000"
                   step="0.1"
                   value={radius}
+                  onPointerDown={(e) =>
+                    startRangeDrag(e, radiusSliderRef, 0.1, 2000, 0.1, setRadius)
+                  }
                   onChange={(e) => setRadius(parseFloat(e.target.value))}
                   className="w-full accent-orange-500"
                 />

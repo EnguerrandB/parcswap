@@ -316,7 +316,7 @@ const ProfileView = ({
   };
 
   return (
-    <div className="h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
+    <div className="relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
       <div id="recaptcha-container" className="hidden" />
       <div className="flex items-center justify-between mb-8 mt-4">
         <div>
@@ -346,57 +346,58 @@ const ProfileView = ({
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-        {infoMsg && (
-          <div className="mb-3 text-sm text-orange-700 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
-            {infoMsg}
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="bg-white p-2 rounded-lg border border-gray-100">
+            <User size={20} style={iconStyle('profile')} />
           </div>
-        )}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
-              <User size={20} style={iconStyle('profile')} />
-            </div>
-            <span className="font-semibold">{t('profile')}</span>
-          </div>
-          {!isEditingProfile ? (
-            <button
-              type="button"
-              onClick={() => {
-                setIsEditingProfile(true);
-                setInfoMsg('');
-              }}
-              className="text-xs font-semibold text-orange-600 bg-orange-50 px-3 py-1 rounded-lg border border-orange-100 hover:bg-orange-100"
-            >
-              {t('editProfile', 'Edit')}
-            </button>
-          ) : (
-            <span className="text-xs text-gray-500">{t('editing', 'Editing')}</span>
-          )}
+          <span className="font-semibold">{t('profile')}</span>
         </div>
 
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-gray-500 font-semibold">{t('name')}</label>
-            <input
-              type="text"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-              value={profileForm.displayName}
-              disabled={!isEditingProfile}
-              onChange={(e) => setProfileForm((prev) => ({ ...prev, displayName: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-gray-500 font-semibold">{t('email')}</label>
-            <input
-              type="email"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-              value={profileForm.email}
-              disabled={!isEditingProfile}
-              onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-gray-500 font-semibold">{t('phone')}</label>
+        <div className="relative rounded-2xl border border-white/60 bg-white/70 backdrop-blur-sm p-4 shadow-inner shadow-black/5 overflow-hidden">
+          {infoMsg && (
+            <div className="mb-3 text-sm text-orange-700 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
+              {infoMsg}
+            </div>
+          )}
+
+          {!isEditingProfile ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingProfile(true);
+                  setInfoMsg('');
+                }}
+                className="text-sm font-semibold text-orange-600 bg-white/90 backdrop-blur px-5 py-3 rounded-xl border border-orange-100 shadow-md hover:bg-orange-50 transition"
+              >
+                {t('editProfile', 'Edit')}
+              </button>
+            </div>
+          ) : null}
+
+          <div className={`space-y-3 transition ${!isEditingProfile ? 'blur-sm pointer-events-none select-none' : ''}`}>
+            <div className="grid grid-cols-1 gap-2">
+              <label className="text-xs text-gray-500 font-semibold">{t('name')}</label>
+              <input
+                type="text"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                value={profileForm.displayName}
+                disabled={!isEditingProfile}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, displayName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <label className="text-xs text-gray-500 font-semibold">{t('email')}</label>
+              <input
+                type="email"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                value={profileForm.email}
+                disabled={!isEditingProfile}
+                onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <label className="text-xs text-gray-500 font-semibold">{t('phone')}</label>
               <input
                 type="tel"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
@@ -443,67 +444,68 @@ const ProfileView = ({
                 <p className="text-xs text-red-500">{phoneVerification.error}</p>
               )}
             </div>
-          <div className="grid grid-cols-1 gap-2">
-            <label className="text-xs text-gray-500 font-semibold">{t('languageLabel')}</label>
-            <select
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 bg-white"
-              value={profileForm.language}
-              disabled={!isEditingProfile}
-              onChange={(e) => {
-                const lng = e.target.value;
-                setProfileForm((prev) => ({ ...prev, language: lng }));
-                i18n.changeLanguage(lng);
-              }}
-            >
-              <option value="en">English</option>
-              <option value="fr">Français</option>
-            </select>
-          </div>
-          {isEditingProfile ? (
-            <div className="flex space-x-2">
-              <button
-                onClick={async () => {
-                  if (phoneChanged && !phoneVerifiedStatus) {
-                    setInfoMsg(t('verifyPhoneToSave', 'Please verify your phone before saving.'));
-                    return;
-                  }
-                  const res = await onUpdateProfile?.({
-                    ...profileForm,
-                    phoneVerified: phoneChanged ? true : user?.phoneVerified,
-                  });
-                  if (res?.error) {
-                    const msg = res.reauthRequired
-                      ? t('emailUpdateReauth', 'Please sign out/in again to verify and update your email.')
-                      : t('updateProfileError', 'Unable to update profile. Please try again.');
-                    setInfoMsg(msg);
-                  } else if (res?.needsEmailVerify) {
-                    setInfoMsg(t('emailVerificationSent', 'Verification email sent. Confirm it to finalize your email update.'));
-                  } else {
-                    setInfoMsg('');
-                  }
-                  setIsEditingProfile(false);
+            <div className="grid grid-cols-1 gap-2">
+              <label className="text-xs text-gray-500 font-semibold">{t('languageLabel')}</label>
+              <select
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 bg-white"
+                value={profileForm.language}
+                disabled={!isEditingProfile}
+                onChange={(e) => {
+                  const lng = e.target.value;
+                  setProfileForm((prev) => ({ ...prev, language: lng }));
+                  i18n.changeLanguage(lng);
                 }}
-                disabled={phoneChanged && !phoneVerifiedStatus}
-                className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:scale-[1.01] transition disabled:opacity-60"
               >
-                {t('saveProfile', 'Save profile')}
-              </button>
-              <button
-                onClick={() => {
-                  setProfileForm({
-                    displayName: user?.displayName || '',
-                    email: user?.email || '',
-                    phone: user?.phone || '',
-                    language: user?.language || 'en',
-                  });
-                  setIsEditingProfile(false);
-                }}
-                className="flex-1 bg-white border border-gray-200 text-gray-600 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition"
-              >
-                {t('cancel', 'Cancel')}
-              </button>
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+              </select>
             </div>
-          ) : null}
+            {isEditingProfile ? (
+              <div className="flex space-x-2">
+                <button
+                  onClick={async () => {
+                    if (phoneChanged && !phoneVerifiedStatus) {
+                      setInfoMsg(t('verifyPhoneToSave', 'Please verify your phone before saving.'));
+                      return;
+                    }
+                    const res = await onUpdateProfile?.({
+                      ...profileForm,
+                      phoneVerified: phoneChanged ? true : user?.phoneVerified,
+                    });
+                    if (res?.error) {
+                      const msg = res.reauthRequired
+                        ? t('emailUpdateReauth', 'Please sign out/in again to verify and update your email.')
+                        : t('updateProfileError', 'Unable to update profile. Please try again.');
+                      setInfoMsg(msg);
+                    } else if (res?.needsEmailVerify) {
+                      setInfoMsg(t('emailVerificationSent', 'Verification email sent. Confirm it to finalize your email update.'));
+                    } else {
+                      setInfoMsg('');
+                    }
+                    setIsEditingProfile(false);
+                  }}
+                  disabled={phoneChanged && !phoneVerifiedStatus}
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:scale-[1.01] transition disabled:opacity-60"
+                >
+                  {t('saveProfile', 'Save profile')}
+                </button>
+                <button
+                  onClick={() => {
+                    setProfileForm({
+                      displayName: user?.displayName || '',
+                      email: user?.email || '',
+                      phone: user?.phone || '',
+                      language: user?.language || 'en',
+                    });
+                    setIsEditingProfile(false);
+                  }}
+                  className="flex-1 bg-white border border-gray-200 text-gray-600 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition"
+                >
+                  {t('cancel', 'Cancel')}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -570,7 +572,7 @@ const ProfileView = ({
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
-            <div className="bg-orange-50 p-2 rounded-lg border border-orange-100">
+            <div className="bg-white p-2 rounded-lg border border-gray-100">
               🏅
             </div>
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
@@ -1289,7 +1291,7 @@ If you have any questions or suggestions about our Privacy Policy, do not hesita
                     : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
                 } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
               >
-                ×
+                
               </button>
             </div>
           </div>

@@ -572,7 +572,7 @@ const ProfileView = ({
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
+             <div className="bg-white p-2 rounded-lg border border-gray-100">
               🏅
             </div>
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>

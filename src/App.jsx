@@ -1135,63 +1135,71 @@ export default function ParkSwapApp() {
           </div>
         </button>
       </div>
-      {showAccountSheet && (
-        <div className="fixed inset-0 z-[130] flex flex-col justify-end">
-          {/* Backdrop avec fade-in */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
-            onClick={() => {
-               // Fermeture au clic sur le fond (même logique d'animation)
-               setAccountSheetOffset(window.innerHeight);
-               setTimeout(() => {
-                 setShowAccountSheet(false);
-                 setAccountSheetOffset(0);
-               }, 300);
-            }}
-          />
-          
-          <div
-            className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
-              ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
-            `}
-            // On utilise translate-y-full par défaut pour qu'il parte du bas à l'ouverture, 
-            // sauf si on l'anime via le style inline
-            style={{ 
-              transform: `translateY(${accountSheetOffset}px)`,
-              // Petite astuce pour l'ouverture : on force une animation CSS keyframe simple au montage
-              animation: isSheetDragging ? 'none' : 'slideUp 0.3s ease-out forwards'
-            }}
-            onTouchStart={(e) => handleAccountSheetPointerDown(e)}
-            onMouseDown={(e) => handleAccountSheetPointerDown(e)}
-          >
-             {/* Barre de poignée */}
-            <div 
-              className="absolute inset-x-0 top-0 h-8 z-10 flex justify-center pt-3 cursor-grab active:cursor-grabbing bg-white"
-              onPointerDown={handleAccountSheetPointerDown}
-            >
-              <div className="w-12 h-1.5 rounded-full bg-gray-300" />
-            </div>
+      // Dans le return(), remplacez le bloc showAccountSheet par celui-ci :
 
-            <SafeView className="h-full pt-8" navHidden>
-              <ProfileView
-                user={user}
-                vehicles={vehicles}
-                onAddVehicle={handleAddVehicle}
-                onDeleteVehicle={handleDeleteVehicle}
-                onSelectVehicle={handleSelectVehicle}
-                onUpdateProfile={handleUpdateProfile}
-                leaderboard={leaderboard}
-                transactions={transactions}
-                onLogout={handleLogout}
-                theme={theme}
-                onChangeTheme={setTheme}
-                onInvite={handleInviteShare}
-                inviteMessage={inviteMessage}
-              />
-            </SafeView>
-          </div>
-        </div>
-      )}
+{showAccountSheet && (
+  <div className="fixed inset-0 z-[130] flex flex-col justify-end">
+    {/* 1. On injecte la définition de l'animation ici */}
+    <style>{`
+      @keyframes slideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+    `}</style>
+
+    {/* Backdrop avec fade-in */}
+    <div
+      className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+      onClick={() => {
+          setAccountSheetOffset(window.innerHeight);
+          setTimeout(() => {
+            setShowAccountSheet(false);
+            setAccountSheetOffset(0);
+          }, 300);
+      }}
+    />
+    
+    <div
+      className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
+        ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
+      `}
+      style={{ 
+        transform: `translateY(${accountSheetOffset}px)`,
+        // L'animation CSS prend la priorité sur le transform inline lors de l'ouverture
+        animation: isSheetDragging ? 'none' : 'slideUp 0.3s ease-out forwards'
+      }}
+      onTouchStart={(e) => handleAccountSheetPointerDown(e)}
+      onMouseDown={(e) => handleAccountSheetPointerDown(e)}
+    >
+      {/* ... reste du contenu de la modale ... */}
+      <div 
+        className="absolute inset-x-0 top-0 h-8 z-10 flex justify-center pt-3 cursor-grab active:cursor-grabbing bg-white"
+        onPointerDown={handleAccountSheetPointerDown}
+      >
+        <div className="w-12 h-1.5 rounded-full bg-gray-300" />
+      </div>
+
+      <SafeView className="h-full pt-8" navHidden>
+        {/* ... ProfileView ... */}
+        <ProfileView
+          user={user}
+          vehicles={vehicles}
+          onAddVehicle={handleAddVehicle}
+          onDeleteVehicle={handleDeleteVehicle}
+          onSelectVehicle={handleSelectVehicle}
+          onUpdateProfile={handleUpdateProfile}
+          leaderboard={leaderboard}
+          transactions={transactions}
+          onLogout={handleLogout}
+          theme={theme}
+          onChangeTheme={setTheme}
+          onInvite={handleInviteShare}
+          inviteMessage={inviteMessage}
+        />
+      </SafeView>
+    </div>
+  </div>
+)}
       {showInvite && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInvite(false)} />

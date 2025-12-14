@@ -236,6 +236,7 @@ export default function ParkSwapApp() {
   const [logoDragging, setLogoDragging] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
   const [accountSheetOffset, setAccountSheetOffset] = useState(0);
+  const [isSheetDragging, setIsSheetDragging] = useState(false);
   const sheetDragRef = useRef(false);
   const sheetStartY = useRef(0);
   const sheetOffsetRef = useRef(0);
@@ -285,31 +286,66 @@ export default function ParkSwapApp() {
   };
 
   const handleAccountSheetPointerDown = (e) => {
+    // Empêcher la propagation pour ne pas bouger la map en dessous
+    e.stopPropagation(); 
+    
     sheetDragRef.current = true;
-    sheetStartY.current = e.clientY;
+    
+    // Gérer aussi bien la souris que le tactile
+    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    sheetStartY.current = clientY;
+    
+    setIsSheetDragging(true); // Désactive l'animation CSS pour un suivi 1:1 du doigt
+
     const onMove = (ev) => {
       if (!sheetDragRef.current) return;
-      const delta = Math.max(0, ev.clientY - sheetStartY.current);
-      setAccountSheetOffset(delta);
-      sheetOffsetRef.current = delta;
+      const currentY = ev.clientY || (ev.touches && ev.touches[0].clientY);
+      const delta = currentY - sheetStartY.current;
+      
+      // On ne permet de descendre (delta positif). 
+      // Si on monte (négatif), on applique une résistance (divisé par 4)
+      const visibleOffset = delta > 0 ? delta : delta / 4;
+      
+      setAccountSheetOffset(visibleOffset);
+      sheetOffsetRef.current = visibleOffset;
     };
+
     const onEnd = () => {
-      const delta = sheetOffsetRef.current;
-      if (delta > 120) {
-        setShowAccountSheet(false);
-      }
-      setAccountSheetOffset(0);
-      sheetOffsetRef.current = 0;
+      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
       sheetDragRef.current = false;
+      
+      const delta = sheetOffsetRef.current;
+      const screenHeight = window.innerHeight;
+
+      // Si on a glissé de plus de 150px vers le bas, on ferme
+      if (delta > 150) {
+        // 1. On pousse la feuille tout en bas (hors écran)
+        setAccountSheetOffset(screenHeight);
+        
+        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
+        setTimeout(() => {
+          setShowAccountSheet(false);
+          setAccountSheetOffset(0); // Reset pour la prochaine ouverture
+        }, 300);
+      } else {
+        // Sinon, on remonte (rebond)
+        setAccountSheetOffset(0);
+      }
+
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onEnd);
       window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
     };
+
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
+    // Ajout des listeners tactiles spécifiques pour mobile
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onEnd);
   };
-
   // Fetch current user location for cards/navigation
   useEffect(() => {
     let cancelled = false;
@@ -1100,45 +1136,59 @@ export default function ParkSwapApp() {
         </button>
       </div>
       {showAccountSheet && (
-        <div className="fixed inset-0 z-[130]">
+        <div className="fixed inset-0 z-[130] flex flex-col justify-end">
+          {/* Backdrop avec fade-in */}
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setShowAccountSheet(false)}
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
+            onClick={() => {
+               // Fermeture au clic sur le fond (même logique d'animation)
+               setAccountSheetOffset(window.innerHeight);
+               setTimeout(() => {
+                 setShowAccountSheet(false);
+                 setAccountSheetOffset(0);
+               }, 300);
+            }}
           />
+          
           <div
-            className={`absolute left-0 right-0 bottom-0 h-[90vh] transition-transform duration-250 ease-out ${
-              showAccountSheet ? 'translate-y-0' : 'translate-y-full'
-            }`}
-            style={{ transform: `translateY(${accountSheetOffset}px)` }}
+            className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
+              ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
+            `}
+            // On utilise translate-y-full par défaut pour qu'il parte du bas à l'ouverture, 
+            // sauf si on l'anime via le style inline
+            style={{ 
+              transform: `translateY(${accountSheetOffset}px)`,
+              // Petite astuce pour l'ouverture : on force une animation CSS keyframe simple au montage
+              animation: isSheetDragging ? 'none' : 'slideUp 0.3s ease-out forwards'
+            }}
+            onTouchStart={(e) => handleAccountSheetPointerDown(e)}
+            onMouseDown={(e) => handleAccountSheetPointerDown(e)}
           >
-            <div className="absolute inset-x-0 top-2 flex justify-center">
-              <div
-                className="w-12 h-1.5 rounded-full bg-gray-300 shadow-sm cursor-grab active:cursor-grabbing"
-                onPointerDown={handleAccountSheetPointerDown}
-              />
-            </div>
-            <div
-              className="relative h-full bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden"
-              onTouchStart={(e) => handleAccountSheetPointerDown(e.touches ? e.touches[0] : e)}
+             {/* Barre de poignée */}
+            <div 
+              className="absolute inset-x-0 top-0 h-8 z-10 flex justify-center pt-3 cursor-grab active:cursor-grabbing bg-white"
+              onPointerDown={handleAccountSheetPointerDown}
             >
-              <SafeView className="h-full" navHidden>
-                <ProfileView
-                  user={user}
-                  vehicles={vehicles}
-                  onAddVehicle={handleAddVehicle}
-                  onDeleteVehicle={handleDeleteVehicle}
-                  onSelectVehicle={handleSelectVehicle}
-                  onUpdateProfile={handleUpdateProfile}
-                  leaderboard={leaderboard}
-                  transactions={transactions}
-                  onLogout={handleLogout}
-                  theme={theme}
-                  onChangeTheme={setTheme}
-                  onInvite={handleInviteShare}
-                  inviteMessage={inviteMessage}
-                />
-              </SafeView>
+              <div className="w-12 h-1.5 rounded-full bg-gray-300" />
             </div>
+
+            <SafeView className="h-full pt-8" navHidden>
+              <ProfileView
+                user={user}
+                vehicles={vehicles}
+                onAddVehicle={handleAddVehicle}
+                onDeleteVehicle={handleDeleteVehicle}
+                onSelectVehicle={handleSelectVehicle}
+                onUpdateProfile={handleUpdateProfile}
+                leaderboard={leaderboard}
+                transactions={transactions}
+                onLogout={handleLogout}
+                theme={theme}
+                onChangeTheme={setTheme}
+                onInvite={handleInviteShare}
+                inviteMessage={inviteMessage}
+              />
+            </SafeView>
           </div>
         </div>
       )}

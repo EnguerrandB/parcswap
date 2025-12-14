@@ -338,8 +338,20 @@ const ProfileView = ({
             e.stopPropagation();
             setShowLeaderboard(true);
           }}
-          className="relative z-10 flex items-center space-x-2 bg-white border border-orange-200 text-orange-600 px-3 py-2 rounded-xl shadow-sm hover:bg-orange-50 transition text-sm font-semibold pointer-events-auto"
+          className={`relative z-10 flex items-center space-x-2 px-3 py-2 rounded-xl shadow-sm transition text-sm font-semibold pointer-events-auto overflow-visible ${
+            isDark
+              ? 'bg-slate-900/85 text-amber-200 border border-white/10 hover:bg-slate-800'
+              : 'bg-white text-orange-600 border border-white/60 hover:bg-orange-50'
+          }`}
         >
+          <div
+            className={`pointer-events-none absolute inset-0 rounded-xl blur-md scale-125 opacity-70 -z-10 ${
+              isDark
+                ? 'bg-white/5 shadow-[0_16px_40px_-24px_rgba(0,0,0,0.8)]'
+                : 'bg-white/60 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.25)]'
+            }`}
+            aria-hidden="true"
+          />
           <Trophy size={18} style={iconStyle('leaderboard')} />
           <span>{t('leaderboard', 'Leaderboard')}</span>
         </button>
@@ -572,7 +584,7 @@ const ProfileView = ({
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
-             <div className="bg-white p-2 rounded-lg border border-gray-100">
+             <div className="w-9 h-9 flex items-center justify-center bg-white p-2 rounded-lg border border-gray-100">
               🏅
             </div>
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>

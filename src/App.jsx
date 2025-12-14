@@ -1135,7 +1135,6 @@ export default function ParkSwapApp() {
           </div>
         </button>
       </div>
-      // Dans le return(), remplacez le bloc showAccountSheet par celui-ci :
 
 {showAccountSheet && (
   <div className="fixed inset-0 z-[130] flex flex-col justify-end">

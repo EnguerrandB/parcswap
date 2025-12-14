@@ -1164,8 +1164,8 @@ export default function ParkSwapApp() {
       `}
       style={{ 
         transform: `translateY(${accountSheetOffset}px)`,
-        // L'animation CSS prend la priorité sur le transform inline lors de l'ouverture
-        animation: isSheetDragging ? 'none' : 'slideUp 0.3s ease-out forwards'
+        // MODIFICATION ICI : On désactive l'animation si on drag OU si l'offset est positif (fermeture)
+        animation: (isSheetDragging || accountSheetOffset > 0) ? 'none' : 'slideUp 0.3s ease-out forwards'
       }}
       onTouchStart={(e) => handleAccountSheetPointerDown(e)}
       onMouseDown={(e) => handleAccountSheetPointerDown(e)}

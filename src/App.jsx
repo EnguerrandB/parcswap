@@ -76,6 +76,8 @@ export default function ParkSwapApp() {
   const touchStartTime = useRef(null);
   const tabOrder = ['search', 'propose', 'profile'];
   const [slideDir, setSlideDir] = useState('left');
+  // Ajoutez ceci avec vos autres useState
+  const [sheetEntryAnim, setSheetEntryAnim] = useState(false);
   const [dragProgress, setDragProgress] = useState(0); // -1 (to prev) to 1 (to next)
   const [dragging, setDragging] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
@@ -250,6 +252,7 @@ export default function ParkSwapApp() {
   const handleLogoClick = () => {
     // Only trigger sharing if this interaction wasn't a drag
     if (logoMovedRef.current) return;
+    setSheetEntryAnim(true)
     setShowAccountSheet(true);
     setAccountSheetOffset(0);
   };
@@ -288,6 +291,7 @@ export default function ParkSwapApp() {
   const handleAccountSheetPointerDown = (e) => {
     // Empêcher la propagation pour ne pas bouger la map en dessous
     e.stopPropagation(); 
+    setSheetEntryAnim(false);
     
     sheetDragRef.current = true;
     
@@ -1138,7 +1142,7 @@ export default function ParkSwapApp() {
 
 {showAccountSheet && (
   <div className="fixed inset-0 z-[130] flex flex-col justify-end">
-    {/* 1. On injecte la définition de l'animation ici */}
+    {/* Définition de l'animation */}
     <style>{`
       @keyframes slideUp {
         from { transform: translateY(100%); }
@@ -1146,10 +1150,11 @@ export default function ParkSwapApp() {
       }
     `}</style>
 
-    {/* Backdrop avec fade-in */}
+    {/* Backdrop */}
     <div
       className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
       onClick={() => {
+          setSheetEntryAnim(false); // <--- Important pour la fermeture fluide via backdrop
           setAccountSheetOffset(window.innerHeight);
           setTimeout(() => {
             setShowAccountSheet(false);
@@ -1158,18 +1163,21 @@ export default function ParkSwapApp() {
       }}
     />
     
+    {/* La feuille de compte */}
     <div
       className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
         ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
       `}
       style={{ 
         transform: `translateY(${accountSheetOffset}px)`,
-        // MODIFICATION ICI : On désactive l'animation si on drag OU si l'offset est positif (fermeture)
-        animation: (isSheetDragging || accountSheetOffset > 0) ? 'none' : 'slideUp 0.3s ease-out forwards'
+        // L'animation ne s'active que si sheetEntryAnim est TRUE. 
+        // Sinon, c'est 'none', et la transition-transform gère la remontée/descente fluide.
+        animation: sheetEntryAnim ? 'slideUp 0.3s ease-out forwards' : 'none'
       }}
       onTouchStart={(e) => handleAccountSheetPointerDown(e)}
       onMouseDown={(e) => handleAccountSheetPointerDown(e)}
     >
+      {/* ... Le reste du contenu ne change pas ... */}
       {/* ... reste du contenu de la modale ... */}
       <div 
         className="absolute inset-x-0 top-0 h-8 z-10 flex justify-center pt-3 cursor-grab active:cursor-grabbing bg-white"

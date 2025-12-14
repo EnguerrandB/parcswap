@@ -618,8 +618,8 @@ const SearchView = ({
       {/* Header */}
       {!selectedSpot && (
         <>
-          <div className="px-6 pt-5 pb-2 flex justify-between items-center z-20">
-            <div>
+          <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-20">
+            <div className="flex flex-col items-center text-center">
               <p className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
                 {t('liveNearby', 'Live nearby')}
               </p>

@@ -234,6 +234,11 @@ export default function ParkSwapApp() {
   const logoDragStart = useRef({ x: 0, offset: 0 });
   const logoMovedRef = useRef(false);
   const [logoDragging, setLogoDragging] = useState(false);
+  const [showAccountSheet, setShowAccountSheet] = useState(false);
+  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
+  const sheetDragRef = useRef(false);
+  const sheetStartY = useRef(0);
+  const sheetOffsetRef = useRef(0);
 
   const clampLogoOffset = (value) => {
     if (typeof window === 'undefined') return 0;
@@ -244,7 +249,8 @@ export default function ParkSwapApp() {
   const handleLogoClick = () => {
     // Only trigger sharing if this interaction wasn't a drag
     if (logoMovedRef.current) return;
-    setShowInvite(true);
+    setShowAccountSheet(true);
+    setAccountSheetOffset(0);
   };
 
   const handleLogoPointerDown = (e) => {
@@ -273,6 +279,32 @@ export default function ParkSwapApp() {
       window.removeEventListener('pointercancel', onEnd);
     };
 
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  };
+
+  const handleAccountSheetPointerDown = (e) => {
+    sheetDragRef.current = true;
+    sheetStartY.current = e.clientY;
+    const onMove = (ev) => {
+      if (!sheetDragRef.current) return;
+      const delta = Math.max(0, ev.clientY - sheetStartY.current);
+      setAccountSheetOffset(delta);
+      sheetOffsetRef.current = delta;
+    };
+    const onEnd = () => {
+      const delta = sheetOffsetRef.current;
+      if (delta > 120) {
+        setShowAccountSheet(false);
+      }
+      setAccountSheetOffset(0);
+      sheetOffsetRef.current = 0;
+      sheetDragRef.current = false;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
@@ -1048,15 +1080,68 @@ export default function ParkSwapApp() {
           </div>
 
           {/* 2. Moving Logo: Always rendered (preloaded), fades in when dragging */}
-          <img
-            src={movingLogo}
-            alt="Logo"
-            className={`absolute inset-0 w-16 h-16 object-contain bg-white rounded-full p-1 shadow-lg border border-orange-100 transition-opacity duration-200 ease-out ${
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ease-out ${
               logoDragging ? 'opacity-100' : 'opacity-0'
             }`}
-          />
+          >
+            <div className="relative w-16 h-16">
+              <div
+                className="absolute inset-0 rounded-full bg-white/60 blur-md scale-140"
+                aria-hidden="true"
+              />
+              <img
+                src={movingLogo}
+                alt="Logo"
+                className="relative w-full h-full object-contain rounded-full shadow-md"
+              />
+            </div>
+          </div>
         </button>
       </div>
+      {showAccountSheet && (
+        <div className="fixed inset-0 z-[130]">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowAccountSheet(false)}
+          />
+          <div
+            className={`absolute left-0 right-0 bottom-0 h-[90vh] transition-transform duration-250 ease-out ${
+              showAccountSheet ? 'translate-y-0' : 'translate-y-full'
+            }`}
+            style={{ transform: `translateY(${accountSheetOffset}px)` }}
+          >
+            <div className="absolute inset-x-0 top-2 flex justify-center">
+              <div
+                className="w-12 h-1.5 rounded-full bg-gray-300 shadow-sm cursor-grab active:cursor-grabbing"
+                onPointerDown={handleAccountSheetPointerDown}
+              />
+            </div>
+            <div
+              className="relative h-full bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden"
+              onTouchStart={(e) => handleAccountSheetPointerDown(e.touches ? e.touches[0] : e)}
+            >
+              <SafeView className="h-full" navHidden>
+                <ProfileView
+                  user={user}
+                  vehicles={vehicles}
+                  onAddVehicle={handleAddVehicle}
+                  onDeleteVehicle={handleDeleteVehicle}
+                  onSelectVehicle={handleSelectVehicle}
+                  onUpdateProfile={handleUpdateProfile}
+                  leaderboard={leaderboard}
+                  transactions={transactions}
+                  onLogout={handleLogout}
+                  theme={theme}
+                  onChangeTheme={setTheme}
+                  onInvite={handleInviteShare}
+                  inviteMessage={inviteMessage}
+                />
+              </SafeView>
+            </div>
+          </div>
+        </div>
+      )}
       {showInvite && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInvite(false)} />

@@ -62,9 +62,11 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
               bg-orange-500 
               shadow-[0_2px_10px_rgba(249,115,22,0.3)]
               transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]
+              /* CORRECTION ICI : Largeur ajustée à -9px pour compenser le gap central */
+              w-[calc(50%-9px)]
               ${activeTab === 'search' 
-                ? 'left-1.5 w-[calc(50%-6px)]' 
-                : 'left-[calc(50%+3px)] w-[calc(50%-6px)]'
+                ? 'left-1.5'  /* Start at 6px */
+                : 'left-[calc(50%+3px)]' /* Start at 50% + 3px */
               }
             `}
           />

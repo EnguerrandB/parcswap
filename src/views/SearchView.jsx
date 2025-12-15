@@ -607,7 +607,10 @@ const SearchView = ({
       className={`h-full w-full flex flex-col relative overflow-hidden font-sans app-surface ${
         isDark ? 'bg-gradient-to-br from-slate-900 via-slate-950 to-black' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
       }`}
-      style={{ touchAction: 'pan-x' }}
+      style={{
+        touchAction: 'pan-x',
+        paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
+      }}
     >
       {!selectedSpot && showRadiusPicker && (
         <div

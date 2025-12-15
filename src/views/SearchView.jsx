@@ -374,7 +374,8 @@ const SearchView = ({
   const [dragX, setDragX] = useState(0);
   const radiusSliderRef = useRef(null);
   const [isOnline, setIsOnline] = useState(true);
-  const cityLabel = userCoords?.city || userCoords?.label || t('currentLocation', 'Your location');
+  const [cityName, setCityName] = useState('');
+  const cityLabel = cityName || t('currentLocation', 'Your location');
 
   const startRangeDrag = (e, ref, min, max, step, setter) => {
     if (!ref?.current) return;
@@ -463,6 +464,38 @@ const SearchView = ({
       window.removeEventListener('offline', update);
     };
   }, []);
+
+  // Déterminer la ville (geocoding simple)
+  useEffect(() => {
+    if (!userCoords?.lat || !userCoords?.lng) {
+      setCityName(userCoords?.city || userCoords?.label || '');
+      return undefined;
+    }
+    if (userCoords.city || userCoords.label) {
+      setCityName(userCoords.city || userCoords.label);
+      return undefined;
+    }
+    const token = import.meta.env.VITE_MAPBOX_TOKEN;
+    if (!token) {
+      setCityName('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    const fetchCity = async () => {
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${userCoords.lng},${userCoords.lat}.json?types=place&limit=1&access_token=${token}`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error('geocode_failed');
+        const data = await res.json();
+        const place = data?.features?.[0]?.text || data?.features?.[0]?.place_name;
+        setCityName(place || '');
+      } catch (_) {
+        setCityName('');
+      }
+    };
+    fetchCity();
+    return () => controller.abort();
+  }, [userCoords]);
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
   const availableSpots = sortedSpots.filter((spot) => getDistanceMeters(spot, userCoords) <= radius * 1000);
@@ -725,51 +758,37 @@ const SearchView = ({
       )}
       {/* Header */}
       {!selectedSpot && (
-        <>
-          <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-0">
-            <div className="flex flex-col items-center text-center">
-              <p className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
-                {t('liveNearby', 'Live nearby')}
-              </p>
-              <button
-                onClick={() => setShowRadiusPicker((s) => !s)}
-                className={`mt-1 text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
-                  isDark
-                    ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
-                    : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
-                }`}
-              >
-                {t('radiusLabel', {
-                  city: cityLabel,
-                  value: radius.toFixed(1),
-                  defaultValue: 'Paris • {{value}} km radius',
-                })}
-              </button>
+        <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-0">
+          <div className="flex items-center gap-2">
+            <MapPin size={20} className={isDark ? 'text-amber-300' : 'text-orange-500'} />
+            <div className="flex flex-col text-left">
+              <span className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
+                {t('currentLocation', 'Your location')}
+              </span>
+              <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                {cityLabel}
+              </span>
             </div>
+          </div>
+          <div className="flex flex-col items-end text-right">
+            <p className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
+              {t('liveNearby', 'Live nearby')}
+            </p>
             <button
-              type="button"
-              onClick={handleEnableNotifications}
-              className={`p-2 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition border shadow-md ${
-                isDark ? 'bg-slate-800 border-white/10 shadow-black/40' : 'bg-white border-white/60'
+              onClick={() => setShowRadiusPicker((s) => !s)}
+              className={`mt-1 text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
+                isDark
+                  ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+                  : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
               }`}
-              aria-label={notificationsEnabled ? t('notificationsOn', 'Notifications on') : t('enableNotifications', 'Enable notifications')}
             >
-              {notificationsEnabled ? (
-                <Bell size={18} className="text-orange-500" />
-              ) : (
-                <span className="relative inline-flex items-center justify-center">
-                  <Bell size={18} className="text-gray-400" />
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="4" y1="4" x2="20" y2="20" />
-                    </svg>
-                  </span>
-                </span>
-              )}
+              {t('radiusValueHeader', {
+                value: radius.toFixed(1),
+                defaultValue: '{{value}} km radius',
+              })}
             </button>
           </div>
-
-        </>
+        </div>
       )}
 
       {/* Stack de Cartes + Actions */}

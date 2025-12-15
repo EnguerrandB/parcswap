@@ -3,63 +3,108 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, HandCoins } from 'lucide-react';
 
+// ==================================================================================
+// 🎛️ ZONE DE CONFIGURATION DU HALO
+// ==================================================================================
+
+// Réglages du halo (aligné sur le halo discret du logo)
+// Ajustez ici si besoin : plus l'opacité/scale/blur sont bas, plus le halo est diffus.
+const HALO_SPREAD = '-inset-0'; // étendue
+const HALO_OPACITY = 0.02; // intensité max (0-1)
+const HALO_SCALE = 1.01; // 1 = pile la taille du nav
+const HALO_BLUR_CLASS = 'blur-lg'; // blur-sm | blur-md | blur-lg
+
+// ==================================================================================
+
 const BottomNav = ({ activeTab, setActiveTab }) => {
   const { t } = useTranslation('common');
-
-  // Définition des styles pour éviter la répétition
-  // Active : Fond orange vibrant, texte blanc, ombre colorée (Glow), pas de transparence
-  const activeStyle = "bg-orange-500 text-white shadow-[0_4px_14px_0_rgba(249,115,22,0.35)] scale-100 font-semibold";
-  
-  // Inactive : Gris discret, fond transparent, effet de réduction au clic
-  const inactiveStyle = "text-gray-400 hover:bg-gray-50/50 font-medium active:scale-95";
 
   return (
     <div
       className="fixed bottom-0 left-0 right-0 z-[300] flex justify-center pointer-events-none pb-[calc(env(safe-area-inset-bottom)+24px)]"
       data-role="bottom-nav-wrapper"
     >
-      <div
-        id="bottom-nav"
-        className="
-          pointer-events-auto 
-          flex items-center p-2 gap-3
-          bg-white/80 backdrop-blur-2xl 
-          border border-white/50 
-          shadow-[0_8px_32px_rgba(0,0,0,0.12)]
-          rounded-full
-          w-[90%] max-w-[320px]
-          transition-all duration-300
-        "
-      >
-        {/* Bouton Recherche */}
-        <button
-          onClick={() => setActiveTab('search')}
+      {/* CONTENEUR PRINCIPAL */}
+      <div className="relative w-[90%] max-w-[320px]">
+        
+        {/* =================================================================
+           LE HALO (Arrière-plan vibrant)
+           Piloté par les variables de configuration ci-dessus
+           ================================================================= */}
+        <div
           className={`
-            flex-[1.2] flex items-center justify-center gap-2.5 h-12 rounded-full transition-all duration-300 ease-out
-            ${activeTab === 'search' ? activeStyle : inactiveStyle}
+            absolute rounded-full halo-pulse scale-115
+            bg-white/35
+            ${HALO_SPREAD}
+            ${HALO_BLUR_CLASS}
           `}
-        >
-          <Search 
-            size={20} 
-            strokeWidth={activeTab === 'search' ? 2.5 : 2} 
-          />
-          <span className="text-sm tracking-wide">{t('tabSearch', 'Rechercher')}</span>
-        </button>
+          style={{ opacity: HALO_OPACITY, transform: `scale(${HALO_SCALE})` }}
+        />
 
-        {/* Bouton Proposer */}
-        <button
-          onClick={() => setActiveTab('propose')}
-          className={`
-            flex-[1.2] flex items-center justify-center gap-2.5 h-12 rounded-full transition-all duration-300 ease-out
-            ${activeTab === 'propose' ? activeStyle : inactiveStyle}
-          `}
+        {/* =================================================================
+           LA BARRE DE NAVIGATION (Glassmorphism)
+           ================================================================= */}
+        <div
+          id="bottom-nav"
+          className="
+            pointer-events-auto relative flex items-center p-1.5
+            bg-white/80 backdrop-blur-2xl 
+            border border-white/60 
+            shadow-[0_8px_32px_rgba(0,0,0,0.12)] 
+            rounded-full w-full
+            overflow-hidden
+          "
         >
-          <HandCoins 
-            size={20} 
-            strokeWidth={activeTab === 'propose' ? 2.5 : 2} 
+          {/* FOND ACTIF QUI GLISSE (Sliding Pill) */}
+          <div
+            className={`
+              absolute top-1.5 bottom-1.5 rounded-full 
+              bg-orange-500 
+              shadow-[0_2px_10px_rgba(249,115,22,0.3)]
+              transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]
+              ${activeTab === 'search' 
+                ? 'left-1.5 w-[calc(50%-6px)]' 
+                : 'left-[calc(50%+3px)] w-[calc(50%-6px)]'
+              }
+            `}
           />
-          <span className="text-sm tracking-wide">{t('tabPropose', 'Proposer')}</span>
-        </button>
+
+          {/* =================================================================
+             BOUTONS (Foreground)
+             ================================================================= */}
+          
+          {/* Bouton Recherche */}
+          <button
+            onClick={() => setActiveTab('search')}
+            className={`
+              flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
+              ${activeTab === 'search' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
+            `}
+          >
+            <Search 
+              size={20} 
+              strokeWidth={2.5} 
+              className={`transition-transform duration-300 ${activeTab === 'search' ? 'scale-105' : 'scale-100'}`} 
+            />
+            <span className="text-sm font-semibold tracking-wide">{t('tabSearch', 'Rechercher')}</span>
+          </button>
+
+          {/* Bouton Proposer */}
+          <button
+            onClick={() => setActiveTab('propose')}
+            className={`
+              flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
+              ${activeTab === 'propose' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
+            `}
+          >
+            <HandCoins 
+              size={20} 
+              strokeWidth={2.5} 
+              className={`transition-transform duration-300 ${activeTab === 'propose' ? 'scale-105' : 'scale-100'}`} 
+            />
+            <span className="text-sm font-semibold tracking-wide">{t('tabPropose', 'Proposer')}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

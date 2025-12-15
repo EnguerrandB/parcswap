@@ -338,22 +338,21 @@ const ProfileView = ({
             e.stopPropagation();
             setShowLeaderboard(true);
           }}
-          className={`relative z-10 flex items-center space-x-2 px-3 py-2 rounded-xl shadow-sm transition text-sm font-semibold pointer-events-auto overflow-visible ${
+          className={`relative z-10 flex items-center justify-center w-14 h-14 rounded-2xl shadow-sm transition pointer-events-auto overflow-visible ${
             isDark
               ? 'bg-slate-900/85 text-amber-200 border border-white/10 hover:bg-slate-800'
               : 'bg-white text-orange-600 border border-white/60 hover:bg-orange-50'
           }`}
         >
           <div
-            className={`pointer-events-none absolute inset-0 rounded-xl blur-md scale-125 opacity-70 -z-10 ${
+            className={`pointer-events-none absolute inset-0 rounded-xl blur-md scale-140 opacity-70 -z-10 ${
               isDark
-                ? 'bg-white/5 shadow-[0_16px_40px_-24px_rgba(0,0,0,0.8)]'
+                ? 'bg-white/8 shadow-[0_16px_40px_-24px_rgba(0,0,0,0.8)]'
                 : 'bg-white/60 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.25)]'
             }`}
             aria-hidden="true"
           />
-          <Trophy size={18} style={iconStyle('leaderboard')} />
-          <span>{t('leaderboard', 'Leaderboard')}</span>
+          <Trophy size={22} style={iconStyle('leaderboard')} />
         </button>
       </div>
 

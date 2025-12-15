@@ -1140,7 +1140,7 @@ export default function ParkSwapApp() {
       </div>
 
 {showAccountSheet && (
-  <div className="fixed inset-0 z-[130] flex flex-col justify-end">
+  <div className="fixed inset-0 z-[400] flex flex-col justify-end">
     {/* Définition de l'animation */}
     <style>{`
       @keyframes slideUp {
@@ -1314,7 +1314,7 @@ export default function ParkSwapApp() {
             );
           })()}
         </div>
-        <div className="transition-opacity duration-300 opacity-100" style={{ '--bottom-nav-height': 'auto' }}>
+        <div className="transition-opacity duration-300 opacity-100 z-[200]" style={{ '--bottom-nav-height': 'auto' }}>
           <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
         </div>
       </div>

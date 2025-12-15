@@ -15,6 +15,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
     (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
   const [plateInput, setPlateInput] = useState('');
+  const [showAd, setShowAd] = useState(false);
   const carMotionStyle = {
     animation: 'waiting-car-slide 9s ease-in-out infinite',
     animationFillMode: 'forwards',
@@ -86,6 +87,44 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   if (myActiveSpot) {
     const isExpired =
       myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0);
+
+    // Plan the sponsored card timing: appear 5s after start, disappear 5s before end
+    // Gestion de l'affichage de la Pub
+    useEffect(() => {
+      // 1. Reset immédiat si le statut n'est pas bon
+      if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) {
+        setShowAd(false);
+        return undefined;
+      }
+
+      // 2. Si on démarre et qu'il reste déjà moins de 5s, on n'affiche rien
+      if (remainingMs != null && remainingMs <= 5000) {
+        setShowAd(false);
+        return undefined;
+      }
+
+      // 3. Sinon, on programme l'affichage dans 5 secondes
+      // IMPORTANT : On ne met PAS remainingMs dans les dépendances pour ne pas reset le timer à chaque seconde
+      const timer = setTimeout(() => {
+        setShowAd(true);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    }, [myActiveSpot?.id, myActiveSpot?.status, isExpired]); // <-- remainingMs retiré ici
+
+    // Gestion de la disparition de la Pub (quand il reste peu de temps)
+    useEffect(() => {
+      if (remainingMs != null && remainingMs <= 5000) {
+        setShowAd(false);
+      }
+    }, [remainingMs]);
+
+    useEffect(() => {
+      if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) return;
+      if (remainingMs != null && remainingMs <= 5000) {
+        setShowAd(false);
+      }
+    }, [remainingMs, myActiveSpot?.status, isExpired, myActiveSpot]);
 
     if (myActiveSpot.status === 'booked') {
       return (
@@ -166,7 +205,18 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
       >
         <div className="mt-16 mb-6 text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-3">
-            {myActiveSpot.status === 'booked' ? t('seekerFound', 'Seeker Found!') : t('searching', 'Searching...')}
+            {myActiveSpot.status === 'booked' ? (
+              t('seekerFound', 'Seeker Found!')
+            ) : (
+              <span>
+                {t('searching', 'Searching')}
+                <span className="dot-ellipsis" aria-hidden="true">
+                  <span>.</span>
+                  <span>.</span>
+                  <span>.</span>
+                </span>
+              </span>
+            )}
           </h1>
           <p className="text-gray-500 mb-2">
             {myActiveSpot.status === 'booked'
@@ -236,37 +286,40 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
             </div>
           </div>
 
+          {/* BLOC PUB ANIMÉ - Toujours dans le DOM, mais animé via CSS */}
           <div
-            className={`w-full max-w-md rounded-3xl shadow-xl px-6 py-6 z-10 border ${
+            className={`w-full max-w-md rounded-3xl shadow-xl z-10 border overflow-hidden transition-all duration-700 cubic-bezier(0.4, 0, 0.2, 1) ${
               isDark
                 ? 'bg-gradient-to-r from-slate-800 via-slate-900 to-black border-slate-700'
                 : 'bg-gradient-to-r from-amber-200 via-orange-100 to-white border-orange-200'
-            }`}
+            } ${showAd ? 'opacity-100 translate-y-0 max-h-[400px] py-6 mt-6 px-6' : 'opacity-0 translate-y-16 max-h-0 py-0 mt-0 px-6'}`}
           >
-            <p
-              className={`text-xs uppercase font-bold tracking-wide mb-2 ${
-                isDark ? 'text-amber-300' : 'text-orange-500'
-              }`}
-            >
-              {t('sponsored', 'Sponsored')}
-            </p>
-            <h3
-              className={`text-2xl font-bold mb-2 ${
-                isDark ? 'text-slate-50' : 'text-gray-900'
-              }`}
-            >
-              {t('sponsoredTitle', 'Drive smarter, earn more')}
-            </h3>
-            <p
-              className={`text-sm leading-relaxed ${
-                isDark ? 'text-slate-200' : 'text-gray-600'
-              }`}
-            >
-              {t('sponsoredBody', 'Boost your next swap with priority placement and instant notifications. Limited-time offer for early hosts.')}
-            </p>
-            <button className="mt-4 bg-orange-500 text-white px-4 py-2 rounded-xl font-semibold shadow hover:bg-orange-600 transition">
-              {t('learnMore', 'Learn more')}
-            </button>
+            <div className={`transition-opacity duration-300 delay-200 ${showAd ? 'opacity-100' : 'opacity-0'}`}>
+              <p
+                className={`text-xs uppercase font-bold tracking-wide mb-2 ${
+                  isDark ? 'text-amber-300' : 'text-orange-500'
+                }`}
+              >
+                {t('sponsored', 'Sponsored')}
+              </p>
+              <h3
+                className={`text-2xl font-bold mb-2 ${
+                  isDark ? 'text-slate-50' : 'text-gray-900'
+                }`}
+              >
+                {t('sponsoredTitle', 'Drive smarter, earn more')}
+              </h3>
+              <p
+                className={`text-sm leading-relaxed ${
+                  isDark ? 'text-slate-200' : 'text-gray-600'
+                }`}
+              >
+                {t('sponsoredBody', 'Boost your next swap with priority placement and instant notifications. Limited-time offer for early hosts.')}
+              </p>
+              <button className="mt-4 bg-orange-500 text-white px-4 py-2 rounded-xl font-semibold shadow hover:bg-orange-600 transition">
+                {t('learnMore', 'Learn more')}
+              </button>
+            </div>
           </div>
         </div>
       </div>

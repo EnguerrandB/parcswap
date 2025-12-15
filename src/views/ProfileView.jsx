@@ -1,5 +1,5 @@
 // src/views/ProfileView.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Car,
   CreditCard,
@@ -132,28 +132,188 @@ const ProfileView = ({
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showLegal, setShowLegal] = useState(false);
-  const [achievements, setAchievements] = useState([
-    { id: 'achv-1', label: t('achievementPioneer', 'Pioneer'), enabled: true, icon: '/ranks/rank1.png', challenges: ['Faire ta première transaction'] },
-    { id: 'achv-2', label: t('achievementTrusty', 'Trusty Trader'), enabled: false, icon: '/ranks/rank2.png', challenges: ['Effectuer 10 transactions', 'Obtenir 3 évaluations positives'] },
-    { id: 'achv-3', label: t('achievementSprinter', 'Sprinter'), enabled: false, icon: '/ranks/rank3.png', challenges: ['Répondre en moins de 30s à une demande', 'Compléter 5 swaps en 24h'] },
-    { id: 'achv-4', label: 'Night Owl', enabled: false, icon: '/ranks/rank4.png', challenges: ['Faire un swap entre 1h et 5h du matin'] },
-    { id: 'achv-5', label: 'City Explorer', enabled: false, icon: '/ranks/rank5.png', challenges: ['Proposer une place dans 5 arrondissements différents'] },
-    { id: 'achv-6', label: 'Globetrotter', enabled: false, icon: '/ranks/rank1.png', challenges: ['Utiliser l’app dans 3 villes différentes'] },
-    { id: 'achv-7', label: 'Flash Deal', enabled: false, icon: '/ranks/rank2.png', challenges: ['Accepter une place en moins de 10s après notification'] },
-    { id: 'achv-8', label: 'Good Samaritan', enabled: false, icon: '/ranks/rank3.png', challenges: ['Proposer 3 places gratuites'] },
-    { id: 'achv-9', label: 'Social Bee', enabled: false, icon: '/ranks/rank4.png', challenges: ['Partager l’app avec 5 amis', 'Obtenir 2 nouveaux utilisateurs grâce à ton partage'] },
-    { id: 'achv-10', label: 'Consistency', enabled: false, icon: '/ranks/rank5.png', challenges: ['Faire au moins 1 swap par jour pendant 7 jours'] },
-    { id: 'achv-11', label: 'Weekend Warrior', enabled: false, icon: '/ranks/rank1.png', challenges: ['Réaliser 5 swaps sur un week-end'] },
-    { id: 'achv-12', label: 'Early Bird', enabled: false, icon: '/ranks/rank2.png', challenges: ['Proposer une place avant 7h du matin'] },
-    { id: 'achv-13', label: 'Lightning Booker', enabled: false, icon: '/ranks/rank3.png', challenges: ['Réserver une place à moins de 100 m'] },
-    { id: 'achv-14', label: 'Precision Driver', enabled: false, icon: '/ranks/rank4.png', challenges: ['Arriver à l’heure sur 5 réservations de suite'] },
-    { id: 'achv-15', label: 'Connector', enabled: false, icon: '/ranks/rank5.png', challenges: ['Inviter un ami ET compléter un swap avec lui/elle'] },
-    { id: 'achv-16', label: 'Feedback Hero', enabled: false, icon: '/ranks/rank1.png', challenges: ['Laisser 5 feedbacks constructifs'] },
-    { id: 'achv-17', label: 'High Roller', enabled: false, icon: '/ranks/rank2.png', challenges: ['Payer ou proposer une place à plus de 10€'] },
-    { id: 'achv-18', label: 'Streak Master', enabled: false, icon: '/ranks/rank3.png', challenges: ['Maintenir une série de 15 jours avec au moins une action'] },
-    { id: 'achv-19', label: 'Calm Navigator', enabled: false, icon: '/ranks/rank4.png', challenges: ['Suivre la navigation sans quitter l’app pendant 3 trajets'] },
-    { id: 'achv-20', label: 'Community Star', enabled: false, icon: '/ranks/rank5.png', challenges: ['Aider 3 nouveaux utilisateurs à réaliser leur premier swap'] },
-  ]);
+  const achievementDefs = [
+    {
+      id: 'achv-1',
+      labelKey: 'achievementPioneer',
+      labelDefault: 'Pioneer',
+      enabled: true,
+      icon: '/ranks/rank1.png',
+      challengeKeys: [{ key: 'achievementPioneerChallenge1', fallback: 'Complete your first transaction' }],
+    },
+    {
+      id: 'achv-2',
+      labelKey: 'achievementTrusty',
+      labelDefault: 'Trusty Trader',
+      enabled: false,
+      icon: '/ranks/rank2.png',
+      challengeKeys: [
+        { key: 'achievementTrustyChallenge1', fallback: 'Complete 10 transactions' },
+        { key: 'achievementTrustyChallenge2', fallback: 'Earn 3 positive reviews' },
+      ],
+    },
+    {
+      id: 'achv-3',
+      labelKey: 'achievementSprinter',
+      labelDefault: 'Sprinter',
+      enabled: false,
+      icon: '/ranks/rank3.png',
+      challengeKeys: [
+        { key: 'achievementSprinterChallenge1', fallback: 'Reply in under 30s to a request' },
+        { key: 'achievementSprinterChallenge2', fallback: 'Complete 5 swaps within 24h' },
+      ],
+    },
+    {
+      id: 'achv-4',
+      labelKey: 'achievementNightOwl',
+      labelDefault: 'Night Owl',
+      enabled: false,
+      icon: '/ranks/rank4.png',
+      challengeKeys: [{ key: 'achievementNightOwlChallenge1', fallback: 'Make a swap between 1am and 5am' }],
+    },
+    {
+      id: 'achv-5',
+      labelKey: 'achievementCityExplorer',
+      labelDefault: 'City Explorer',
+      enabled: false,
+      icon: '/ranks/rank5.png',
+      challengeKeys: [{ key: 'achievementCityExplorerChallenge1', fallback: 'Offer a spot in 5 different districts' }],
+    },
+    {
+      id: 'achv-6',
+      labelKey: 'achievementGlobetrotter',
+      labelDefault: 'Globetrotter',
+      enabled: false,
+      icon: '/ranks/rank1.png',
+      challengeKeys: [{ key: 'achievementGlobetrotterChallenge1', fallback: 'Use the app in 3 different cities' }],
+    },
+    {
+      id: 'achv-7',
+      labelKey: 'achievementFlashDeal',
+      labelDefault: 'Flash Deal',
+      enabled: false,
+      icon: '/ranks/rank2.png',
+      challengeKeys: [{ key: 'achievementFlashDealChallenge1', fallback: 'Accept a spot in under 10s after a notification' }],
+    },
+    {
+      id: 'achv-8',
+      labelKey: 'achievementGoodSamaritan',
+      labelDefault: 'Good Samaritan',
+      enabled: false,
+      icon: '/ranks/rank3.png',
+      challengeKeys: [{ key: 'achievementGoodSamaritanChallenge1', fallback: 'Offer 3 free spots' }],
+    },
+    {
+      id: 'achv-9',
+      labelKey: 'achievementSocialBee',
+      labelDefault: 'Social Bee',
+      enabled: false,
+      icon: '/ranks/rank4.png',
+      challengeKeys: [
+        { key: 'achievementSocialBeeChallenge1', fallback: 'Share the app with 5 friends' },
+        { key: 'achievementSocialBeeChallenge2', fallback: 'Bring 2 new users thanks to your share' },
+      ],
+    },
+    {
+      id: 'achv-10',
+      labelKey: 'achievementConsistency',
+      labelDefault: 'Consistency',
+      enabled: false,
+      icon: '/ranks/rank5.png',
+      challengeKeys: [{ key: 'achievementConsistencyChallenge1', fallback: 'Do at least 1 swap per day for 7 days' }],
+    },
+    {
+      id: 'achv-11',
+      labelKey: 'achievementWeekendWarrior',
+      labelDefault: 'Weekend Warrior',
+      enabled: false,
+      icon: '/ranks/rank1.png',
+      challengeKeys: [{ key: 'achievementWeekendWarriorChallenge1', fallback: 'Complete 5 swaps over a weekend' }],
+    },
+    {
+      id: 'achv-12',
+      labelKey: 'achievementEarlyBird',
+      labelDefault: 'Early Bird',
+      enabled: false,
+      icon: '/ranks/rank2.png',
+      challengeKeys: [{ key: 'achievementEarlyBirdChallenge1', fallback: 'Offer a spot before 7am' }],
+    },
+    {
+      id: 'achv-13',
+      labelKey: 'achievementLightningBooker',
+      labelDefault: 'Lightning Booker',
+      enabled: false,
+      icon: '/ranks/rank3.png',
+      challengeKeys: [{ key: 'achievementLightningBookerChallenge1', fallback: 'Book a spot under 100 m away' }],
+    },
+    {
+      id: 'achv-14',
+      labelKey: 'achievementPrecisionDriver',
+      labelDefault: 'Precision Driver',
+      enabled: false,
+      icon: '/ranks/rank4.png',
+      challengeKeys: [{ key: 'achievementPrecisionDriverChallenge1', fallback: 'Arrive on time for 5 bookings in a row' }],
+    },
+    {
+      id: 'achv-15',
+      labelKey: 'achievementConnector',
+      labelDefault: 'Connector',
+      enabled: false,
+      icon: '/ranks/rank5.png',
+      challengeKeys: [{ key: 'achievementConnectorChallenge1', fallback: 'Invite a friend and complete a swap together' }],
+    },
+    {
+      id: 'achv-16',
+      labelKey: 'achievementFeedbackHero',
+      labelDefault: 'Feedback Hero',
+      enabled: false,
+      icon: '/ranks/rank1.png',
+      challengeKeys: [{ key: 'achievementFeedbackHeroChallenge1', fallback: 'Leave 5 helpful feedbacks' }],
+    },
+    {
+      id: 'achv-17',
+      labelKey: 'achievementHighRoller',
+      labelDefault: 'High Roller',
+      enabled: false,
+      icon: '/ranks/rank2.png',
+      challengeKeys: [{ key: 'achievementHighRollerChallenge1', fallback: 'Pay or offer a spot above €10' }],
+    },
+    {
+      id: 'achv-18',
+      labelKey: 'achievementStreakMaster',
+      labelDefault: 'Streak Master',
+      enabled: false,
+      icon: '/ranks/rank3.png',
+      challengeKeys: [{ key: 'achievementStreakMasterChallenge1', fallback: 'Keep a 15-day streak with at least one action' }],
+    },
+    {
+      id: 'achv-19',
+      labelKey: 'achievementCalmNavigator',
+      labelDefault: 'Calm Navigator',
+      enabled: false,
+      icon: '/ranks/rank4.png',
+      challengeKeys: [{ key: 'achievementCalmNavigatorChallenge1', fallback: 'Follow navigation without leaving the app for 3 trips' }],
+    },
+    {
+      id: 'achv-20',
+      labelKey: 'achievementCommunityStar',
+      labelDefault: 'Community Star',
+      enabled: false,
+      icon: '/ranks/rank5.png',
+      challengeKeys: [{ key: 'achievementCommunityStarChallenge1', fallback: 'Help 3 new users complete their first swap' }],
+    },
+  ];
+  const achievements = useMemo(
+    () =>
+      achievementDefs.map((def) => ({
+        id: def.id,
+        icon: def.icon,
+        enabled: def.enabled,
+        label: t(def.labelKey, def.labelDefault),
+        challenges: def.challengeKeys.map((c) => t(c.key, c.fallback)),
+      })),
+    [t],
+  );
   const [privacyCloseVisible, setPrivacyCloseVisible] = useState(true);
   const [termsCloseVisible, setTermsCloseVisible] = useState(true);
   const [closingModal, setClosingModal] = useState(false);
@@ -456,7 +616,7 @@ const ProfileView = ({
           </div>
         </div>
         <p className="text-sm text-gray-500">
-          {t('achievementsHint', 'Découvre tous les badges et leurs défis dans la modale dédiée.')}
+          {t('achievementsHint', 'Discover all badges and their challenges in the dedicated modal.')}
         </p>
       </div>
 
@@ -1006,7 +1166,7 @@ const ProfileView = ({
               />
               <div>
                 <p className="text-xs uppercase tracking-wide text-gray-500">
-                  {t('challenge', 'Défi')}
+                  {t('challenge', 'Challenge')}
                 </p>
                 <p className="text-xl font-bold text-gray-900">{selectedAchievement.label}</p>
               </div>

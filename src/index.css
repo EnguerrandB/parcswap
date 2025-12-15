@@ -82,9 +82,72 @@ body {
 }
 
 @keyframes pulseLocation {
-  0% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-  100% { transform: translateY(0); }
+  0% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes pricePulse {
+  0% {
+    transform: scale(1);
+  }
+
+  15% {
+    transform: scale(1.15);
+  }
+
+  /* Grossit vite */
+  30% {
+    transform: scale(1);
+  }
+
+  /* Revient normal */
+  45% {
+    transform: scale(1.15);
+  }
+
+  /* Re-grossit (double battement) */
+  60% {
+    transform: scale(1);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+
+  /* Pause */
+}
+
+.price-pulse {
+  animation: pricePulse 1.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes dotPulse {
+  0%, 20% { opacity: 0; }
+  40%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.dot-ellipsis span {
+  animation: dotPulse 1.4s ease-in-out infinite;
+  display: inline-block;
+}
+
+.dot-ellipsis span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.dot-ellipsis span:nth-child(3) {
+  animation-delay: 0.4s;
 }
 
 /* Subtle halo pulse for logo */
@@ -93,10 +156,12 @@ body {
     opacity: 0.45;
     transform: scale(1);
   }
+
   50% {
     opacity: 0.7;
     transform: scale(1.12);
   }
+
   100% {
     opacity: 0.45;
     transform: scale(1);

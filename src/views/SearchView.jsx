@@ -296,7 +296,9 @@ const SwipeCard = forwardRef(({
         </div>
 
         <div className="mt-3">
-          <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)]">{formatPrice(spot.price)}</p>
+          <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)] price-pulse">
+            {formatPrice(spot.price)}
+          </p>
         </div>
 
         <div className="flex flex-col items-stretch gap-3 w-full text-left">
@@ -309,7 +311,7 @@ const SwipeCard = forwardRef(({
             <div className="text-[clamp(15px,4vw,18px)] font-bold">{formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}</div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Départ dans')}</span></div>
+            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Leaving in')}</span></div>
             <div className="text-[clamp(15px,4vw,18px)] font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
           </div>
         </div>
@@ -696,7 +698,7 @@ const SearchView = ({
       {!isOnline && (
         <div className="absolute top-3 left-4 right-4 z-50">
           <div className="flex items-center justify-center px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
-            {t('offlineWarning', 'Connexion limitée. Active les données cellulaires ou le Wi‑Fi.')}
+            {t('offlineWarning', 'Limited connection. Enable cellular data or Wi‑Fi.')}
           </div>
         </div>
       )}
@@ -809,10 +811,10 @@ const SearchView = ({
               </div>
               <div>
                 <h3 className={`text-2xl font-bold mb-1 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                  {t('noSpotsTitle', 'No spots in range')}
+                  {t('noSpotsTitleFun', 'Nobody has moved… yet!')}
                 </h3>
                 <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} text-sm`}>
-                  {t('noSpotsSubtitle', 'Try expanding the radius or check back soon.')}
+                  {t('noSpotsSubtitleFun', 'Widen the radius or blink— a spot will pop up.')}
                 </p>
               </div>
             </div>
@@ -890,8 +892,8 @@ const SearchView = ({
                 }}
                 className={`rounded-full flex items-center justify-center transition-all duration-75 border ${
                   isDark
-                    ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg'
-                    : 'bg-white text-rose-500 border-white/60 shadow-lg'
+                    ? 'bg-slate-900 text-rose-400 border-orange-400/70 shadow-lg'
+                    : 'bg-white text-rose-500 border-orange-400/70 shadow-lg'
                 }`}
                 style={{
                   width: 'clamp(52px, 14vw, 72px)',

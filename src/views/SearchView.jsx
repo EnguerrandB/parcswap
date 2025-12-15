@@ -1,5 +1,5 @@
 // src/views/SearchView.jsx
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, MapPin, Bell } from 'lucide-react';
 
@@ -17,6 +17,7 @@ const CARD_COLORS = [
 ]; // bright primary-inspired palette for each card
 // Stable salt for color selection (module-level to avoid changes on remount/switch)
 const CARD_COLOR_SALT = Math.floor(Math.random() * 10_000);
+const CARD_EXIT_ROTATION = 90; // degrés d'arc pour l'animation de sortie
 const colorForSpot = (spot, salt = 0) => {
   if (!spot?.id) return CARD_COLORS[0];
   let hash = 0;
@@ -108,14 +109,16 @@ const formatDuration = (ms) => {
 
 // --- COMPOSANT CARTE (SWIPE) ---
 // caca
-// --- COMPOSANT CARTE (SWIPE) CORRIGÉ ---
-const SwipeCard = ({
+// Ajoutez forwardRef et useImperativeHandle aux imports
+// ... autres imports inchangés ...
+
+// --- COMPOSANT SWIPE CARD CORRIGÉ AVEC ANIMATION BOUTON ---
+const SwipeCard = forwardRef(({
   spot,
   index,
   onSwipe,
   active,
   nowMs,
-  activeCardRef,
   isDark,
   leaderboard = [],
   userCoords,
@@ -124,25 +127,55 @@ const SwipeCard = ({
   entering = false,
   colorSalt = 0,
   onVerticalSwipe,
-  onDrag, // <--- Props pour communiquer avec le bouton
-}) => {
+  onDrag,
+}, ref) => { // 'ref' est maintenant reçu ici via forwardRef
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const cardRef = useRef(null);
+  
+  // Référence interne pour le DOM
+  const internalRef = useRef(null);
+
+  // --- EXPOSER L'ANIMATION AU PARENT ---
+  useImperativeHandle(ref, () => ({
+    // Permet au parent de récupérer la position (pour trackActionPosition)
+    getBoundingClientRect: () => internalRef.current?.getBoundingClientRect(),
+    
+    // La fonction magique pour l'arc de cercle
+    triggerSwipe: (direction) => {
+      const isRight = direction === 'right';
+      const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 400;
+      
+      // CONFIGURATION DE L'ARC :
+      // On l'envoie loin sur le côté (X)
+      // On le fait tomber légèrement (Y positif = gravité)
+      // La rotation se fera via le calcul de style plus bas
+      setOffset({ 
+        x: isRight ? screenWidth + 200 : -screenWidth - 200, 
+        y: 100 
+      });
+
+      // On attend la fin de la transition CSS (0.35s) avant de valider
+      setTimeout(() => {
+        onSwipe(direction);
+        if (onDrag) onDrag(0);
+      }, 300);
+    }
+  }));
 
   useEffect(() => {
-    setOffset({ x: 0, y: 0 });
-  }, [spot?.id]);
+    // Reset offset si l'ID change (nouvelle carte)
+    if (!exiting) {
+      setOffset({ x: 0, y: 0 });
+    }
+  }, [spot?.id, exiting]);
 
-  // --- NOUVELLE LOGIQUE SIMPLIFIÉE AVEC POINTER EVENTS ---
+  // --- LOGIQUE POINTER EVENTS (inchangée) ---
   const handlePointerDown = (e) => {
     if (!active) return;
-    // 1. On capture le pointeur : tant que c'est pas lâché, on reçoit les événements
     e.currentTarget.setPointerCapture(e.pointerId);
-    e.preventDefault(); // Empêche le scroll de la page sur mobile
-    
+    e.preventDefault();
     setDragStart({ x: e.clientX, y: e.clientY });
     setIsDragging(true);
   };
@@ -152,66 +185,54 @@ const SwipeCard = ({
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
     setOffset({ x: deltaX, y: deltaY });
-    
-    // On informe le parent en temps réel
     if (onDrag) onDrag(deltaX);
   };
 
   const handlePointerUp = (e) => {
     if (!isDragging) return;
-    
-    // 2. On relâche la capture
     e.currentTarget.releasePointerCapture(e.pointerId);
     setIsDragging(false);
 
-    const threshold = 100; // Seuil pour valider le swipe
+    const threshold = 100;
     const verticalThreshold = 120;
     const absX = Math.abs(offset.x);
     const absY = Math.abs(offset.y);
 
-    // LOGIQUE DE FIN
     if (offset.x > threshold) {
-      // --> VALIDÉ À DROITE (BOOK)
-      setOffset({ x: 500, y: offset.y }); // Ejecte la carte
-      // On attend la fin de l'animation avant de reset le bouton
-      setTimeout(() => {
-        onSwipe('right');
-        if (onDrag) onDrag(0); 
-      }, 200);
-
+      setOffset({ x: 500, y: offset.y });
+      setTimeout(() => { onSwipe('right'); if (onDrag) onDrag(0); }, 200);
     } else if (offset.x < -threshold) {
-      // --> VALIDÉ À GAUCHE (X)
-      setOffset({ x: -500, y: offset.y }); // Ejecte la carte
-      setTimeout(() => {
-        onSwipe('left');
-        if (onDrag) onDrag(0);
-      }, 200);
-
+      setOffset({ x: -500, y: offset.y });
+      setTimeout(() => { onSwipe('left'); if (onDrag) onDrag(0); }, 200);
     } else if (offset.y < -verticalThreshold && absY > absX * 1.2) {
-      // --> SWIPE VERTICAL (PARTAGE)
       onVerticalSwipe?.('up');
       setOffset({ x: 0, y: 0 });
-      if (onDrag) onDrag(0); // Reset immédiat (pas d'éjection latérale)
-
+      if (onDrag) onDrag(0);
     } else {
-      // --> RETOUR AU CENTRE (ANNULATION)
       setOffset({ x: 0, y: 0 });
-      if (onDrag) onDrag(0); // Reset immédiat
+      if (onDrag) onDrag(0);
     }
   };
 
-  // Styles calculés inchangés...
+  // --- STYLES CALCULÉS ---
   const scale = Math.max(1 - index * 0.05, 0.88);
   const translateY = index * -6;
   const translateX = index * 14;
   const opacity = Math.max(1 - index * 0.25, 0);
   const baseRotation = index * 1.2;
-  const rotation = isDragging ? offset.x * 0.05 : baseRotation;
+
+  // CORRECTION ROTATION : On force la rotation si l'offset est grand, même sans drag
+  // Cela permet à la carte de tourner pendant l'animation déclenchée par le bouton
+  const shouldRotate = isDragging || Math.abs(offset.x) > 50; 
+  const rotation = shouldRotate ? offset.x * 0.1 : baseRotation; // 0.1 pour accentuer l'effet
+
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
   const cardColor = spot._overrideColor || colorForSpot(spot, colorSalt);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
+  
+  // Ombres (inchangé)
   const appleShadow = active
     ? isDark
       ? '0 26px 90px -38px rgba(0,0,0,0.65), 0 16px 44px -26px rgba(0,0,0,0.45), 0 1px 0 0 rgba(255,255,255,0.06) inset'
@@ -226,6 +247,8 @@ const SwipeCard = ({
   const rank = leaderEntry?.rank ?? (spot?.rank || spot?.position || '—');
   const transactions = leaderEntry?.transactions ?? (Number(spot?.transactions) || 0);
   const [showRank, setShowRank] = useState(false);
+
+  // Position finale combinée
   const baseTx = active ? offset.x : translateX;
   const baseTy = active ? offset.y : translateY;
   const baseRot = active ? rotation : baseRotation;
@@ -236,67 +259,66 @@ const SwipeCard = ({
 
   return (
     <div
-      ref={active ? activeCardRef : cardRef}
-      className={`absolute w-[78%] max-w-[300px] aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
+      ref={internalRef} // On attache la ref interne ici
+      className={`absolute aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
-        zIndex: 10 - index,
+        zIndex: 50 - index,
         transform: `translate(${baseTx}px, ${baseTy}px) rotate(${baseRot}deg) scale(${baseScale})`,
         opacity,
-        // On enlève la transition quand on drag pour que ça suive le doigt parfaitement
-        transition: isDragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease, opacity 0.35s ease',
+        // La transition est active sauf si on drag manuellement
+        transition: isDragging ? 'none' : 'transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s ease, opacity 0.35s ease',
         boxShadow: appleShadow,
         background: cardBackground,
         border: cardBorder,
         animation,
-        touchAction: 'none', // INDISPENSABLE pour mobile
+        touchAction: 'none',
+        width: 'clamp(240px, 75vw, 340px)',
       }}
-      // On remplace tous les anciens events par ces 3 là :
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp} // Gère les cas d'interruption (appel entrant, etc.)
+      onPointerCancel={handlePointerUp}
     >
-      {/* Contenu interne avec pointer-events-none pour éviter les bugs de sélection */}
+      {/* ... CONTENU DE LA CARTE (INCHANGÉ) ... */}
       <div className="flex flex-col items-center justify-center h-full space-y-6 text-center pointer-events-none">
         
-        {/* Badge Rang (on réactive les clicks ici) */}
         <div className="absolute top-3 left-3 text-white/90 pointer-events-auto">
           <button
             type="button"
             onPointerDown={(e) => e.stopPropagation()} 
             onClick={() => setShowRank(true)}
-            className="relative inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
+            className="relative inline-flex items-center justify-center rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
+            style={{ width: 'clamp(44px, 12vw, 56px)', height: 'clamp(44px, 12vw, 56px)' }}
           >
             <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
             <img src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'} alt="Rang" className="w-full h-full object-contain bg-white/20 p-1 rounded-full" />
           </button>
         </div>
 
-        <div className="mt-3"><p className="text-white text-4xl font-extrabold drop-shadow">{formatPrice(spot.price)}</p></div>
+        <div className="mt-3">
+          <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)]">{formatPrice(spot.price)}</p>
+        </div>
 
         <div className="flex flex-col items-stretch gap-3 w-full text-left">
-          {/* ... Cartes d'infos identiques ... */}
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
-            <div className="text-lg font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
+            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
+            <div className="text-[clamp(15px,4vw,18px)] font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
-            <div className="text-lg font-bold">{formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}</div>
+            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
+            <div className="text-[clamp(15px,4vw,18px)] font-bold">{formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}</div>
           </div>
           <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-base font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Départ dans')}</span></div>
-            <div className="text-lg font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
+            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Départ dans')}</span></div>
+            <div className="text-[clamp(15px,4vw,18px)] font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
           </div>
         </div>
       </div>
 
-      {/* Modal Rang (inchangé mais avec pointer-events-auto) */}
       {showRank && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-auto">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[26px]" onClick={() => setShowRank(false)} />
           <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
-             {/* ... contenu modal identique ... */}
              <button type="button" onClick={() => setShowRank(false)} className="absolute top-2 right-2 text-white/70 hover:text-white">×</button>
              <div className="flex items-center gap-3 mb-4">
                 <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 border border-white/15 text-2xl shadow-inner shadow-black/30">{carEmoji}</span>
@@ -310,7 +332,8 @@ const SwipeCard = ({
       )}
     </div>
   );
-};
+});
+SwipeCard.displayName = 'SwipeCard';
 // caca2
 
 // --- VUE PRINCIPALE ---
@@ -350,6 +373,7 @@ const SearchView = ({
   const [shareToast, setShareToast] = useState('');
   const [dragX, setDragX] = useState(0);
   const radiusSliderRef = useRef(null);
+  const [isOnline, setIsOnline] = useState(true);
 
   const startRangeDrag = (e, ref, min, max, step, setter) => {
     if (!ref?.current) return;
@@ -377,10 +401,8 @@ const SearchView = ({
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    if (document.getElementById('search-card-anims')) return;
-    const style = document.createElement('style');
-    style.id = 'search-card-anims';
-    style.textContent = `
+    const existing = document.getElementById('search-card-anims');
+    const content = `
       @keyframes card-enter {
         from {
           opacity: 0;
@@ -398,8 +420,13 @@ const SearchView = ({
         }
         to {
           opacity: 0;
-          transform: translate(calc(var(--card-tx) - 240px), calc(var(--card-ty) - 80px)) rotate(calc(var(--card-rot) - 8deg)) scale(calc(var(--card-scale) * 0.9));
+          transform: translate(calc(var(--card-tx) - 240px), calc(var(--card-ty) - 80px)) rotate(calc(var(--card-rot) - ${CARD_EXIT_ROTATION}deg)) scale(calc(var(--card-scale) * 0.9));
         }
+      }
+      @keyframes expired-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(255,107,107,0.28), 0 0 0 8px rgba(255,107,107,0.10); }
+        50% { box-shadow: 0 0 0 6px rgba(255,107,107,0.22), 0 0 0 14px rgba(255,107,107,0.06); }
+        100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.28), 0 0 0 8px rgba(255,107,107,0.10); }
       }
         /* NOUVEAU : Animation de tremblement "haptique" */
       @keyframes tremble {
@@ -413,7 +440,27 @@ const SearchView = ({
         animation: tremble 0.4s ease-in-out infinite;
       }
     `;
-    document.head.appendChild(style);
+    if (existing) {
+      existing.textContent = content;
+    } else {
+      const style = document.createElement('style');
+      style.id = 'search-card-anims';
+      style.textContent = content;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  // Suivi de connexion réseau basique
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    const update = () => setIsOnline(navigator.onLine !== false);
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
   }, []);
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
@@ -466,7 +513,7 @@ const SearchView = ({
       setTimeout(
         () =>
           setExitingCards((prev) => prev.filter((c) => c._exitKey !== card._exitKey)),
-        400,
+        375,
       ),
     );
     return () => timers.forEach((t) => clearTimeout(t));
@@ -612,6 +659,13 @@ const SearchView = ({
         paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
       }}
     >
+      {!isOnline && (
+        <div className="absolute top-3 left-4 right-4 z-50">
+          <div className="flex items-center justify-center px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
+            {t('offlineWarning', 'Connexion limitée. Active les données cellulaires ou le Wi‑Fi.')}
+          </div>
+        </div>
+      )}
       {!selectedSpot && showRadiusPicker && (
         <div
           className="absolute inset-0 z-30"
@@ -621,7 +675,7 @@ const SearchView = ({
       {/* Header */}
       {!selectedSpot && (
         <>
-          <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-20">
+          <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-0">
             <div className="flex flex-col items-center text-center">
               <p className={`text-xs uppercase tracking-[0.15em] font-semibold ${isDark ? 'text-amber-300' : 'text-orange-400'}`}>
                 {t('liveNearby', 'Live nearby')}
@@ -710,7 +764,8 @@ const SearchView = ({
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
         <div
           ref={visualAreaRef}
-          className="flex-1 flex flex-col items-center justify-center gap-6"
+          className="flex-1 flex flex-col items-center justify-center"
+          style={{ gap: 'clamp(10px, 4vh, 20px)' }}
         >
           {showEmpty ? (
             <div className="text-center space-y-4 max-w-sm empty-state">
@@ -734,7 +789,11 @@ const SearchView = ({
             <>
               {visibleSpots.length > 0 && (
                 <>
-                  <div ref={cardStackRef} className="relative w-full h-[480px] flex items-center justify-center overflow-visible">
+                  <div
+                    ref={cardStackRef}
+                    className="relative z-40 w-full flex items-center justify-center overflow-visible"
+                    style={{ height: 'min(70vh, 520px)' }}
+                  >
                     {[
                       ...visibleSpots.map((spot, i) => ({
                         spot: { ...spot, _overrideColor: availableColors[currentIndex + i] },
@@ -757,7 +816,7 @@ const SearchView = ({
                         index={index}
                         active={!exiting && index === 0}
                         nowMs={nowMs}
-                        activeCardRef={activeCardRef}
+                        ref={(!exiting && index === 0) ? activeCardRef : null}
                         onSwipe={(dir) => handleSwipe(dir, spot)}
                         onVerticalSwipe={() => handleVerticalShare(spot)}
                         isDark={isDark}
@@ -782,17 +841,23 @@ const SearchView = ({
 
         {/* --- BLOC BOUTONS CORRIGÉ --- */}
           {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
-            <div className="flex justify-between items-center z-20 w-[84%] max-w-[330px] pointer-events-auto">
+            <div className="flex justify-between items-center z-50 w-[84%] max-w-[330px] pointer-events-auto">
               
               {/* BOUTON GAUCHE (Refuser / X) */}
               <button
-                onClick={() => handleSwipe('left', visibleSpots[0])}
-                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-75 border ${
+                onClick={() => {
+                  if (activeCardRef.current) {
+                    activeCardRef.current.triggerSwipe('left');
+                  }
+                }}
+                className={`rounded-full flex items-center justify-center transition-all duration-75 border ${
                   isDark
                     ? 'bg-slate-900 text-rose-400 border-white/10 shadow-lg'
                     : 'bg-white text-rose-500 border-white/60 shadow-lg'
                 }`}
                 style={{
+                  width: 'clamp(52px, 14vw, 72px)',
+                  height: 'clamp(52px, 14vw, 72px)',
                   // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
                     dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
@@ -813,19 +878,24 @@ const SearchView = ({
                     })`
                   }}
                 >
-                  <X size={32} strokeWidth={2.5} />
+                  <X size={28} strokeWidth={2.5} />
                 </div>
               </button>
 
               {/* BOUTON DROIT (Réserver / Book) */}
               <button
-                onClick={() => handleSwipe('right', visibleSpots[0])}
-                className={`px-7 h-14 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
+                onClick={() => {
+                  if (activeCardRef.current) {
+                    activeCardRef.current.triggerSwipe('right');
+                  }
+                }}
+                className={`px-7 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
                   isDark
                     ? 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/10'
                     : 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/60'
                 }`}
                 style={{
+                  height: 'clamp(52px, 14vw, 72px)',
                   // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
                     dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0

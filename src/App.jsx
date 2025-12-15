@@ -245,7 +245,8 @@ export default function ParkSwapApp() {
   const clampLogoOffset = (value) => {
     if (typeof window === 'undefined') return 0;
     const max = Math.max(0, window.innerWidth / 2 - 48); // keep logo fully visible
-    return Math.min(Math.max(value, -max), max);
+    const min = -max;
+    return Math.min(Math.max(value, min), max);
   };
 
   const handleLogoClick = () => {
@@ -1314,7 +1315,7 @@ export default function ParkSwapApp() {
             );
           })()}
         </div>
-        <div className="transition-opacity duration-300 opacity-100 z-[200]" style={{ '--bottom-nav-height': 'auto' }}>
+        <div className="transition-opacity duration-300 opacity-100 z-0" style={{ '--bottom-nav-height': 'auto' }}>
           <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
         </div>
       </div>

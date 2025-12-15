@@ -32,7 +32,6 @@ import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
 import AppLogo from './components/AppLogo';
 import movingLogo from './assets/logo_moving.svg';
-import SafeView from './components/SafeView';
 import Map from './components/Map';
 
 const userSelectionRef = (uid) =>
@@ -963,7 +962,7 @@ export default function ParkSwapApp() {
   const renderTabContent = (tab) => {
     if (tab === 'search') {
       return (
-        <SafeView className="h-full w-full" navHidden={false}>
+        <div className="h-full w-full">
           <SearchView
             spots={spots}
             bookedSpot={bookedSpot}
@@ -976,12 +975,12 @@ export default function ParkSwapApp() {
             leaderboard={leaderboard}
             userCoords={userCoords}
           />
-        </SafeView>
+        </div>
       );
     }
     if (tab === 'propose') {
       return (
-        <SafeView className="h-full w-full">
+        <div className="h-full w-full">
           <ProposeView
             myActiveSpot={myActiveSpot}
             vehicles={vehicles}
@@ -990,11 +989,11 @@ export default function ParkSwapApp() {
             onCancelSpot={handleCancelSpot}
             onRenewSpot={handleRenewSpot}
           />
-        </SafeView>
+        </div>
       );
     }
     return (
-      <SafeView className="h-full w-full">
+      <div className="h-full w-full">
         <ProfileView
           user={user}
           vehicles={vehicles}
@@ -1010,7 +1009,7 @@ export default function ParkSwapApp() {
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
         />
-      </SafeView>
+      </div>
     );
   };
 
@@ -1186,8 +1185,7 @@ export default function ParkSwapApp() {
         <div className="w-12 h-1.5 rounded-full bg-gray-300" />
       </div>
 
-      <SafeView className="h-full pt-8" navHidden>
-        {/* ... ProfileView ... */}
+      <div className="h-full pt-8 overflow-hidden">
         <ProfileView
           user={user}
           vehicles={vehicles}
@@ -1203,7 +1201,7 @@ export default function ParkSwapApp() {
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
         />
-      </SafeView>
+      </div>
     </div>
   </div>
 )}

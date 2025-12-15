@@ -8,7 +8,7 @@ const AppLogo = ({ size = 40, className = '' }) => (
     style={{ width: size, height: size }}
   >
     <div
-      className="absolute inset-0 rounded-full bg-white/60 blur-md scale-140"
+      className="absolute inset-0 rounded-full bg-white/60 blur-md halo-pulse"
       aria-hidden="true"
     />
     <div className="relative rounded-full bg-white shadow-md overflow-hidden flex items-center justify-center">

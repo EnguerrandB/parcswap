@@ -81,6 +81,27 @@ body {
   animation: cardSheen 6s ease-in-out infinite;
 }
 
+/* Subtle halo pulse for logo */
+@keyframes haloPulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+}
+
+.halo-pulse {
+  animation: haloPulse 3.8s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
 /* Slide animations for tab transitions */
 @keyframes slideInLeft {
   from {

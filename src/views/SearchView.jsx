@@ -374,6 +374,7 @@ const SearchView = ({
   const [dragX, setDragX] = useState(0);
   const radiusSliderRef = useRef(null);
   const [isOnline, setIsOnline] = useState(true);
+  const cityLabel = userCoords?.city || userCoords?.label || t('currentLocation', 'Your location');
 
   const startRangeDrag = (e, ref, min, max, step, setter) => {
     if (!ref?.current) return;
@@ -739,7 +740,7 @@ const SearchView = ({
                 }`}
               >
                 {t('radiusLabel', {
-                  city: 'Paris',
+                  city: cityLabel,
                   value: radius.toFixed(1),
                   defaultValue: 'Paris • {{value}} km radius',
                 })}

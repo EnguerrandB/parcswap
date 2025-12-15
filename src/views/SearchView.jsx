@@ -260,7 +260,7 @@ const SwipeCard = forwardRef(({
   return (
     <div
       ref={internalRef} // On attache la ref interne ici
-      className={`absolute aspect-[3/4] rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
+      className={`absolute  rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
         zIndex: 50 - index,
         transform: `translate(${baseTx}px, ${baseTy}px) rotate(${baseRot}deg) scale(${baseScale})`,
@@ -272,7 +272,7 @@ const SwipeCard = forwardRef(({
         border: cardBorder,
         animation,
         touchAction: 'none',
-        width: 'clamp(240px, 75vw, 340px)',
+        width: 'clamp(220px, 65vw, 300px)',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -803,7 +803,9 @@ const SearchView = ({
                   <div
                     ref={cardStackRef}
                     className="relative z-40 w-full flex items-center justify-center overflow-visible"
-                    style={{ height: 'min(70vh, 520px)' }}
+                    // MODIFICATION : Hauteur ajustée pour coller à la taille réelle des cartes (~400px)
+                    // Cela permet au parent (justify-center) de centrer le groupe "Cartes + Boutons" ensemble
+                    style={{ height: 'clamp(320px, 45vh, 420px)' }}
                   >
                     {[
                       ...visibleSpots.map((spot, i) => ({
@@ -852,7 +854,12 @@ const SearchView = ({
 
         {/* --- BLOC BOUTONS CORRIGÉ --- */}
           {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
-            <div className="flex justify-between items-center z-50 w-[84%] max-w-[330px] pointer-events-auto">
+            <div 
+              className="flex justify-between items-center z-50 pointer-events-auto"
+              // MODIFICATION : On utilise exactement la même largeur que la SwipeCard (ligne 257)
+              // pour que les boutons s'alignent parfaitement aux bords gauche/droite de la carte.
+              style={{ width: 'clamp(220px, 65vw, 300px)' }}
+            >
               
               {/* BOUTON GAUCHE (Refuser / X) */}
               <button
@@ -900,10 +907,10 @@ const SearchView = ({
                     activeCardRef.current.triggerSwipe('right');
                   }
                 }}
-                className={`px-7 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base border ${
+                className={`px-7 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base ${
                   isDark
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/10'
-                    : 'bg-gradient-to-r from-orange-500 to-amber-400 border-white/60'
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+                    : 'bg-gradient-to-r from-orange-500 to-amber-400'
                 }`}
                 style={{
                   height: 'clamp(52px, 14vw, 72px)',

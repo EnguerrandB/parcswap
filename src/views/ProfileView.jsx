@@ -188,6 +188,7 @@ const ProfileView = ({
   useEffect(() => {
     if (showProfileModal) setClosingProfile(false);
   }, [showProfileModal]);
+
   const phoneChanged = profileForm.phone !== (user?.phone || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
@@ -382,7 +383,6 @@ const ProfileView = ({
               <span className="text-xs text-gray-500">{t('profileSubtitle', 'View and edit your info')}</span>
             </div>
           </div>
-          <span className="text-orange-500 text-sm font-semibold">{t('editProfile', 'Edit')}</span>
         </div>
       </div>
 
@@ -663,7 +663,7 @@ const ProfileView = ({
         <p>{t('versionLabel', 'Park Swap v1.0.2')}</p>
       </div>
 
-      {/* Modale Profil */}
+{/* Modale Profil */}
       {showProfileModal && (
         <div
           className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
@@ -847,7 +847,6 @@ const ProfileView = ({
           </div>
         </div>
       )}
-
 
       {showModal && (
         <div

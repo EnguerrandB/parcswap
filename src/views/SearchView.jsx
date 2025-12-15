@@ -666,11 +666,61 @@ const SearchView = ({
           </div>
         </div>
       )}
-      {!selectedSpot && showRadiusPicker && (
-        <div
-          className="absolute inset-0 z-30"
-          onClick={() => setShowRadiusPicker(false)}
-        />
+      {!selectedSpot && (
+        <div className="absolute inset-0 z-30 pointer-events-none">
+          {/* Overlay cliquable */}
+          <div
+            className={`absolute inset-0 transition-opacity duration-200 ${
+              showRadiusPicker ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={() => setShowRadiusPicker(false)}
+          />
+          {/* Panneau radius avec effet zoom */}
+          <div
+            className={`absolute left-6 right-6 transition-all duration-200 origin-top ${
+              showRadiusPicker
+                ? 'opacity-100 scale-100 pointer-events-auto'
+                : 'opacity-0 scale-90 pointer-events-none'
+            }`}
+            style={{ top: 'calc(64px + 50px)' }}
+          >
+            <div
+              className={`backdrop-blur-lg rounded-2xl shadow-2xl border p-4 ${
+                isDark ? 'bg-slate-900/90 border-white/10 shadow-black/40' : 'bg-white/95 border-white/80'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+                  {t('searchRadius', 'Search radius')}
+                </span>
+                <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
+                  {t('radiusValue', {
+                    value: radius.toFixed(1),
+                    defaultValue: '{{value}} km',
+                  })}
+                </span>
+              </div>
+              <input
+                ref={radiusSliderRef}
+                type="range"
+                min="0.1"
+                max="2000"
+                step="0.1"
+                value={radius}
+                onPointerDown={(e) =>
+                  startRangeDrag(e, radiusSliderRef, 0.1, 2000, 0.1, setRadius)
+                }
+                onChange={(e) => setRadius(parseFloat(e.target.value))}
+                className="w-full accent-orange-500"
+              />
+              <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
+                <span>100 m</span>
+                <span>500 m</span>
+                <span>2000 km</span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {/* Header */}
       {!selectedSpot && (
@@ -718,45 +768,6 @@ const SearchView = ({
             </button>
           </div>
 
-          {showRadiusPicker && (
-            <div className="absolute top-16 left-6 right-6 z-30">
-              <div
-                className={`backdrop-blur-lg rounded-2xl shadow-2xl border p-4 ${
-                  isDark ? 'bg-slate-900/90 border-white/10 shadow-black/40' : 'bg-white/95 border-white/80'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                    {t('searchRadius', 'Search radius')}
-                  </span>
-                  <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
-                    {t('radiusValue', {
-                      value: radius.toFixed(1),
-                      defaultValue: '{{value}} km',
-                    })}
-                  </span>
-                </div>
-                <input
-                  ref={radiusSliderRef}
-                  type="range"
-                  min="0.1"
-                  max="2000"
-                  step="0.1"
-                  value={radius}
-                  onPointerDown={(e) =>
-                    startRangeDrag(e, radiusSliderRef, 0.1, 2000, 0.1, setRadius)
-                  }
-                  onChange={(e) => setRadius(parseFloat(e.target.value))}
-                  className="w-full accent-orange-500"
-                />
-                <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                  <span>100 m</span>
-                  <span>500 m</span>
-                  <span>2000 km</span>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
 
@@ -771,7 +782,7 @@ const SearchView = ({
             <div className="text-center space-y-4 max-w-sm empty-state">
               <div
                 className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center border shadow-xl ${
-                  isDark ? 'bg-slate-900 border-white/10 shadow-black/40' : 'bg-white border-white'
+                  isDark ? 'bg-slate-900 border-white/10 shadow-black/40 animate-[pulseLocation_2.4s_ease-in-out_infinite]' : 'bg-white border-white animate-[pulseLocation_2.4s_ease-in-out_infinite]'
                 }`}
               >
                 <MapPin size={42} className="text-orange-500" />

@@ -153,10 +153,12 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const [navGeometry, setNavGeometry] = useState([]);
   const [navSteps, setNavSteps] = useState([]);
   const [navError, setNavError] = useState('');
+  const routeAnimRef = useRef(null);
   const [navIndex, setNavIndex] = useState(0);
   const [mapLoaded, setMapLoaded] = useState(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
+  const [destInfo, setDestInfo] = useState(null);
 
   const summaryRef = useRef(null);
   const [summaryHeight, setSummaryHeight] = useState(0);
@@ -164,7 +166,6 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markerRef = useRef(null);
-  const acceptFocusMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
   const otherUserMarkersRef = useRef(new globalThis.Map());
   const otherUserIconsRef = useRef(new globalThis.Map());
@@ -174,6 +175,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   // Ref to prevent double fetching
   const routeFetchedRef = useRef(false);
   const lastPersistTsRef = useRef(0);
+
+  const isDark =
+    (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
+    (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
 
   const isValidCoord = (lng, lat) => (
     typeof lng === 'number' && typeof lat === 'number' &&
@@ -228,11 +233,8 @@ useEffect(() => {
     setNavIndex(0);
     setMapLoaded(false);
     setMapMoved(false);
+    setDestInfo(null);
     routeFetchedRef.current = false; // Reset fetch lock
-    if (acceptFocusMarkerRef.current) {
-      acceptFocusMarkerRef.current.remove();
-      acceptFocusMarkerRef.current = null;
-    }
     if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -412,6 +414,10 @@ useEffect(() => {
       map.off('movestart', handleMoveStart);
       map.remove();
       mapRef.current = null;
+      if (destMarkerRef.current?._clickHandler && destMarkerRef.current?.getElement()) {
+        destMarkerRef.current.getElement().removeEventListener('click', destMarkerRef.current._clickHandler);
+      }
+      destMarkerRef.current = null;
     };
   }, [mapboxToken]);
 
@@ -431,30 +437,182 @@ useEffect(() => {
   });
 }, [mapLoaded, showRoute, spot?.lng, spot?.lat]);
 
+// --- Destination Marker & Modern Popup (AJOUT) ---
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || !spot || !isValidCoord(spot.lng, spot.lat)) return;
+
+    const distanceText = distanceKm ? `${distanceKm.toFixed(1)} km` : '--';
+    const ownerName =
+      spot.proposedByName ||
+      spot.hostName ||
+      spot.ownerName ||
+      spot.username ||
+      spot.displayName ||
+      t('user', 'User');
+    const carModel =
+      spot.vehicleModel ||
+      spot.carModel ||
+      spot.vehicle ||
+      spot.model ||
+      t('car', 'Car');
+
+    const cardBg = isDark ? 'rgba(15,23,42,0.94)' : 'rgba(255,255,255,0.9)';
+    const textColor = isDark ? '#e5e7eb' : '#0f172a';
+    const subColor = isDark ? '#cbd5e1' : '#6b7280';
+    const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.5)';
+    const headerFrom = isDark ? '#1f2937' : '#e5e7eb';
+    const headerTo = isDark ? '#0f172a' : '#ffffff';
+
+    // HTML de la pop-up moderne (style "Apple-like" verre dépoli)
+    const popupHTML = `
+      <div class="font-sans select-none">
+        <div style="
+          backdrop-filter: blur(18px);
+          background:${cardBg};
+          color:${textColor};
+          border:1px solid ${borderColor};
+          border-radius:18px;
+          box-shadow:0 18px 50px -18px rgba(0,0,0,0.35);
+          overflow:hidden;
+        ">
+          <div style="
+            display:flex;
+            align-items:center;
+            gap:12px;
+            padding:14px 16px;
+            background:linear-gradient(120deg, ${headerFrom}, ${headerTo});
+          ">
+            <div style="
+              width:48px;
+              height:48px;
+              border-radius:16px;
+              background:linear-gradient(135deg, #22c55e, #16a34a);
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              color:white;
+              font-weight:700;
+              font-size:16px;
+              box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+            ">
+              ${ownerName.charAt(0).toUpperCase()}
+            </div>
+            <div style="min-width:0;">
+              <div style="font-weight:700;font-size:15px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${ownerName}</div>
+              <div style="font-size:12px;font-weight:500;color:${subColor};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${carModel}</div>
+            </div>
+          </div>
+          <div style="
+            padding:12px 16px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+          ">
+            <span style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;color:${subColor};">Distance</span>
+            <span style="font-size:14px;font-weight:700;color:${textColor};">${distanceText}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Création ou mise à jour du marqueur
+    if (!destMarkerRef.current) {
+      const popup = new mapboxgl.Popup({ 
+        offset: 25, 
+        closeButton: false, 
+        className: 'modern-popup',
+        maxWidth: '240px' 
+      }).setHTML(popupHTML);
+
+      destMarkerRef.current = new mapboxgl.Marker({ color: '#ea580c' }) // Orange
+        .setLngLat([spot.lng, spot.lat])
+        .setPopup(popup)
+        .addTo(mapRef.current);
+    } else {
+      destMarkerRef.current.setLngLat([spot.lng, spot.lat]);
+      const popup = destMarkerRef.current.getPopup();
+      if (popup) {
+        popup.setHTML(popupHTML); // Mise à jour de la distance en temps réel
+      }
+    }
+  }, [mapLoaded, spot, distanceKm, t, isDark]);
+
   // --- Real-Time Navigation Logic ---
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     
-    // 1. Destination Marker
-    if (isValidCoord(spot?.lng, spot?.lat)) {
-       if (!destMarkerRef.current) {
-          destMarkerRef.current = new mapboxgl.Marker({ color: '#111827' })
-            .setLngLat([spot.lng, spot.lat]).addTo(mapRef.current);
-       } else {
-          destMarkerRef.current.setLngLat([spot.lng, spot.lat]);
-       }
-    }
+
 
     // 2. Navigation Mode
     if (navReady && navGeometry.length > 1) {
        const map = mapRef.current;
        
-       if (!map.getSource('route')) {
-         map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
-         map.addLayer({ id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#f97316', 'line-width': 8, 'line-opacity': 0.9 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-       } else {
-         map.getSource('route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } });
-       }
+        if (!map.getSource('route')) {
+          map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
+          map.addLayer({
+            id: 'route-line',
+            type: 'line',
+            source: 'route',
+            layout: {
+              'line-cap': 'round',
+              'line-join': 'round',
+            },
+            paint: {
+              'line-color': '#f97316',
+              'line-width': 8,
+              'line-opacity': 0.9,
+              'line-dasharray': [1.2, 1.8],
+            },
+          });
+
+          map.addLayer({
+  id: 'route-glow',
+  type: 'line',
+  source: 'route',
+  paint: {
+    'line-color': '#fb923c',
+   'line-width': 18,
+'line-opacity': 0.25,
+'line-blur': 12,
+  },
+}, 'route-line');
+
+map.addLayer({
+  id: 'route-flow',
+  type: 'line',
+  source: 'route',
+  paint: {
+    'line-color': '#fdba74', // orange clair
+    'line-width': 4,
+    'line-opacity': 0.8,
+    'line-dasharray': [0, 2],
+  },
+}, 'route-line');
+
+
+let dashPhase = 0;
+
+const animateRoute = () => {
+  if (!map.getLayer('route-flow')) return;
+
+  dashPhase = (dashPhase + 0.04) % 3;
+
+  map.setPaintProperty('route-flow', 'line-dasharray', [
+    0.3,
+    2.8 + dashPhase,
+  ]);
+
+  routeAnimRef.current = requestAnimationFrame(animateRoute);
+};
+
+if (!routeAnimRef.current) {
+  animateRoute();
+}
+
+
+        } else {
+          map.getSource('route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } });
+        }
 
        if (!markerRef.current) {
          const el = document.createElement('img');
@@ -472,35 +630,6 @@ useEffect(() => {
              .setRotation(0)
              .addTo(map);
       }
-
-       // Marker to highlight destination immediately after accept
-       const destPoint = navGeometry[navGeometry.length - 1] || navGeometry[0];
-       if (destPoint && isValidCoord(destPoint[0], destPoint[1])) {
-         if (!acceptFocusMarkerRef.current) {
-           const dot = document.createElement('div');
-           dot.className = 'flex items-center justify-center';
-           dot.style.width = '26px';
-           dot.style.height = '26px';
-           dot.style.borderRadius = '9999px';
-           dot.style.background = 'rgba(34,197,94,0.18)';
-           dot.style.boxShadow = '0 0 0 2px rgba(34,197,94,0.35)';
-           const inner = document.createElement('div');
-           inner.style.width = '12px';
-           inner.style.height = '12px';
-           inner.style.borderRadius = '9999px';
-           inner.style.background = '#22c55e';
-           inner.style.border = '2px solid rgba(255,255,255,0.7)';
-           dot.appendChild(inner);
-           acceptFocusMarkerRef.current = new mapboxgl.Marker({ element: dot, anchor: 'center' })
-             .setLngLat(destPoint)
-             .addTo(map);
-         } else {
-           acceptFocusMarkerRef.current.setLngLat(destPoint);
-         }
-       } else if (acceptFocusMarkerRef.current) {
-         acceptFocusMarkerRef.current.remove();
-         acceptFocusMarkerRef.current = null;
-       }
 
        // --- START TRACKING ---
        if (navigator.geolocation) {
@@ -584,12 +713,18 @@ useEffect(() => {
        }
 
        return () => {
-           if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
-           if (acceptFocusMarkerRef.current) {
-             acceptFocusMarkerRef.current.remove();
-             acceptFocusMarkerRef.current = null;
-           }
-       };
+  // 🧹 STOP animation route
+  if (routeAnimRef.current) {
+    cancelAnimationFrame(routeAnimRef.current);
+    routeAnimRef.current = null;
+  }
+
+  // 🧹 STOP GPS
+  if (watchIdRef.current) {
+    navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+  }
+};
     }
   }, [navReady, navGeometry, mapLoaded]);
 
@@ -671,6 +806,19 @@ useEffect(() => {
         className="relative w-full h-full bg-gray-900 overflow-hidden"
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 0 }}
       >
+        {/* Style injection for Custom Popup (AJOUT) */}
+        <style>{`
+          .modern-popup .mapboxgl-popup-content {
+            padding: 12px !important;
+            border-radius: 20px !important;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+            border: 1px solid rgba(229, 231, 235, 0.5);
+          }
+          .modern-popup .mapboxgl-popup-tip {
+            border-top-color: #ffffff !important;
+            margin-bottom: -1px;
+          }
+        `}</style>
         
         {/* The Map */}
         <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />

@@ -133,6 +133,9 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const [mapLoaded, setMapLoaded] = useState(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
+
+  const summaryRef = useRef(null);
+  const [summaryHeight, setSummaryHeight] = useState(0);
   
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
@@ -160,6 +163,21 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
     if (spot && isValidCoord(spot.lng, spot.lat)) return [spot.lng, spot.lat];
     return [2.295, 48.8738];
   };
+
+useEffect(() => {
+  if (!showRoute || !showSteps) return;
+  if (!summaryRef.current) return;
+
+  const observer = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      setSummaryHeight(entry.contentRect.height);
+    }
+  });
+
+  observer.observe(summaryRef.current);
+
+  return () => observer.disconnect();
+}, [showRoute, showSteps]); 
 
   // Initial Location
   useEffect(() => {
@@ -650,6 +668,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
           <>
             {/* Top: Instructions */}
             <div
+              
               className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]"
               style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
             >
@@ -680,6 +699,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
 
             {/* Bottom: Summary */}
             <div
+            ref={summaryRef}
               className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]"
               style={{ bottom: '20px' }}
             >
@@ -755,7 +775,9 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
         {mapLoaded && mapMoved && showRoute && showSteps && (
           <div
             className="absolute right-6 z-30 pointer-events-auto"
-            style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 115px)' }}
+            style={{
+              bottom: `${20 + summaryHeight + 16}px`,
+            }}
           >
             <button
               type="button"

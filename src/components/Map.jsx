@@ -315,6 +315,43 @@ useEffect(() => {
     [],
   );
 
+  const instructionCardStyle = useMemo(
+    () => ({
+      // Apple Dark: Base noire translucide | Apple Light: Base blanche translucide
+      background: isDark 
+        ? 'rgba(30, 30, 30, 0.70)' 
+        : 'rgba(255, 255, 255, 0.75)',
+      
+      // Bordure très fine : blanche légère en sombre / grise légère en clair
+      border: isDark 
+        ? '1px solid rgba(255, 255, 255, 0.12)' 
+        : '1px solid rgba(255, 255, 255, 0.8)', // Effet "inner light"
+
+      // Le secret d'Apple : Saturation élevée (180%+) + Blur fort
+      backdropFilter: 'blur(20px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      
+      // Ombre plus douce et diffuse (Smooth shadow)
+      boxShadow: isDark
+        ? '0 8px 32px 0 rgba(0, 0, 0, 0.35)'
+        : '0 8px 32px 0 rgba(31, 38, 135, 0.10)',
+        
+      borderRadius: '20px', // Apple utilise souvent des rayons larges
+    }),
+    [isDark],
+  );
+
+  const instructionTextColor = useMemo(
+    () => (isDark ? 'rgba(255, 255, 255, 0.92)' : 'rgba(0, 0, 0, 0.88)'),
+    [isDark],
+  );
+
+  const instructionSubTextColor = useMemo(
+    // Couleurs "System Gray" standard d'Apple
+    () => (isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.6)'),
+    [isDark],
+  );
+
   const persistUserLocation = async (coords) => {
     if (!currentUserId || !coords) return;
     const now = Date.now();
@@ -625,7 +662,11 @@ if (!routeAnimRef.current) {
          el.style.transformOrigin = 'center center';
          el.draggable = false;
          
-           markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
+           markerRef.current = new mapboxgl.Marker({
+             element: el,
+             rotationAlignment: 'viewport',
+             pitchAlignment: 'viewport',
+           })
              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
              .setRotation(0)
              .addTo(map);
@@ -871,25 +912,31 @@ if (!routeAnimRef.current) {
               className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideDown_0.3s_ease-out]"
               style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
             >
-              <div className="bg-orange-600 text-white rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-orange-500">
-                <div className="flex p-4 items-center gap-4">
-                  <div className="shrink-0 bg-gray-700/50 p-2 rounded-lg">
+              <div
+                className="rounded-2xl overflow-hidden pointer-events-auto backdrop-blur-2xl"
+                style={{ ...instructionCardStyle, color: instructionTextColor }}
+              >
+                <div className="flex items-center gap-4 px-4 py-3">
+                  <div className="shrink-0 bg-white/20 border border-white/30 p-2.5 rounded-2xl shadow-inner shadow-white/10">
                     {getManeuverIcon(stepsToShow[navIndex])}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xl font-bold leading-tight">
+                    <p className="text-lg font-semibold leading-tight tracking-tight drop-shadow-sm">
                       {stepsToShow[navIndex] || t('stepFollow', 'Follow route')}
                     </p>
                     {stepsToShow[navIndex + 1] && (
-                      <p className="text-orange-50 text-sm mt-1 truncate">
+                      <p
+                        className="text-sm mt-1 truncate"
+                        style={{ color: instructionSubTextColor }}
+                      >
                         {t('then', 'Then')}: {stepsToShow[navIndex + 1]}
                       </p>
                     )}
                   </div>
                 </div>
-                <div className="h-1 bg-orange-700/70 w-full">
+                <div className="h-[3px] bg-white/10 w-full">
                   <div
-                    className="h-full bg-orange-500 transition-all duration-1000"
+                    className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 shadow-[0_0_14px_rgba(59,130,246,0.55)] transition-all duration-1000"
                     style={{ width: `${Math.min(100, (navIndex / Math.max(1, stepsToShow.length)) * 100)}%` }}
                   ></div>
                 </div>

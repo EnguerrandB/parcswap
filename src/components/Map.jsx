@@ -129,6 +129,53 @@ const formatLastSeen = (date) => {
   return `Il y a ${days} j`;
 };
 
+const pseudoRandomFromString = (str) => {
+  const s = String(str || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    h = (h << 5) - h + s.charCodeAt(i);
+    h |= 0; // force 32-bit
+  }
+  return Math.abs(h);
+};
+
+const jitterCoordinate = (lng, lat, uid, meters = 30) => {
+  const seed = pseudoRandomFromString(uid || `${lng},${lat}`) || 1;
+  const angle = (seed % 360) * (Math.PI / 180);
+  // radius between 40% and 100% of meters
+  const radius = meters * (0.4 + ((seed % 1000) / 1000) * 0.6);
+  const earthRadiusMeters = 111_111; // rough conversion for lat
+  const deltaLat = (radius * Math.cos(angle)) / earthRadiusMeters;
+  const denom = earthRadiusMeters * Math.cos((lat * Math.PI) / 180);
+  const deltaLng = denom !== 0 ? (radius * Math.sin(angle)) / denom : 0;
+  return { lng: lng + deltaLng, lat: lat + deltaLat };
+};
+
+const separateIfTooClose = (pos, othersMap, uid, minMeters = 14) => {
+  let { lng, lat } = pos;
+
+  for (const [otherUid, otherPos] of othersMap.entries()) {
+    if (otherUid === uid || !otherPos) continue;
+
+    const dMeters =
+      getDistanceFromLatLonInKm(lat, lng, otherPos.lat, otherPos.lng) * 1000;
+
+    if (dMeters < minMeters) {
+      const angle =
+        (pseudoRandomFromString(uid + otherUid) % 360) * (Math.PI / 180);
+      const offset = minMeters - dMeters + 2;
+      const earth = 111111;
+
+      lat += (offset * Math.cos(angle)) / earth;
+      lng +=
+        (offset * Math.sin(angle)) /
+        (earth * Math.cos((lat * Math.PI) / 180));
+    }
+  }
+
+  return { lng, lat };
+};
+
 // --- Icons ---
 const getManeuverIcon = (instruction) => {
   const text = instruction?.toLowerCase() || '';
@@ -199,13 +246,16 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markerRef = useRef(null);
+  const markerPopupRef = useRef(null);
   const destMarkerRef = useRef(null);
   const otherUserMarkersRef = useRef(new globalThis.Map());
   const otherUserIconsRef = useRef(new globalThis.Map());
   const otherUserPositionsRef = useRef(new globalThis.Map());
+  const otherUserWrappersRef = useRef(new globalThis.Map());
   const otherUserProfilesRef = useRef(new globalThis.Map());
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
+  const OTHER_VISIBILITY_MIN_ZOOM = 13;
   
   // Ref to prevent double fetching
   const routeFetchedRef = useRef(false);
@@ -312,6 +362,12 @@ useEffect(() => {
     return Math.round((distanceKm / 30) * 60);
   }, [distanceKm]);
 
+  const formatDistanceText = (km) => {
+    if (km == null || Number.isNaN(km)) return '--';
+    if (km < 1) return `${Math.round(km * 1000)} m`;
+    return `${km.toFixed(1)} km`;
+  };
+
   const arrivalTime = useMemo(() => {
     if (!etaMinutes) return null;
     const now = new Date();
@@ -370,17 +426,103 @@ useEffect(() => {
     otherUserProfileFetchRef.current.set(uid, fetchPromise);
   };
 
-  const buildUserPopupHTML = (name, lastSeenText) => `
-    <div style="
-      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-      padding:10px 12px;
-      color:#0f172a;
-      min-width:180px;
-    ">
-      <div style="font-weight:700;font-size:14px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
-      <div style="font-size:12px;color:#64748b;">${lastSeenText}</div>
-    </div>
-  `;
+  const buildOtherUserPopupHTML = (name, lastSeenText, opts = {}) => {
+    const { showBadge = true } = opts;
+    const online = (lastSeenText || '').toLowerCase().includes('ligne');
+    const cardBg = isDark ? 'rgba(11, 17, 27, 0.94)' : 'rgba(255,255,255,0.94)';
+    const border = isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.08)';
+    const textColor = isDark ? '#e2e8f0' : '#0f172a';
+    const muted = isDark ? '#94a3b8' : '#64748b';
+    const badgeBg = online
+      ? (isDark ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.16)')
+      : (isDark ? 'rgba(249, 115, 22, 0.18)' : 'rgba(249, 115, 22, 0.16)');
+    const badgeText = online ? '#16a34a' : '#c2410c';
+    const pulseColor = online ? 'rgba(34,197,94,0.25)' : 'rgba(249,115,22,0.25)';
+
+    return `
+      <div style="
+        font-family:'Inter', system-ui, -apple-system, sans-serif;
+        min-width:220px;
+        color:${textColor};
+      ">
+        <div style="
+          padding:14px 16px;
+          border-radius:18px;
+          background:${cardBg};
+          border:${border};
+          box-shadow:0 22px 60px -22px rgba(0,0,0,0.55);
+          backdrop-filter: blur(18px) saturate(150%);
+        ">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <div style="min-width:0;">
+              <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name || t('user', 'User')}</div>
+            </div>
+            ${
+              showBadge && online
+                ? `<span style="
+                    display:inline-flex;
+                    align-items:center;
+                    padding:6px 12px;
+                    border-radius:999px;
+                    background:${badgeBg};
+                    color:${badgeText};
+                    font-size:11px;
+                    font-weight:800;
+                    box-shadow:0 12px 22px -12px ${pulseColor};
+                    white-space:nowrap;
+                  ">
+                    En ligne
+                  </span>`
+                : ''
+            }
+          </div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:10px;color:${textColor};">
+            <div style="
+              width:10px;
+              height:10px;
+              border-radius:999px;
+              background:${online ? '#22c55e' : '#f97316'};
+              box-shadow:0 0 0 8px ${pulseColor};
+              flex-shrink:0;
+            "></div>
+            <div style="font-size:13px;font-weight:700;line-height:1.3;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${lastSeenText || 'Dernière activité inconnue'}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  // Adds a quick pop-in/out animation on all popups
+  const enhancePopupAnimation = (popup) => {
+    if (!popup || popup.__animated) return popup;
+    const originalAddTo = popup.addTo.bind(popup);
+    popup.addTo = (mapInstance) => {
+      const res = originalAddTo(mapInstance);
+      const el = popup.getElement();
+      const content = el?.querySelector('.mapboxgl-popup-content');
+      if (content) {
+        content.classList.remove('popup-exit');
+        content.classList.add('popup-enter');
+      }
+      return res;
+    };
+    const originalRemove = popup.remove.bind(popup);
+    popup.remove = () => {
+      const el = popup.getElement();
+      const content = el?.querySelector('.mapboxgl-popup-content');
+      if (content) {
+        content.classList.remove('popup-enter');
+        content.classList.add('popup-exit');
+        setTimeout(() => originalRemove(), 170);
+        return popup;
+      }
+      return originalRemove();
+    };
+    popup.__animated = true;
+    return popup;
+  };
 
   const instructionCardStyle = useMemo(
     () => ({
@@ -418,6 +560,18 @@ useEffect(() => {
     () => (isDark ? 'rgba(235, 235, 245, 0.6)' : 'rgba(60, 60, 67, 0.6)'),
     [isDark],
   );
+
+  const updateOtherMarkersVisibility = (zoomValue) => {
+    const z = Number.isFinite(zoomValue)
+      ? zoomValue
+      : mapRef.current?.getZoom?.();
+    if (!Number.isFinite(z)) return;
+    const visible = z >= OTHER_VISIBILITY_MIN_ZOOM;
+    for (const marker of otherUserMarkersRef.current.values()) {
+      const el = marker?.getElement?.();
+      if (el) el.style.display = visible ? 'flex' : 'none';
+    }
+  };
 
   const persistUserLocation = async (coords) => {
     if (!currentUserId || !coords) return;
@@ -505,18 +659,21 @@ useEffect(() => {
       attributionControl: false,
     });
 
-    map.on('load', () => { setMapLoaded(true); map.resize(); });
+    map.on('load', () => { setMapLoaded(true); map.resize(); updateOtherMarkersVisibility(map.getZoom()); });
     map.on('error', () => setMapLoaded(false));
     const handleMoveStart = (e) => {
       if (e?.originalEvent) {
         setMapMoved(true);
       }
     };
+    const handleZoom = () => updateOtherMarkersVisibility(map.getZoom());
     map.on('movestart', handleMoveStart);
+    map.on('zoom', handleZoom);
     mapRef.current = map;
 
     return () => {
       map.off('movestart', handleMoveStart);
+      map.off('zoom', handleZoom);
       map.remove();
       mapRef.current = null;
       if (destMarkerRef.current?._clickHandler && destMarkerRef.current?.getElement()) {
@@ -546,7 +703,7 @@ useEffect(() => {
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !spot || !isValidCoord(spot.lng, spot.lat)) return;
 
-    const distanceText = distanceKm ? `${distanceKm.toFixed(1)} km` : '--';
+    const distanceText = formatDistanceText(distanceKm);
     const ownerName =
       spot.proposedByName ||
       spot.hostName ||
@@ -628,6 +785,7 @@ useEffect(() => {
         className: 'modern-popup',
         maxWidth: '240px' 
       }).setHTML(popupHTML);
+      enhancePopupAnimation(popup);
 
       destMarkerRef.current = new mapboxgl.Marker({ color: '#ea580c' }) // Orange
         .setLngLat([spot.lng, spot.lat])
@@ -637,6 +795,7 @@ useEffect(() => {
       destMarkerRef.current.setLngLat([spot.lng, spot.lat]);
       const popup = destMarkerRef.current.getPopup();
       if (popup) {
+        enhancePopupAnimation(popup);
         popup.setHTML(popupHTML); // Mise à jour de la distance en temps réel
       }
     }
@@ -747,15 +906,22 @@ if (!routeAnimRef.current) {
          el.style.height = '48px';
          el.style.transformOrigin = 'center center';
          el.draggable = false;
-         
-           markerRef.current = new mapboxgl.Marker({
-             element: el,
-             rotationAlignment: 'viewport',
-             pitchAlignment: 'viewport',
+
+         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
+           buildOtherUserPopupHTML(currentUserName || t('user', 'User'), t('arrival', 'En ligne'), { showBadge: false }),
+         );
+         enhancePopupAnimation(popup);
+
+          markerRef.current = new mapboxgl.Marker({
+            element: el,
+            rotationAlignment: 'viewport',
+            pitchAlignment: 'viewport',
            })
              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
              .setRotation(0)
+             .setPopup(popup)
              .addTo(map);
+         markerPopupRef.current = popup;
       }
 
        // --- START TRACKING ---
@@ -789,6 +955,11 @@ if (!routeAnimRef.current) {
                    if (!prevCoords) {
                        prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
+                       if (markerPopupRef.current) {
+                         markerPopupRef.current.setHTML(
+                           buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }),
+                         );
+                       }
                        const coordObj = { lat: latitude, lng: longitude };
                        setUserLoc(coordObj);
                        persistUserLocation(coordObj);
@@ -827,8 +998,14 @@ if (!routeAnimRef.current) {
                     });
 
                   if (markerRef.current) {
+                    markerRef.current.getElement().style.zIndex = '10';
                     markerRef.current.setLngLat(newCoords);
                     markerRef.current.setRotation(bearingToDestination);
+                    if (markerPopupRef.current) {
+                      markerPopupRef.current.setHTML(
+                        buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }),
+                      );
+                    }
                   }
 
  
@@ -862,6 +1039,11 @@ if (!routeAnimRef.current) {
   // --- Subscribe to other users' locations and render markers ---
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return undefined;
+    const updateSelfPopup = () => {
+      if (markerPopupRef.current) {
+        markerPopupRef.current.setHTML(buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }));
+      }
+    };
     const locRef = collection(db, 'artifacts', appId, 'public', 'data', 'userLocations');
     const unsubscribe = onSnapshot(
       locRef,
@@ -871,18 +1053,21 @@ if (!routeAnimRef.current) {
           uid: docSnap.id,
           ...docSnap.data(),
         }));
-        console.log('Live user locations', allLocations);
+        updateSelfPopup();
         snap.docs.forEach((docSnap) => {
           const uid = docSnap.id;
           const data = docSnap.data();
           if (uid === currentUserId) return;
-          if (!isValidCoord(data.lng, data.lat)) return;
+          const lng = Number(data.lng);
+          const lat = Number(data.lat);
+          if (!isValidCoord(lng, lat)) return;
           seen.add(uid);
 
           const updatedAtDate = data.updatedAt?.toDate?.() || null;
           const cachedProfile = otherUserProfilesRef.current.get(uid) || {};
           const displayName = data.displayName || cachedProfile.displayName || t('user', 'User');
           const lastSeenText = formatLastSeen(updatedAtDate || cachedProfile.lastSeen || null);
+          const isOnline = (lastSeenText || '').toLowerCase().includes('ligne');
 
           otherUserProfilesRef.current.set(uid, {
             displayName,
@@ -891,22 +1076,36 @@ if (!routeAnimRef.current) {
           ensureUserProfile(uid);
 
           // Determine display position (jitter off Arc de Triomphe if needed) and stick to it
-          let displayPos = otherUserPositionsRef.current.get(uid);
-          if (!displayPos) {
-            const distFromArc = getDistanceFromLatLonInKm(48.8738, 2.295, data.lat, data.lng);
-            if (distFromArc < 0.5 && fallbackOtherPositions.length > 0) {
-              displayPos = fallbackOtherPositions[Math.floor(Math.random() * fallbackOtherPositions.length)];
-            } else {
-              displayPos = { lng: data.lng, lat: data.lat };
-            }
-            otherUserPositionsRef.current.set(uid, displayPos);
-          }
+          const previousDisplayPos = otherUserPositionsRef.current.get(uid);
+          let displayPos = jitterCoordinate(lng, lat, uid, 25);
+
+          displayPos = separateIfTooClose(
+            displayPos,
+            otherUserPositionsRef.current,
+            uid,
+            14
+          );
 
           const existing = otherUserMarkersRef.current.get(uid);
           if (existing) {
+            const prevPos = previousDisplayPos || displayPos;
+            const bearing = computeBearing([prevPos.lng, prevPos.lat], [displayPos.lng, displayPos.lat]);
             existing.setLngLat([displayPos.lng, displayPos.lat]);
+            const wrapper = otherUserWrappersRef.current.get(uid);
+            if (wrapper && Number.isFinite(bearing)) {
+              wrapper.style.transform = `rotate(${bearing}deg)`;
+            }
             const popup = existing.getPopup();
-            if (popup) popup.setHTML(buildUserPopupHTML(displayName, lastSeenText));
+            if (popup) {
+              enhancePopupAnimation(popup);
+              popup.setHTML(buildOtherUserPopupHTML(displayName, lastSeenText));
+            }
+            const statusDot = existing.getElement()?.querySelector('.user-marker-presence-dot');
+            if (statusDot) {
+              statusDot.style.background = isOnline ? '#22c55e' : '#f59e0b';
+              statusDot.style.boxShadow = `0 0 0 6px ${isOnline ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.12)'}`;
+            }
+            otherUserPositionsRef.current.set(uid, displayPos);
             return;
           }
 
@@ -918,21 +1117,82 @@ if (!routeAnimRef.current) {
             otherUserIconsRef.current.set(uid, icon);
           }
 
-          const el = document.createElement('img');
-          el.src = icon;
-          el.alt = 'Other user';
-          el.style.width = '36px';
-          el.style.height = '36px';
-          el.style.transformOrigin = 'center';
-          el.draggable = false;
-          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false }).setHTML(
-            buildUserPopupHTML(displayName, lastSeenText),
+          const el = document.createElement('div');
+          el.style.display = 'flex';
+          el.style.alignItems = 'center';
+          el.style.justifyContent = 'center';
+          el.style.transform = 'translateY(-6px)';
+          el.style.pointerEvents = 'auto';
+          el.style.transformOrigin = 'center center';
+
+          const imgWrapper = document.createElement('div');
+          imgWrapper.style.position = 'relative';
+          imgWrapper.style.display = 'inline-flex';
+          imgWrapper.style.alignItems = 'center';
+          imgWrapper.style.justifyContent = 'center';
+          imgWrapper.style.transformOrigin = 'center center';
+
+          const img = document.createElement('img');
+          img.src = icon;
+          img.alt = 'Other user';
+          img.style.width = '36px';
+          img.style.height = '36px';
+          img.style.transformOrigin = 'center';
+          img.draggable = false;
+          img.style.filter = 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))';
+          img.style.zIndex = '1';
+          img.style.opacity = '0.85';
+
+          const presenceDot = document.createElement('span');
+          presenceDot.className = 'user-marker-presence-dot';
+          presenceDot.style.position = 'absolute';
+          presenceDot.style.right = '-2px';
+          presenceDot.style.bottom = '-2px';
+          presenceDot.style.width = '12px';
+          presenceDot.style.height = '12px';
+          presenceDot.style.borderRadius = '999px';
+          presenceDot.style.background = isOnline ? '#22c55e' : '#f59e0b';
+          presenceDot.style.border = '2px solid #ffffff';
+          presenceDot.style.boxShadow = `0 0 0 6px ${isOnline ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.12)'}`;
+
+          imgWrapper.appendChild(img);
+          imgWrapper.appendChild(presenceDot);
+          el.appendChild(imgWrapper);
+
+         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
+            buildOtherUserPopupHTML(displayName, lastSeenText),
           );
-          const marker = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
+          enhancePopupAnimation(popup);
+          const marker = new mapboxgl.Marker({
+            element: el,
+            rotationAlignment: 'viewport',
+            pitchAlignment: 'viewport',
+            anchor: 'bottom',
+          })
             .setLngLat([displayPos.lng, displayPos.lat])
             .setPopup(popup)
             .addTo(mapRef.current);
           otherUserMarkersRef.current.set(uid, marker);
+          otherUserWrappersRef.current.set(uid, imgWrapper);
+          updateOtherMarkersVisibility(mapRef.current?.getZoom());
+          const initialBearing = Number.isFinite(
+            computeBearing(
+              previousDisplayPos
+                ? [previousDisplayPos.lng, previousDisplayPos.lat]
+                : [displayPos.lng, displayPos.lat],
+              [displayPos.lng, displayPos.lat],
+            ),
+          )
+            ? computeBearing(
+                previousDisplayPos
+                  ? [previousDisplayPos.lng, previousDisplayPos.lat]
+                  : [displayPos.lng, displayPos.lat],
+                [displayPos.lng, displayPos.lat],
+              )
+            : 0;
+          imgWrapper.style.transform = `rotate(${initialBearing}deg)`;
+          otherUserPositionsRef.current.set(uid, displayPos);
+          return;
         });
         // Cleanup markers not in snapshot
         for (const [uid, marker] of otherUserMarkersRef.current.entries()) {
@@ -941,6 +1201,7 @@ if (!routeAnimRef.current) {
             otherUserMarkersRef.current.delete(uid);
             otherUserIconsRef.current.delete(uid);
             otherUserPositionsRef.current.delete(uid);
+            otherUserWrappersRef.current.delete(uid);
             otherUserProfilesRef.current.delete(uid);
           }
         }
@@ -956,6 +1217,7 @@ if (!routeAnimRef.current) {
       otherUserMarkersRef.current.clear();
       otherUserIconsRef.current.clear();
       otherUserPositionsRef.current.clear();
+      otherUserWrappersRef.current.clear();
       otherUserProfilesRef.current.clear();
       otherUserProfileFetchRef.current.clear();
     };
@@ -969,6 +1231,16 @@ if (!routeAnimRef.current) {
       >
         {/* Style injection for Custom Popup (AJOUT) */}
         <style>{`
+          @keyframes popupEnter {
+            from { transform: scale(0.9) translateY(4px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+          }
+          @keyframes popupExit {
+            from { transform: scale(1) translateY(0); opacity: 1; }
+            to { transform: scale(0.92) translateY(4px); opacity: 0; }
+          }
+          .mapboxgl-popup-content.popup-enter { animation: popupEnter 0.18s ease forwards; }
+          .mapboxgl-popup-content.popup-exit { animation: popupExit 0.16s ease forwards; }
           .modern-popup .mapboxgl-popup-content {
             padding: 12px !important;
             border-radius: 20px !important;
@@ -978,6 +1250,15 @@ if (!routeAnimRef.current) {
           .modern-popup .mapboxgl-popup-tip {
             border-top-color: #ffffff !important;
             margin-bottom: -1px;
+          }
+          .user-presence-popup .mapboxgl-popup-content {
+            padding: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+          .user-presence-popup .mapboxgl-popup-tip {
+            display: none;
           }
         `}</style>
         
@@ -1073,7 +1354,9 @@ if (!routeAnimRef.current) {
                 <div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
-                    <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">{distanceKm?.toFixed(1)} km</span>
+                    <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">
+                      {formatDistanceText(distanceKm)}
+                    </span>
                   </div>
                   <p className="text-gray-500 text-sm font-medium mt-1">
                     {t('arrival', 'Arrival')} {arrivalTime || '--:--'}

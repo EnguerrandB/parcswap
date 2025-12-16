@@ -3,7 +3,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import carMarker from '../assets/car-marker.png';
 import userCar1 from '../assets/user-car-1.png';
@@ -96,6 +96,39 @@ const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+// Find closest point of the route to the user to drive progress/trim logic
+const findClosestPointIndex = (geometry, lng, lat) => {
+  if (!Array.isArray(geometry) || geometry.length === 0) {
+    return { index: 0, distanceKm: null };
+  }
+  let bestIdx = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < geometry.length; i += 1) {
+    const point = geometry[i];
+    if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) continue;
+    const dist = getDistanceFromLatLonInKm(lat, lng, point[1], point[0]);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return { index: bestIdx, distanceKm: bestDist };
+};
+
+const formatLastSeen = (date) => {
+  if (!date) return 'Dernière connexion inconnue';
+  const diffMs = Date.now() - date.getTime();
+  const sec = Math.max(0, Math.round(diffMs / 1000));
+  if (sec < 30) return 'En ligne';
+  if (sec < 90) return 'Il y a 1 min';
+  const min = Math.round(sec / 60);
+  if (min < 60) return `Il y a ${min} min`;
+  const hrs = Math.round(min / 60);
+  if (hrs < 24) return `Il y a ${hrs} h`;
+  const days = Math.round(hrs / 24);
+  return `Il y a ${days} j`;
+};
+
 // --- Icons ---
 const getManeuverIcon = (instruction) => {
   const text = instruction?.toLowerCase() || '';
@@ -143,7 +176,7 @@ class MapErrorBoundary extends React.Component {
   }
 }
 
-const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId, userCoords }) => {
+const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId, currentUserName, userCoords }) => {
   const { t, i18n } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -170,6 +203,8 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const otherUserMarkersRef = useRef(new globalThis.Map());
   const otherUserIconsRef = useRef(new globalThis.Map());
   const otherUserPositionsRef = useRef(new globalThis.Map());
+  const otherUserProfilesRef = useRef(new globalThis.Map());
+  const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   
   // Ref to prevent double fetching
@@ -315,6 +350,38 @@ useEffect(() => {
     [],
   );
 
+  const ensureUserProfile = (uid) => {
+    if (!uid) return;
+    if (otherUserProfilesRef.current.has(uid) || otherUserProfileFetchRef.current.has(uid)) return;
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', uid);
+    const fetchPromise = getDoc(userRef)
+      .then((snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        otherUserProfilesRef.current.set(uid, {
+          displayName: data.displayName || t('user', 'User'),
+          lastSeen: data.updatedAt?.toDate?.() || null,
+        });
+      })
+      .catch((err) => console.error('Error fetching user profile', err))
+      .finally(() => {
+        otherUserProfileFetchRef.current.delete(uid);
+      });
+    otherUserProfileFetchRef.current.set(uid, fetchPromise);
+  };
+
+  const buildUserPopupHTML = (name, lastSeenText) => `
+    <div style="
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      padding:10px 12px;
+      color:#0f172a;
+      min-width:180px;
+    ">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+      <div style="font-size:12px;color:#64748b;">${lastSeenText}</div>
+    </div>
+  `;
+
   const instructionCardStyle = useMemo(
     () => ({
       // Apple Dark: Base noire translucide | Apple Light: Base blanche translucide
@@ -363,6 +430,7 @@ useEffect(() => {
         {
           lat: coords.lat,
           lng: coords.lng,
+          displayName: currentUserName || 'User',
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -583,6 +651,24 @@ useEffect(() => {
     // 2. Navigation Mode
     if (navReady && navGeometry.length > 1) {
        const map = mapRef.current;
+       const updateRouteProgress = (lng, lat) => {
+         if (!navGeometry.length || !map) return null;
+         const { index: closestIdx, distanceKm } = findClosestPointIndex(navGeometry, lng, lat);
+         if (map.getSource('route')) {
+           const remaining = navGeometry.slice(closestIdx);
+           const coordinates = remaining.length ? [[lng, lat], ...remaining] : [[lng, lat]];
+           map.getSource('route').setData({
+             type: 'Feature',
+             geometry: { type: 'LineString', coordinates },
+           });
+         }
+         if (navSteps.length > 0) {
+           const progressRatio = closestIdx / Math.max(1, navGeometry.length - 1);
+           const nextIdx = Math.min(navSteps.length - 1, Math.floor(progressRatio * navSteps.length));
+           setNavIndex((prev) => (Number.isFinite(nextIdx) ? nextIdx : prev));
+         }
+         return { closestIdx, distanceKm };
+       };
        
         if (!map.getSource('route')) {
           map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
@@ -697,11 +783,15 @@ if (!routeAnimRef.current) {
                (pos) => {
                    const { latitude, longitude, heading } = pos.coords;
                    const newCoords = [longitude, latitude];
+                   updateRouteProgress(longitude, latitude);
                    
                    // If this is the first point, just set it and wait for next one to calculate bearing
                    if (!prevCoords) {
                        prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
+                       const coordObj = { lat: latitude, lng: longitude };
+                       setUserLoc(coordObj);
+                       persistUserLocation(coordObj);
                        return;
                    }
 
@@ -767,7 +857,7 @@ if (!routeAnimRef.current) {
   }
 };
     }
-  }, [navReady, navGeometry, mapLoaded]);
+  }, [navReady, navGeometry, navSteps, mapLoaded]);
 
   // --- Subscribe to other users' locations and render markers ---
   useEffect(() => {
@@ -777,12 +867,29 @@ if (!routeAnimRef.current) {
       locRef,
       (snap) => {
         const seen = new Set();
+        const allLocations = snap.docs.map((docSnap) => ({
+          uid: docSnap.id,
+          ...docSnap.data(),
+        }));
+        console.log('Live user locations', allLocations);
         snap.docs.forEach((docSnap) => {
           const uid = docSnap.id;
           const data = docSnap.data();
           if (uid === currentUserId) return;
           if (!isValidCoord(data.lng, data.lat)) return;
           seen.add(uid);
+
+          const updatedAtDate = data.updatedAt?.toDate?.() || null;
+          const cachedProfile = otherUserProfilesRef.current.get(uid) || {};
+          const displayName = data.displayName || cachedProfile.displayName || t('user', 'User');
+          const lastSeenText = formatLastSeen(updatedAtDate || cachedProfile.lastSeen || null);
+
+          otherUserProfilesRef.current.set(uid, {
+            displayName,
+            lastSeen: updatedAtDate || cachedProfile.lastSeen || null,
+          });
+          ensureUserProfile(uid);
+
           // Determine display position (jitter off Arc de Triomphe if needed) and stick to it
           let displayPos = otherUserPositionsRef.current.get(uid);
           if (!displayPos) {
@@ -794,11 +901,15 @@ if (!routeAnimRef.current) {
             }
             otherUserPositionsRef.current.set(uid, displayPos);
           }
+
           const existing = otherUserMarkersRef.current.get(uid);
           if (existing) {
             existing.setLngLat([displayPos.lng, displayPos.lat]);
+            const popup = existing.getPopup();
+            if (popup) popup.setHTML(buildUserPopupHTML(displayName, lastSeenText));
             return;
           }
+
           // pick or reuse a random icon for this user
           let icon = otherUserIconsRef.current.get(uid);
           if (!icon) {
@@ -814,8 +925,12 @@ if (!routeAnimRef.current) {
           el.style.height = '36px';
           el.style.transformOrigin = 'center';
           el.draggable = false;
+          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false }).setHTML(
+            buildUserPopupHTML(displayName, lastSeenText),
+          );
           const marker = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
             .setLngLat([displayPos.lng, displayPos.lat])
+            .setPopup(popup)
             .addTo(mapRef.current);
           otherUserMarkersRef.current.set(uid, marker);
         });
@@ -824,6 +939,9 @@ if (!routeAnimRef.current) {
           if (!seen.has(uid)) {
             marker.remove();
             otherUserMarkersRef.current.delete(uid);
+            otherUserIconsRef.current.delete(uid);
+            otherUserPositionsRef.current.delete(uid);
+            otherUserProfilesRef.current.delete(uid);
           }
         }
       },
@@ -838,6 +956,8 @@ if (!routeAnimRef.current) {
       otherUserMarkersRef.current.clear();
       otherUserIconsRef.current.clear();
       otherUserPositionsRef.current.clear();
+      otherUserProfilesRef.current.clear();
+      otherUserProfileFetchRef.current.clear();
     };
   }, [mapLoaded, currentUserId]);
 

@@ -85,6 +85,8 @@ export default function ParkSwapApp() {
   const lastKnownLocationRef = useRef(null);
   const selectionWriteInFlight = useRef(false);
   const selectionQueueRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
+  const heartbeatInFlightRef = useRef(false);
 
   // Try to lock orientation to portrait (best-effort; may fail on some browsers)
   useEffect(() => {
@@ -362,6 +364,47 @@ export default function ParkSwapApp() {
       cancelled = true;
     };
   }, [user?.uid]);
+
+  // Heartbeat: keep userLocations up to date even hors navigation
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    let cancelled = false;
+
+    const persistHeartbeat = async () => {
+      if (heartbeatInFlightRef.current) return;
+      heartbeatInFlightRef.current = true;
+      try {
+        const coords = await logCurrentLocation('heartbeat');
+        if (cancelled || !coords || !Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return;
+        await setDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', user.uid),
+          {
+            lat: coords.lat,
+            lng: coords.lng,
+            displayName: user.displayName || 'User',
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch (err) {
+        console.error('Error persisting heartbeat location', err);
+      } finally {
+        heartbeatInFlightRef.current = false;
+      }
+    };
+
+    // Kick off immediately, then every 30s
+    persistHeartbeat();
+    const interval = setInterval(persistHeartbeat, 30_000);
+    heartbeatIntervalRef.current = interval;
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (heartbeatIntervalRef.current === interval) heartbeatIntervalRef.current = null;
+      heartbeatInFlightRef.current = false;
+    };
+  }, [user?.uid, user?.displayName]);
 
   const getInitialTheme = () => {
     if (typeof window === 'undefined') return 'light';
@@ -1332,6 +1375,7 @@ export default function ParkSwapApp() {
           onSelectionStep={handleSelectionStep}
           initialStep={selectionSnapshot?.step || (bookedSpot ? 'booked' : null)}
           currentUserId={user?.uid || null}
+          currentUserName={user?.displayName || 'User'}
           userCoords={userCoords}
         />
       )}

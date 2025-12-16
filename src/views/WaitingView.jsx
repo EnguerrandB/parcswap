@@ -227,7 +227,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
           </p>
         </div>
 
-          <div className="flex-1 flex flex-col items-center justify-center relative space-y-6 overflow-hidden">
+          <div className="flex-1 flex flex-col items-center justify-start relative space-y-6 overflow-hidden">
           {!isExpired && (
             <>
               <div className="absolute w-64 h-64 bg-orange-100 rounded-full animate-ping opacity-20" />
@@ -292,7 +292,11 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
               isDark
                 ? 'bg-gradient-to-r from-slate-800 via-slate-900 to-black border-slate-700'
                 : 'bg-gradient-to-r from-amber-200 via-orange-100 to-white border-orange-200'
-            } ${showAd ? 'opacity-100 translate-y-0 max-h-[400px] py-6 mt-6 px-6' : 'opacity-0 translate-y-16 max-h-0 py-0 mt-0 px-6'}`}
+            } ${
+              showAd
+                ? 'opacity-100 translate-y-0 max-h-[400px] py-6 mt-6 px-6 ad-bounce-in'
+                : 'opacity-0 translate-y-16 max-h-0 py-0 mt-0 px-6 ad-bounce-out'
+            }`}
           >
             <div className={`transition-opacity duration-300 delay-200 ${showAd ? 'opacity-100' : 'opacity-0'}`}>
               <p

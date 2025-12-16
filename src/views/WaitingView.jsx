@@ -227,15 +227,15 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
           </p>
         </div>
 
-          <div className="flex-1 flex flex-col items-center justify-start relative space-y-6 overflow-hidden">
+          <div className="flex-1 flex flex-col items-center justify-start relative space-y-6">
           {!isExpired && (
             <>
-              <div className="absolute w-64 h-64 bg-orange-100 rounded-full animate-ping opacity-20" />
-              <div className="absolute w-48 h-48 bg-orange-200 rounded-full animate-pulse opacity-30" />
+              <div className="absolute  w-64 h-64 bg-orange-100 rounded-full animate-ping opacity-20 z-20 pointer-events-none" />
+              <div className="absolute  w-48 h-48 bg-orange-200 rounded-full animate-pulse opacity-30 z-20 pointer-events-none" />
             </>
           )}
           <div
-            className="bg-white p-6 rounded-full shadow-xl z-10 relative"
+            className="bg-white p-6 rounded-full shadow-xl z-30 relative"
             style={!isExpired ? carMotionStyle : { animationPlayState: 'paused' }}
           >
             <Car size={48} className="text-orange-600" />
@@ -245,7 +245,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
               </div>
             )}
           </div>
-          <div className="w-full max-w-sm bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-orange-100 px-5 py-4 z-10">
+          <div className="w-full max-w-sm bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-orange-100 px-5 py-4 z-40">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">
@@ -288,17 +288,19 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
           {/* BLOC PUB ANIMÉ - Toujours dans le DOM, mais animé via CSS */}
           <div
-            className={`w-full max-w-md rounded-3xl shadow-xl z-10 border overflow-hidden transition-all duration-700 cubic-bezier(0.4, 0, 0.2, 1) ${
+            className={`w-full max-w-md rounded-3xl shadow-xl z-10 border overflow-hidden ${
               isDark
                 ? 'bg-gradient-to-r from-slate-800 via-slate-900 to-black border-slate-700'
                 : 'bg-gradient-to-r from-amber-200 via-orange-100 to-white border-orange-200'
             } ${
+              /* CORRECTION ICI : On utilise les classes d'animation CSS pures au lieu de mélanger transition et animation */
               showAd
-                ? 'opacity-100 translate-y-0 max-h-[400px] py-6 mt-6 px-6 ad-bounce-in'
-                : 'opacity-0 translate-y-16 max-h-0 py-0 mt-0 px-6 ad-bounce-out'
+                ? 'ad-bounce-entry py-6 mt-6 px-6 max-h-[400px]' 
+                : 'ad-exit max-h-0 py-0 mt-0 px-6 opacity-0' /* opacity-0 pour éviter le flash au chargement */
             }`}
           >
-            <div className={`transition-opacity duration-300 delay-200 ${showAd ? 'opacity-100' : 'opacity-0'}`}>
+            {/* Le contenu interne */}
+            <div className={`transition-opacity duration-500 delay-300 ${showAd ? 'opacity-100' : 'opacity-0'}`}>
               <p
                 className={`text-xs uppercase font-bold tracking-wide mb-2 ${
                   isDark ? 'text-amber-300' : 'text-orange-500'

@@ -137,6 +137,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const markerRef = useRef(null);
+  const acceptFocusMarkerRef = useRef(null);
   const destMarkerRef = useRef(null);
   const otherUserMarkersRef = useRef(new globalThis.Map());
   const otherUserIconsRef = useRef(new globalThis.Map());
@@ -186,6 +187,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
     setMapLoaded(false);
     setMapMoved(false);
     routeFetchedRef.current = false; // Reset fetch lock
+    if (acceptFocusMarkerRef.current) {
+      acceptFocusMarkerRef.current.remove();
+      acceptFocusMarkerRef.current = null;
+    }
     if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -402,10 +407,39 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
          el.style.transformOrigin = 'center center';
          el.draggable = false;
          
-            markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
-              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
-              .setRotation(0)
-              .addTo(map);
+           markerRef.current = new mapboxgl.Marker({ element: el, rotationAlignment: 'map' })
+             .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
+             .setRotation(0)
+             .addTo(map);
+      }
+
+       // Marker to highlight destination immediately after accept
+       const destPoint = navGeometry[navGeometry.length - 1] || navGeometry[0];
+       if (destPoint && isValidCoord(destPoint[0], destPoint[1])) {
+         if (!acceptFocusMarkerRef.current) {
+           const dot = document.createElement('div');
+           dot.className = 'flex items-center justify-center';
+           dot.style.width = '26px';
+           dot.style.height = '26px';
+           dot.style.borderRadius = '9999px';
+           dot.style.background = 'rgba(34,197,94,0.18)';
+           dot.style.boxShadow = '0 0 0 2px rgba(34,197,94,0.35)';
+           const inner = document.createElement('div');
+           inner.style.width = '12px';
+           inner.style.height = '12px';
+           inner.style.borderRadius = '9999px';
+           inner.style.background = '#22c55e';
+           inner.style.border = '2px solid rgba(255,255,255,0.7)';
+           dot.appendChild(inner);
+           acceptFocusMarkerRef.current = new mapboxgl.Marker({ element: dot, anchor: 'center' })
+             .setLngLat(destPoint)
+             .addTo(map);
+         } else {
+           acceptFocusMarkerRef.current.setLngLat(destPoint);
+         }
+       } else if (acceptFocusMarkerRef.current) {
+         acceptFocusMarkerRef.current.remove();
+         acceptFocusMarkerRef.current = null;
        }
 
        // --- START TRACKING ---
@@ -415,16 +449,17 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
            // FIX 3: Initialize prevCoords as null to prevent jumping/bad bearing calculation on start
            let prevCoords = null; 
 
-           // Initial FlyTo - Align with the first route segment
-           const startPoint = userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0];
-           const initialBearing = computeBearing(startPoint, navGeometry[1] || navGeometry[navGeometry.length-1]);
+           // Initial FlyTo - Center on destination (parking spot)
+           const destPoint = navGeometry[navGeometry.length - 1] || navGeometry[0];
+           const prevPoint = navGeometry.length > 1 ? navGeometry[navGeometry.length - 2] : destPoint;
+           const initialBearing = computeBearing(destPoint, prevPoint);
            
            map.flyTo({ 
-               center: startPoint, 
-               zoom: 15, // FIX 4: Lower zoom level (15) reduces perceived speed/jitter
-               pitch: 45, // FIX 5: Lower pitch (45) improves visibility of road ahead
-               bearing: initialBearing, 
-               padding: { top: 120, bottom: 20 }, // FIX 6: Moderate padding to keep car centered but lower
+               center: destPoint, 
+               zoom: 17, // Focus on the spot right after accept
+               pitch: 45,
+               bearing: isNaN(initialBearing) ? 0 : initialBearing, 
+               padding: { top: 120, bottom: 20 },
                duration: 2000 
             });
 
@@ -483,6 +518,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
 
        return () => {
            if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
+           if (acceptFocusMarkerRef.current) {
+             acceptFocusMarkerRef.current.remove();
+             acceptFocusMarkerRef.current = null;
+           }
        };
     }
   }, [navReady, navGeometry, mapLoaded]);
@@ -563,7 +602,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">
       <div
         className="relative w-full h-full bg-gray-900 overflow-hidden"
-        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'var(--bottom-safe-offset, 96px)' }}
+        style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 0 }}
       >
         
         {/* The Map */}
@@ -585,7 +624,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
                   onClick={() => {
                     setShowRoute(true);
                     setShowSteps(true);
-                    onSelectionStep?.('nav_started', spot);
+                  onSelectionStep?.('nav_started', spot);
                   }}
                   className="w-full bg-orange-600 text-white py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-orange-300/50 active:scale-98 transition"
                 >
@@ -642,7 +681,7 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
             {/* Bottom: Summary */}
             <div
               className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]"
-              style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 12px)' }}
+              style={{ bottom: '20px' }}
             >
               <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
                 <div>
@@ -713,10 +752,10 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
         )}
 
         {/* Recenter control */}
-        {mapLoaded && mapMoved && (
+        {mapLoaded && mapMoved && showRoute && showSteps && (
           <div
             className="absolute right-6 z-30 pointer-events-auto"
-            style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 150px)' }}
+            style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 115px)' }}
           >
             <button
               type="button"

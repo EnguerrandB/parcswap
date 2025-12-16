@@ -515,6 +515,15 @@ export default function ParkSwapApp() {
           id: docSnap.id,
           ...docSnap.data(),
         }));
+        const debugSpot = fetchedSpots.find((s) => s.bookerId === user.uid || s.hostId === user.uid);
+        if (debugSpot) {
+          console.log('[Spots snapshot]', debugSpot.id, {
+            status: debugSpot.status,
+            bookerAccepted: debugSpot.bookerAccepted,
+            bookerId: debugSpot.bookerId,
+            hostId: debugSpot.hostId,
+          });
+        }
         const available = fetchedSpots.filter((s) => s.status === 'available' || !s.status);
         setSpots(available);
 
@@ -735,8 +744,26 @@ export default function ParkSwapApp() {
     }
   };
 
-  const handleSelectionStep = (step, spot) => {
+  const handleSelectionStep = async (step, spot) => {
     saveSelectionStep(step, spot);
+    if (step === 'nav_started' && user && spot?.id) {
+      try {
+        const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+        console.log('[SelectionStep] nav_started -> mark bookerAccepted for host view', {
+          spotId: spot.id,
+          bookerId: user.uid,
+          bookerName: user.displayName,
+        });
+        await updateDoc(spotRef, {
+          bookerAccepted: true,
+          bookerAcceptedAt: serverTimestamp(),
+          bookerId: user.uid,
+          bookerName: user.displayName || 'Seeker',
+        });
+      } catch (err) {
+        console.error('Error marking nav started on spot', err);
+      }
+    }
   };
 
   const handleBookSpot = async (spot) => {
@@ -748,6 +775,8 @@ export default function ParkSwapApp() {
         status: 'booked',
         bookerId: user.uid,
         bookerName: user.displayName || 'Seeker',
+        bookerAccepted: false,
+        bookerAcceptedAt: null,
       });
       await upsertTransaction({
         spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
@@ -828,6 +857,10 @@ export default function ParkSwapApp() {
       await updateDoc(spotRef, {
         status: 'available',
         createdAt: serverTimestamp(),
+        bookerId: null,
+        bookerName: null,
+        bookerAccepted: false,
+        bookerAcceptedAt: null,
       });
     } catch (err) {
       console.error('Error renewing spot:', err);
@@ -841,6 +874,8 @@ export default function ParkSwapApp() {
         status: 'available',
         bookerId: null,
         bookerName: null,
+        bookerAccepted: false,
+        bookerAcceptedAt: null,
       });
       setBookedSpot(null);
       saveSelectionStep('cleared', null);

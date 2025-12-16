@@ -3,7 +3,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import carMarker from '../assets/car-marker.png';
 import userCar1 from '../assets/user-car-1.png';
@@ -340,6 +340,9 @@ useEffect(() => {
       setConfirming(false);
       return undefined;
     }
+    // Ensure the host is notified as soon as navigation starts
+    console.log('[Map] showRoute true -> markBookerAccepted fallback');
+    markBookerAccepted();
     const timer = setTimeout(() => setShowSteps(true), 0);
     return () => clearTimeout(timer);
   }, [showRoute, spot?.id]);
@@ -570,6 +573,26 @@ useEffect(() => {
     for (const marker of otherUserMarkersRef.current.values()) {
       const el = marker?.getElement?.();
       if (el) el.style.display = visible ? 'flex' : 'none';
+    }
+  };
+
+  const markBookerAccepted = async () => {
+    if (!spot?.id || !currentUserId) return;
+    console.log('[Map] markBookerAccepted called', {
+      spotId: spot.id,
+      bookerId: spot.bookerId || currentUserId,
+      bookerName: spot.bookerName || currentUserName,
+    });
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id), {
+        bookerAccepted: true,
+        bookerAcceptedAt: serverTimestamp(),
+        bookerId: spot.bookerId || currentUserId,
+        bookerName: spot.bookerName || currentUserName || 'Seeker',
+      });
+      console.log('[Map] markBookerAccepted success', spot.id);
+    } catch (err) {
+      console.error('Error marking booker accepted navigation', err);
     }
   };
 
@@ -1281,8 +1304,10 @@ if (!routeAnimRef.current) {
               <div className="pointer-events-auto space-y-3">
                 <button
                   onClick={() => {
+                    markBookerAccepted();
                     setShowRoute(true);
                     setShowSteps(true);
+                    console.log('[Map] Accept clicked -> nav_started');
                   onSelectionStep?.('nav_started', spot);
                   }}
                   className="w-full bg-orange-600 text-white py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-orange-300/50 active:scale-98 transition"

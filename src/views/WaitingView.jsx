@@ -1,7 +1,11 @@
 // src/views/WaitingView.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db, appId } from '../firebase';
 import { formatPrice } from '../constants';
 
 /**
@@ -16,6 +20,13 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
   const [plateInput, setPlateInput] = useState('');
   const [showAd, setShowAd] = useState(false);
+  const [bookerCoords, setBookerCoords] = useState(null);
+  const [bookerLastSeen, setBookerLastSeen] = useState(null);
+  const miniMapRef = useRef(null);
+  const miniMapInstanceRef = useRef(null);
+  const bookerMarkerRef = useRef(null);
+  const spotMarkerRef = useRef(null);
+  const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const carMotionStyle = {
     animation: 'waiting-car-slide 9s ease-in-out infinite',
     animationFillMode: 'forwards',
@@ -82,9 +93,61 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     return [letters1, digits, letters2].filter(Boolean).join('-');
   };
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
+  const isValidCoord = (lng, lat) => (
+    typeof lng === 'number' && typeof lat === 'number' &&
+    !Number.isNaN(lng) && !Number.isNaN(lat) &&
+    Math.abs(lng) <= 180 && Math.abs(lat) <= 90
+  );
+
+  const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const formatDistanceText = (km) => {
+    if (km == null || Number.isNaN(km)) return '--';
+    if (km < 1) return `${Math.round(km * 1000)} m`;
+    return `${km.toFixed(1)} km`;
+  };
+
+  // Subscribe to booker's live position (for host view)
+  useEffect(() => {
+    if (!myActiveSpot?.bookerId) return undefined;
+    console.log('[WaitingView] subscribing to booker location', myActiveSpot.bookerId);
+    const userLocRef = doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', myActiveSpot.bookerId);
+    const unsub = onSnapshot(
+      userLocRef,
+      (snap) => {
+        if (!snap.exists()) {
+          console.log('[WaitingView] booker location missing');
+          setBookerCoords(null);
+          return;
+        }
+        const data = snap.data() || {};
+        const lng = Number(data.lng);
+        const lat = Number(data.lat);
+        if (isValidCoord(lng, lat)) {
+          console.log('[WaitingView] booker location update', { lng, lat, updatedAt: data.updatedAt?.toDate?.() });
+          setBookerCoords({ lng, lat });
+          setBookerLastSeen(data.updatedAt?.toDate?.() || null);
+        }
+      },
+      (err) => console.error('Error subscribing to booker location', err),
+    );
+    return () => unsub();
+  }, [myActiveSpot?.bookerId]);
 
   // Host/propose waiting states
   if (myActiveSpot) {
+    const bookerAccepted = !!myActiveSpot.bookerAccepted || !!bookerCoords;
+    const isReservedPendingAccept = myActiveSpot.status === 'booked' && !bookerAccepted;
     const isExpired =
       myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0);
 
@@ -126,7 +189,68 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
       }
     }, [remainingMs, myActiveSpot?.status, isExpired, myActiveSpot]);
 
-    if (myActiveSpot.status === 'booked') {
+    // Init mini-map for host once a booker accepted and a location is known
+    useEffect(() => {
+      if (!bookerAccepted || !mapboxToken) return undefined;
+      if (!isValidCoord(myActiveSpot?.lng, myActiveSpot?.lat)) return undefined;
+      if (!bookerCoords || !isValidCoord(bookerCoords.lng, bookerCoords.lat)) return undefined;
+      if (miniMapInstanceRef.current || !miniMapRef.current) return undefined;
+
+      mapboxgl.accessToken = mapboxToken;
+      const map = new mapboxgl.Map({
+        container: miniMapRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [myActiveSpot.lng, myActiveSpot.lat],
+        zoom: 14.5,
+        interactive: false,
+        attributionControl: false,
+      });
+
+      const spotMarker = new mapboxgl.Marker({ color: '#f97316' })
+        .setLngLat([myActiveSpot.lng, myActiveSpot.lat])
+        .addTo(map);
+
+      const bookerMarker = new mapboxgl.Marker({ color: '#2563eb' })
+        .setLngLat([bookerCoords.lng, bookerCoords.lat])
+        .addTo(map);
+
+      miniMapInstanceRef.current = map;
+      spotMarkerRef.current = spotMarker;
+      bookerMarkerRef.current = bookerMarker;
+
+      // Fit bounds to both points
+      const bounds = new mapboxgl.LngLatBounds();
+      bounds.extend([myActiveSpot.lng, myActiveSpot.lat]);
+      bounds.extend([bookerCoords.lng, bookerCoords.lat]);
+      map.fitBounds(bounds, { padding: 28, duration: 0 });
+
+      return () => {
+        bookerMarker.remove();
+        spotMarker.remove();
+        map.remove();
+        miniMapInstanceRef.current = null;
+        spotMarkerRef.current = null;
+        bookerMarkerRef.current = null;
+      };
+    }, [bookerAccepted, bookerCoords?.lng, bookerCoords?.lat, mapboxToken, myActiveSpot?.lng, myActiveSpot?.lat]);
+
+    // Update mini map markers when booker moves
+    useEffect(() => {
+      if (!miniMapInstanceRef.current) return;
+      if (bookerMarkerRef.current && bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat)) {
+        bookerMarkerRef.current.setLngLat([bookerCoords.lng, bookerCoords.lat]);
+        const bounds = new mapboxgl.LngLatBounds();
+        bounds.extend([myActiveSpot.lng, myActiveSpot.lat]);
+        bounds.extend([bookerCoords.lng, bookerCoords.lat]);
+        miniMapInstanceRef.current.fitBounds(bounds, { padding: 28, duration: 500 });
+      }
+    }, [bookerCoords?.lng, bookerCoords?.lat, myActiveSpot?.lng, myActiveSpot?.lat]);
+
+    if (myActiveSpot.status === 'booked' && bookerAccepted) {
+      const distanceKm = bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat)
+        ? getDistanceFromLatLonInKm(myActiveSpot.lat, myActiveSpot.lng, bookerCoords.lat, bookerCoords.lng)
+        : null;
+
       return (
         <div className="fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
           <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
@@ -136,9 +260,31 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
               </div>
               <div>
                 <p className="font-bold text-lg">{myActiveSpot.bookerName}</p>
-                <p className="text-sm text-gray-500">{t('arrivingIn', 'Arriving in ~3 min')}</p>
+                <p className="text-sm text-gray-500">
+                  {distanceKm != null
+                    ? t('arrivingDistance', { defaultValue: 'Arriving in ~{{distance}}', distance: formatDistanceText(distanceKm) })
+                    : t('arrivingIn', 'Arriving in ~3 min')}
+                </p>
               </div>
             </div>
+
+            {mapboxToken && isValidCoord(myActiveSpot.lng, myActiveSpot.lat) && bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat) && (
+              <div className="rounded-2xl overflow-hidden border border-orange-100 shadow mb-6">
+                <div ref={miniMapRef} className="w-full h-48" />
+                <div className="px-4 py-3 bg-orange-50 flex items-center justify-between text-sm text-gray-700">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex w-3 h-3 rounded-full bg-orange-500"></span>
+                    <span className="font-semibold">{t('yourSpot', 'Your spot')}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex w-3 h-3 rounded-full bg-blue-600"></span>
+                    <span className="font-semibold">
+                      {t('driver', { defaultValue: 'Driver' })} {myActiveSpot.bookerName ? `(${myActiveSpot.bookerName})` : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-4">
               <label className="block text-sm font-medium text-gray-700 text-center">{t('verifyLicensePlate', 'Verify License Plate')}</label>
@@ -205,25 +351,29 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
       >
         <div className="mt-16 mb-6 text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-3">
-            {myActiveSpot.status === 'booked' ? (
-              t('seekerFound', 'Seeker Found!')
-            ) : (
-              <span>
-                {t('searching', 'Searching')}
-                <span className="dot-ellipsis" aria-hidden="true">
-                  <span>.</span>
-                  <span>.</span>
-                  <span>.</span>
-                </span>
-              </span>
-            )}
+            {isReservedPendingAccept
+              ? t('awaitingNavAccept', 'Seeker accepted the card, waiting for confirmation')
+              : myActiveSpot.status === 'booked'
+                ? t('seekerFound', 'Seeker Found!')
+                : (
+                  <span>
+                    {t('searching', 'Searching')}
+                    <span className="dot-ellipsis" aria-hidden="true">
+                      <span>.</span>
+                      <span>.</span>
+                      <span>.</span>
+                    </span>
+                  </span>
+                )}
           </h1>
           <p className="text-gray-500 mb-2">
-            {myActiveSpot.status === 'booked'
-              ? t('bookerOnWay', { name: myActiveSpot.bookerName || t('unknown', 'Someone'), defaultValue: '{{name}} is on their way.' })
-              : isExpired
-                ? t('listingExpiredMsg', 'Your listing expired. Renew it to reach more drivers.')
-                : t('listingBroadcasting', "We're broadcasting your spot to nearby drivers.")}
+            {isReservedPendingAccept
+              ? t('waitingNavConfirm', 'Waiting for the driver to start navigation.')
+              : myActiveSpot.status === 'booked'
+                ? t('bookerOnWay', { name: myActiveSpot.bookerName || t('unknown', 'Someone'), defaultValue: '{{name}} is on their way.' })
+                : isExpired
+                  ? t('listingExpiredMsg', 'Your listing expired. Renew it to reach more drivers.')
+                  : t('listingBroadcasting', "We're broadcasting your spot to nearby drivers.")}
           </p>
         </div>
 
@@ -239,7 +389,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
             style={!isExpired ? carMotionStyle : { animationPlayState: 'paused' }}
           >
             <Car size={48} className="text-orange-600" />
-            {!isExpired && (
+            {!isExpired && !isReservedPendingAccept && (
               <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce">
                 {t('liveTag', 'Live')}
               </div>

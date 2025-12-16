@@ -255,7 +255,7 @@ useEffect(() => {
       setConfirming(false);
       return undefined;
     }
-    const timer = setTimeout(() => setShowSteps(true), 2600);
+    const timer = setTimeout(() => setShowSteps(true), 0);
     return () => clearTimeout(timer);
   }, [showRoute, spot?.id]);
 

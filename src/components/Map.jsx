@@ -60,6 +60,30 @@ const computeBearing = (from, to) => {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };
 
+const offsetCenter = (coord, bearingDeg, meters) => {
+  const R = 6378137;
+  const δ = meters / R;
+  const θ = (bearingDeg * Math.PI) / 180;
+
+  const φ1 = (coord[1] * Math.PI) / 180;
+  const λ1 = (coord[0] * Math.PI) / 180;
+
+  const φ2 = Math.asin(
+    Math.sin(φ1) * Math.cos(δ) +
+    Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
+  );
+
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
+    );
+
+  return [(λ2 * 180) / Math.PI, (φ2 * 180) / Math.PI];
+};
+
+
 const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; 
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -365,7 +389,9 @@ useEffect(() => {
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: getSafeCenter(),
+      center: isValidCoord(spot?.lng, spot?.lat)
+      ? [spot.lng, spot.lat]
+      : getSafeCenter(),
       pitch: 0,
       zoom: 15,
       interactive: true,
@@ -388,6 +414,22 @@ useEffect(() => {
       mapRef.current = null;
     };
   }, [mapboxToken]);
+
+  // PREVIEW MODE: center ONLY on destination (before Accept)
+useEffect(() => {
+  if (!mapLoaded || !mapRef.current) return;
+  if (showRoute) return;
+  if (!isValidCoord(spot?.lng, spot?.lat)) return;
+
+  mapRef.current.easeTo({
+    center: [spot.lng, spot.lat],
+    zoom: 17,
+    pitch: 0,
+    bearing: 0,
+    duration: 800,
+    essential: true,
+  });
+}, [mapLoaded, showRoute, spot?.lng, spot?.lat]);
 
   // --- Real-Time Navigation Logic ---
   useEffect(() => {
@@ -496,33 +538,40 @@ useEffect(() => {
                    // Calculate distance moved
                    const distMoved = getDistanceFromLatLonInKm(prevCoords[1], prevCoords[0], latitude, longitude);
                    
-                   let bearingToUse = map.getBearing();
+                   const bearingToDestination = computeBearing(
+                    newCoords,
+                    [spot.lng, spot.lat]
+                  );
 
-                   // FIX 7: Bearing Logic - Only update if moved > 2 meters.
-                   // Prioritize GPS Heading if valid, otherwise compute from movement.
-                   if (distMoved > 0.002) { 
-                        if (heading && !isNaN(heading) && heading !== 0) {
-                            bearingToUse = heading;
-                        } else {
-                            bearingToUse = computeBearing(prevCoords, newCoords);
-                        }
-                   }
+                 const CAMERA_OFFSET_METERS = 140; // 👈 ajuste entre 90 et 160
 
-                   // FIX 8: Consistent easeTo with linear easing for smooth "Course Up" tracking
-                   map.easeTo({
-                       center: newCoords,
-                       zoom: 15,
-                       pitch: 45,
-                       bearing: bearingToUse,
-                       padding: { top: 120, bottom: 20 },
-                       duration: 1000, // Match typical GPS update freq (1Hz)
-                       easing: t => t
-                   });
+                  const shiftedCenter = offsetCenter(
+                    newCoords,
+                    bearingToDestination, // 👈 même direction que la route
+                    CAMERA_OFFSET_METERS
+                  );
 
-                   if (markerRef.current) {
-                       markerRef.current.setLngLat(newCoords);
-                       markerRef.current.setRotation(bearingToUse);
-                   }
+                    map.easeTo({
+                      center: shiftedCenter,
+                      zoom: 16.6,
+                      pitch: 48,
+                      bearing: bearingToDestination,
+                      padding: {
+                        top: 120,
+                        bottom: 0,
+                        left: 40,
+                        right: 40,
+                      },
+                      duration: 900,
+                      easing: t => t,
+                    });
+
+                  if (markerRef.current) {
+                    markerRef.current.setLngLat(newCoords);
+                    markerRef.current.setRotation(bearingToDestination);
+                  }
+
+ 
                    
                    const coordObj = { lat: latitude, lng: longitude };
                    setUserLoc(coordObj);
@@ -634,7 +683,9 @@ useEffect(() => {
         {!showSteps && (
           <div
             className="absolute inset-0 flex flex-col justify-end px-6 z-20 pointer-events-none"
-            style={{ paddingBottom: 'calc(var(--bottom-safe-offset, 96px) + 12px)' }}
+           style={{
+              paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)'
+            }}
           >
             {!showRoute && (
               <div className="pointer-events-auto space-y-3">

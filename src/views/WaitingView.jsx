@@ -1,12 +1,12 @@
 // src/views/WaitingView.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import { formatPrice } from '../constants';
+import GotSelectedView from './GotSelectedView';
+import GotConfirmedView from './GotConfirmedView';
 
 /**
  * Waiting screen for both Search (spot accepted) and Propose (host) flows.
@@ -22,10 +22,6 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   const [showAd, setShowAd] = useState(false);
   const [bookerCoords, setBookerCoords] = useState(null);
   const [bookerLastSeen, setBookerLastSeen] = useState(null);
-  const miniMapRef = useRef(null);
-  const miniMapInstanceRef = useRef(null);
-  const bookerMarkerRef = useRef(null);
-  const spotMarkerRef = useRef(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const carMotionStyle = {
     animation: 'waiting-car-slide 9s ease-in-out infinite',
@@ -146,7 +142,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
   // Host/propose waiting states
   if (myActiveSpot) {
-    const bookerAccepted = !!myActiveSpot.bookerAccepted || !!bookerCoords;
+    const bookerAccepted = !!myActiveSpot.bookerAccepted;
     const isReservedPendingAccept = myActiveSpot.status === 'booked' && !bookerAccepted;
     const isExpired =
       myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0);
@@ -189,136 +185,29 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
       }
     }, [remainingMs, myActiveSpot?.status, isExpired, myActiveSpot]);
 
-    // Init mini-map for host once a booker accepted and a location is known
-    useEffect(() => {
-      if (!bookerAccepted || !mapboxToken) return undefined;
-      if (!isValidCoord(myActiveSpot?.lng, myActiveSpot?.lat)) return undefined;
-      if (!bookerCoords || !isValidCoord(bookerCoords.lng, bookerCoords.lat)) return undefined;
-      if (miniMapInstanceRef.current || !miniMapRef.current) return undefined;
-
-      mapboxgl.accessToken = mapboxToken;
-      const map = new mapboxgl.Map({
-        container: miniMapRef.current,
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: [myActiveSpot.lng, myActiveSpot.lat],
-        zoom: 14.5,
-        interactive: false,
-        attributionControl: false,
-      });
-
-      const spotMarker = new mapboxgl.Marker({ color: '#f97316' })
-        .setLngLat([myActiveSpot.lng, myActiveSpot.lat])
-        .addTo(map);
-
-      const bookerMarker = new mapboxgl.Marker({ color: '#2563eb' })
-        .setLngLat([bookerCoords.lng, bookerCoords.lat])
-        .addTo(map);
-
-      miniMapInstanceRef.current = map;
-      spotMarkerRef.current = spotMarker;
-      bookerMarkerRef.current = bookerMarker;
-
-      // Fit bounds to both points
-      const bounds = new mapboxgl.LngLatBounds();
-      bounds.extend([myActiveSpot.lng, myActiveSpot.lat]);
-      bounds.extend([bookerCoords.lng, bookerCoords.lat]);
-      map.fitBounds(bounds, { padding: 28, duration: 0 });
-
-      return () => {
-        bookerMarker.remove();
-        spotMarker.remove();
-        map.remove();
-        miniMapInstanceRef.current = null;
-        spotMarkerRef.current = null;
-        bookerMarkerRef.current = null;
-      };
-    }, [bookerAccepted, bookerCoords?.lng, bookerCoords?.lat, mapboxToken, myActiveSpot?.lng, myActiveSpot?.lat]);
-
-    // Update mini map markers when booker moves
-    useEffect(() => {
-      if (!miniMapInstanceRef.current) return;
-      if (bookerMarkerRef.current && bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat)) {
-        bookerMarkerRef.current.setLngLat([bookerCoords.lng, bookerCoords.lat]);
-        const bounds = new mapboxgl.LngLatBounds();
-        bounds.extend([myActiveSpot.lng, myActiveSpot.lat]);
-        bounds.extend([bookerCoords.lng, bookerCoords.lat]);
-        miniMapInstanceRef.current.fitBounds(bounds, { padding: 28, duration: 500 });
-      }
-    }, [bookerCoords?.lng, bookerCoords?.lat, myActiveSpot?.lng, myActiveSpot?.lat]);
-
-    if (myActiveSpot.status === 'booked' && bookerAccepted) {
+    if (myActiveSpot.status === 'booked') {
       const distanceKm = bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat)
         ? getDistanceFromLatLonInKm(myActiveSpot.lat, myActiveSpot.lng, bookerCoords.lat, bookerCoords.lng)
         : null;
 
+      if (!bookerAccepted) {
+        return <GotSelectedView spot={myActiveSpot} onCancel={onCancel} />;
+      }
+
       return (
-        <div className="fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-6 mb-6 border border-orange-100">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                <User className="text-orange-600" />
-              </div>
-              <div>
-                <p className="font-bold text-lg">{myActiveSpot.bookerName}</p>
-                <p className="text-sm text-gray-500">
-                  {distanceKm != null
-                    ? t('arrivingDistance', { defaultValue: 'Arriving in ~{{distance}}', distance: formatDistanceText(distanceKm) })
-                    : t('arrivingIn', 'Arriving in ~3 min')}
-                </p>
-              </div>
-            </div>
-
-            {mapboxToken && isValidCoord(myActiveSpot.lng, myActiveSpot.lat) && bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat) && (
-              <div className="rounded-2xl overflow-hidden border border-orange-100 shadow mb-6">
-                <div ref={miniMapRef} className="w-full h-48" />
-                <div className="px-4 py-3 bg-orange-50 flex items-center justify-between text-sm text-gray-700">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex w-3 h-3 rounded-full bg-orange-500"></span>
-                    <span className="font-semibold">{t('yourSpot', 'Your spot')}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex w-3 h-3 rounded-full bg-blue-600"></span>
-                    <span className="font-semibold">
-                      {t('driver', { defaultValue: 'Driver' })} {myActiveSpot.bookerName ? `(${myActiveSpot.bookerName})` : ''}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <label className="block text-sm font-medium text-gray-700 text-center">{t('verifyLicensePlate', 'Verify License Plate')}</label>
-              <input
-                type="text"
-                placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
-                className="w-full border-2 border-gray-200 rounded-xl p-4 text-center text-2xl font-mono uppercase tracking-widest focus:border-orange-500 outline-none transition"
-                value={plateInput}
-                onChange={(e) => setPlateInput(formatPlate(e.target.value))}
-              />
-              <div className="flex justify-center">
-                <button
-                  onClick={() => {
-                    const formatted = formatPlate(plateInput);
-                    if (!isFullPlate(formatted)) return;
-                    onConfirmPlate?.(myActiveSpot.id, formatted);
-                  }}
-                  className="w-full max-w-xs bg-green-600 text-white py-4 rounded-xl font-bold shadow-md hover:bg-green-700 transition"
-                >
-                  {t('confirmPlate', 'Confirm Plate')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {onCancel && (
-            <button
-              onClick={() => onCancel(myActiveSpot.id)}
-              className="mt-2 px-5 py-3 border border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 transition"
-            >
-              {t('cancelReturn', 'Cancel & return')}
-            </button>
-          )}
-        </div>
+        <GotConfirmedView
+          spot={myActiveSpot}
+          bookerCoords={bookerCoords}
+          distanceText={formatDistanceText(distanceKm)}
+          mapboxToken={mapboxToken}
+          onCancel={onCancel}
+          onConfirmPlate={onConfirmPlate}
+          plateInput={plateInput}
+          setPlateInput={setPlateInput}
+          formatPlate={formatPlate}
+          isFullPlate={isFullPlate}
+          isValidCoord={isValidCoord}
+        />
       );
     }
 

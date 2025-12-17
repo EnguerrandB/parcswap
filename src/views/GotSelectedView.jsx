@@ -139,7 +139,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
         <h2 className="text-3xl font-bold tracking-tight mb-1">{name}</h2>
         <div className="flex items-center gap-2 mb-8">
             <span className={`text-xs font-medium px-2.5 py-1 rounded-lg bg-opacity-10 ${isDark ? 'bg-white text-slate-300' : 'bg-black text-gray-600'}`}>
-              {t('transactions', { defaultValue: 'transactions' })}: {transactions}
+              {t('Transactions', { defaultValue: 'Transactions' })}: {transactions}
             </span>
         </div>
 

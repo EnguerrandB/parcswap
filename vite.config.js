@@ -10,4 +10,9 @@ export default defineConfig({
       ignored: ['**/firestore-debug.log', '**/firebase-debug.log', '**/.netlify/**'],
     },
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    globals: true,
+  },
 })

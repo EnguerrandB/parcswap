@@ -213,7 +213,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     if (myActiveSpot.status === 'confirmed') {
       return (
-        <div className="fixed inset-0 overflow-hidden flex flex-col items-center justify-center text-center">
+        <div className="fixed inset-0 z-[9999] overflow-hidden flex flex-col items-center justify-center text-center">
           <div className="bg-green-100 p-6 rounded-full mb-6">
             <CheckCircle size={48} className="text-green-600" />
           </div>
@@ -374,7 +374,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   // Search accepted waiting overlay
   return (
     <div
-      className="fixed inset-0 overflow-hidden flex flex-col items-center justify-center px-6 py-10 text-center app-surface bg-gradient-to-b from-orange-50 via-white to-amber-50"
+      className="fixed inset-0 z-[9999 overflow-hidden flex flex-col items-center justify-center px-6 py-10 text-center app-surface bg-gradient-to-b from-orange-50 via-white to-amber-50"
         style={{
           paddingBottom: 'var(--bottom-safe-offset, 96px)',
         }}

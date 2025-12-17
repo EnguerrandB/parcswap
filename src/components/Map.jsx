@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { Check, X as XIcon } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import carMarker from '../assets/car-marker.png';
@@ -1125,6 +1126,11 @@ if (!routeAnimRef.current) {
             }
             const statusDot = existing.getElement()?.querySelector('.user-marker-presence-dot');
             if (statusDot) {
+              statusDot.style.left = '50%';
+              statusDot.style.top = '0px';
+              statusDot.style.right = 'auto';
+              statusDot.style.bottom = 'auto';
+              statusDot.style.transform = 'translate(-50%, -50%)';
               statusDot.style.background = isOnline ? '#22c55e' : '#f59e0b';
               statusDot.style.boxShadow = `0 0 0 6px ${isOnline ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.12)'}`;
             }
@@ -1169,8 +1175,9 @@ if (!routeAnimRef.current) {
           const presenceDot = document.createElement('span');
           presenceDot.className = 'user-marker-presence-dot';
           presenceDot.style.position = 'absolute';
-          presenceDot.style.right = '-2px';
-          presenceDot.style.bottom = '-2px';
+          presenceDot.style.left = '50%';
+          presenceDot.style.top = '0px';
+          presenceDot.style.transform = 'translate(-50%, -50%)';
           presenceDot.style.width = '12px';
           presenceDot.style.height = '12px';
           presenceDot.style.borderRadius = '999px';
@@ -1301,29 +1308,79 @@ if (!routeAnimRef.current) {
             }}
           >
             {!showRoute && (
-              <div className="pointer-events-auto space-y-3">
-                <button
-                  onClick={() => {
-                    markBookerAccepted();
-                    setShowRoute(true);
-                    setShowSteps(true);
-                    console.log('[Map] Accept clicked -> nav_started');
-                  onSelectionStep?.('nav_started', spot);
-                  }}
-                  className="w-full bg-orange-600 text-white py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-orange-300/50 active:scale-98 transition"
-                >
-                  {t('acceptRoute', 'Accept')}
-                </button>
-                <button
-                  onClick={() => {
-                    onSelectionStep?.('declined', spot);
-                    if (onCancelBooking && spot) onCancelBooking(spot.id);
-                    onClose?.();
-                  }}
-                  className="w-full bg-white text-gray-900 py-4 rounded-2xl text-lg font-semibold border border-gray-200 shadow active:scale-98 transition"
-                >
-                  {t('decline', 'Decline')}
-                </button>
+              <div className="pointer-events-auto flex justify-center">
+                <div className="relative w-[90%] max-w-[320px]">
+                  <div
+                    className="
+                      absolute rounded-full halo-pulse scale-115
+                      bg-white/35
+                      -inset-0
+                      blur-lg
+                    "
+                    style={{ opacity: 0.02, transform: 'scale(1.01)' }}
+                  />
+
+                  <div
+                    className="
+                      relative flex items-center p-1.5
+                      bg-white/80 backdrop-blur-2xl
+                      border border-white/60
+                      shadow-[0_8px_32px_rgba(0,0,0,0.12)]
+                      rounded-full w-full
+                      overflow-hidden
+                    "
+                  >
+                    <div
+                      className="
+                        absolute top-1.5 bottom-1.5 rounded-full
+                        bg-orange-500
+                        shadow-[0_2px_10px_rgba(249,115,22,0.3)]
+                        transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]
+                        w-[calc(50%-9px)]
+                        left-[calc(50%+3px)]
+                      "
+                    />
+
+                    <button
+                      className="
+                        flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full
+                        text-gray-500 hover:text-gray-700 transition-colors duration-300 active:scale-95
+                      "
+                    >
+                      <XIcon
+                        size={20}
+                        strokeWidth={2.5}
+                        className="transition-transform duration-300"
+                      />
+                      <span className="text-sm font-semibold tracking-wide">
+                        {t('decline', 'Decline')}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        markBookerAccepted();
+                        setShowRoute(true);
+                        setShowSteps(true);
+                        console.log('[Map] Accept clicked -> nav_started');
+                        onSelectionStep?.('nav_started', spot);
+                      }}
+                      className="
+                        flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full
+                        text-white transition-colors duration-300 active:scale-95
+                      "
+                    >
+                      <Check
+                        size={20}
+                        strokeWidth={2.5}
+                        className="transition-transform duration-300 scale-105"
+                      />
+                      <span className="text-sm font-semibold tracking-wide">
+                        {t('acceptRoute', 'Accept')}
+                      </span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -318,20 +318,20 @@ describe('GotConfirmedView cancel flow', () => {
     const onCancel = vi.fn();
     await renderView({ onCancel });
 
-    const cancelButton = await screen.findByText('Annuler');
+    const cancelButton = await screen.findByText('Cancel');
     act(() => {
       cancelButton.click();
     });
 
     expect(
       await screen.findByText(
-        "Annuler maintenant peut nuire à ta réputation : l'autre utilisateur est déjà en route.",
+        'Canceling now may hurt your reputation: the other user is already on the way.',
       ),
     ).toBeInTheDocument();
 
     expect(onCancel).not.toHaveBeenCalled();
 
-    const confirmButton = await screen.findByText('Annuler quand même');
+    const confirmButton = await screen.findByText('Cancel anyway');
     act(() => {
       confirmButton.click();
     });

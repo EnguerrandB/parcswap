@@ -6,6 +6,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { Check, X as XIcon } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
+import i18n from '../i18n/i18n';
 import carMarker from '../assets/car-marker.png';
 import userCar1 from '../assets/user-car-1.png';
 import userCar2 from '../assets/user-car-2.png';
@@ -116,18 +117,18 @@ const findClosestPointIndex = (geometry, lng, lat) => {
   return { index: bestIdx, distanceKm: bestDist };
 };
 
-const formatLastSeen = (date) => {
-  if (!date) return 'Dernière connexion inconnue';
+const formatLastSeen = (t, date) => {
+  if (!date) return { text: t('lastSeenUnknown', 'Last seen unknown'), isOnline: false };
   const diffMs = Date.now() - date.getTime();
   const sec = Math.max(0, Math.round(diffMs / 1000));
-  if (sec < 30) return 'En ligne';
-  if (sec < 90) return 'Il y a 1 min';
+  if (sec < 30) return { text: t('online', 'Online'), isOnline: true };
+  if (sec < 90) return { text: t('lastSeen1Min', '1 min ago'), isOnline: false };
   const min = Math.round(sec / 60);
-  if (min < 60) return `Il y a ${min} min`;
+  if (min < 60) return { text: t('lastSeenMinutes', '{{count}} min ago', { count: min }), isOnline: false };
   const hrs = Math.round(min / 60);
-  if (hrs < 24) return `Il y a ${hrs} h`;
+  if (hrs < 24) return { text: t('lastSeenHours', '{{count}} h ago', { count: hrs }), isOnline: false };
   const days = Math.round(hrs / 24);
-  return `Il y a ${days} j`;
+  return { text: t('lastSeenDays', '{{count}} d ago', { count: days }), isOnline: false };
 };
 
 const pseudoRandomFromString = (str) => {
@@ -219,7 +220,7 @@ class MapErrorBoundary extends React.Component {
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { console.error('Map error', error, info); }
   render() {
-    if (this.state.error) return <div className="p-4 bg-red-100 text-red-800">Map Error</div>;
+    if (this.state.error) return <div className="p-4 bg-red-100 text-red-800">{i18n.t('mapErrorTitle', 'Map Error')}</div>;
     return this.props.children;
   }
 }
@@ -236,7 +237,7 @@ const MapInner = ({
   currentUserName,
   userCoords,
 }) => {
-  const { t, i18n } = useTranslation('common');
+  const { t, i18n: i18nInstance } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showPlateNotice, setShowPlateNotice] = useState(false);
@@ -334,7 +335,7 @@ const MapInner = ({
     try {
       const res = await onConfirmHostPlate?.(spot.id, formatted);
       if (res && res.ok === false) {
-        setPlateConfirmError(res.message || 'Plaque invalide.');
+        setPlateConfirmError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
         return;
       }
       closePlateNotice();
@@ -479,7 +480,7 @@ useEffect(() => {
   const stepsToShow = navReady && navSteps.length > 0 ? navSteps : 
                       providedSteps && providedSteps.length > 0 ? providedSteps : fallbackSteps;
 
-  const navLanguage = i18n?.language || 'en';
+  const navLanguage = i18nInstance?.language || 'en';
   const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
   const fallbackOtherPositions = useMemo(
     () => [
@@ -515,9 +516,10 @@ useEffect(() => {
     otherUserProfileFetchRef.current.set(uid, fetchPromise);
   };
 
-  const buildOtherUserPopupHTML = (name, lastSeenText, opts = {}) => {
+  const buildOtherUserPopupHTML = (name, lastSeen, opts = {}) => {
     const { showBadge = true } = opts;
-    const online = (lastSeenText || '').toLowerCase().includes('ligne');
+    const lastSeenText = typeof lastSeen === 'string' ? lastSeen : lastSeen?.text;
+    const online = typeof lastSeen === 'object' ? !!lastSeen?.isOnline : false;
     const cardBg = isDark ? 'rgba(11, 17, 27, 0.94)' : 'rgba(255,255,255,0.94)';
     const border = isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.08)';
     const textColor = isDark ? '#e2e8f0' : '#0f172a';
@@ -560,10 +562,10 @@ useEffect(() => {
                     box-shadow:0 12px 22px -12px ${pulseColor};
                     white-space:nowrap;
                   ">
-                    En ligne
-                  </span>`
-                : ''
-            }
+	                    ${t('online', 'Online')}
+	                  </span>`
+	                : ''
+	            }
           </div>
           <div style="margin-top:12px;display:flex;align-items:center;gap:10px;color:${textColor};">
             <div style="
@@ -575,8 +577,8 @@ useEffect(() => {
               flex-shrink:0;
             "></div>
             <div style="font-size:13px;font-weight:700;line-height:1.3;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-              ${lastSeenText || 'Dernière activité inconnue'}
-            </div>
+	              ${lastSeenText || t('lastSeenUnknown', 'Last seen unknown')}
+	            </div>
           </div>
         </div>
       </div>
@@ -825,7 +827,7 @@ useEffect(() => {
       spot.carModel ||
       spot.vehicle ||
       spot.model ||
-      t('car', 'Car');
+      t('carLabel', 'Car');
 
     const cardBg = isDark ? 'rgba(15,23,42,0.94)' : 'rgba(255,255,255,0.9)';
     const textColor = isDark ? '#e5e7eb' : '#0f172a';
@@ -1017,7 +1019,11 @@ if (!routeAnimRef.current) {
          el.draggable = false;
 
          const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
-           buildOtherUserPopupHTML(currentUserName || t('user', 'User'), t('arrival', 'En ligne'), { showBadge: false }),
+           buildOtherUserPopupHTML(
+             currentUserName || t('user', 'User'),
+             { text: t('online', 'Online'), isOnline: true },
+             { showBadge: false },
+           ),
          );
          enhancePopupAnimation(popup);
 
@@ -1066,7 +1072,11 @@ if (!routeAnimRef.current) {
                        markerRef.current?.setLngLat(newCoords);
                        if (markerPopupRef.current) {
                          markerPopupRef.current.setHTML(
-                           buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }),
+                           buildOtherUserPopupHTML(
+                             currentUserName || t('user', 'User'),
+                             { text: t('online', 'Online'), isOnline: true },
+                             { showBadge: false },
+                           ),
                          );
                        }
                        const coordObj = { lat: latitude, lng: longitude };
@@ -1112,7 +1122,11 @@ if (!routeAnimRef.current) {
                     markerRef.current.setRotation(bearingToDestination);
                     if (markerPopupRef.current) {
                       markerPopupRef.current.setHTML(
-                        buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }),
+                        buildOtherUserPopupHTML(
+                          currentUserName || t('user', 'User'),
+                          { text: t('online', 'Online'), isOnline: true },
+                          { showBadge: false },
+                        ),
                       );
                     }
                   }
@@ -1146,13 +1160,19 @@ if (!routeAnimRef.current) {
   }, [navReady, navGeometry, navSteps, mapLoaded]);
 
   // --- Subscribe to other users' locations and render markers ---
-  useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return undefined;
-    const updateSelfPopup = () => {
-      if (markerPopupRef.current) {
-        markerPopupRef.current.setHTML(buildOtherUserPopupHTML(currentUserName || t('user', 'User'), 'En ligne', { showBadge: false }));
-      }
-    };
+	  useEffect(() => {
+	    if (!mapLoaded || !mapRef.current) return undefined;
+	    const updateSelfPopup = () => {
+	      if (markerPopupRef.current) {
+	        markerPopupRef.current.setHTML(
+	          buildOtherUserPopupHTML(
+	            currentUserName || t('user', 'User'),
+	            { text: t('online', 'Online'), isOnline: true },
+	            { showBadge: false },
+	          ),
+	        );
+	      }
+	    };
     const locRef = collection(db, 'artifacts', appId, 'public', 'data', 'userLocations');
     const unsubscribe = onSnapshot(
       locRef,
@@ -1175,8 +1195,8 @@ if (!routeAnimRef.current) {
           const updatedAtDate = data.updatedAt?.toDate?.() || null;
           const cachedProfile = otherUserProfilesRef.current.get(uid) || {};
           const displayName = data.displayName || cachedProfile.displayName || t('user', 'User');
-          const lastSeenText = formatLastSeen(updatedAtDate || cachedProfile.lastSeen || null);
-          const isOnline = (lastSeenText || '').toLowerCase().includes('ligne');
+	          const lastSeen = formatLastSeen(t, updatedAtDate || cachedProfile.lastSeen || null);
+	          const isOnline = !!lastSeen?.isOnline;
 
           otherUserProfilesRef.current.set(uid, {
             displayName,
@@ -1207,8 +1227,8 @@ if (!routeAnimRef.current) {
             const popup = existing.getPopup();
             if (popup) {
               enhancePopupAnimation(popup);
-              popup.setHTML(buildOtherUserPopupHTML(displayName, lastSeenText));
-            }
+	              popup.setHTML(buildOtherUserPopupHTML(displayName, lastSeen));
+	            }
             const statusDot = existing.getElement()?.querySelector('.user-marker-presence-dot');
             if (statusDot) {
               statusDot.style.left = '50%';
@@ -1248,7 +1268,7 @@ if (!routeAnimRef.current) {
 
           const img = document.createElement('img');
           img.src = icon;
-          img.alt = 'Other user';
+	          img.alt = t('otherUser', 'Other user');
           img.style.width = '36px';
           img.style.height = '36px';
           img.style.transformOrigin = 'center';
@@ -1274,9 +1294,9 @@ if (!routeAnimRef.current) {
           imgWrapper.appendChild(presenceDot);
           el.appendChild(imgWrapper);
 
-         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
-            buildOtherUserPopupHTML(displayName, lastSeenText),
-          );
+	         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
+	            buildOtherUserPopupHTML(displayName, lastSeen),
+	          );
           enhancePopupAnimation(popup);
           const marker = new mapboxgl.Marker({
             element: el,
@@ -1600,24 +1620,24 @@ if (!routeAnimRef.current) {
               style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
               role="dialog"
               aria-modal="true"
-              aria-label={t('plateConfirmedByOtherTitle', 'Ta plaque est confirmée')}
+              aria-label={t('plateConfirmedByOtherTitle', 'Your plate is confirmed')}
             >
               <h3 className="text-2xl font-extrabold text-slate-900">
-                {t('plateConfirmedByOtherTitle', 'Ta plaque est confirmée')}
+                {t('plateConfirmedByOtherTitle', 'Your plate is confirmed')}
               </h3>
               <p className="mt-2 text-sm text-slate-700">
                 {t(
                   'plateNowConfirmOther',
-                  "L'autre utilisateur a confirmé ta plaque. À toi de confirmer la sienne.",
+                  'The other user confirmed your plate. Now confirm theirs.',
                 )}
               </p>
               {spot?.hostName && (
                 <p className="mt-3 text-sm text-slate-700">
-                  {t('confirmPlateFor', { defaultValue: 'Plaque de' })}{' '}
+                  {t('confirmPlateFor', { defaultValue: 'Plate of' })}{' '}
                   <span className="font-semibold">{spot.hostName}</span>
                   {spot?.hostVehiclePlate ? (
                     <>
-                      {' '}— {t('announced', { defaultValue: 'annoncée' })}:{' '}
+                      {' '}— {t('announced', { defaultValue: 'announced' })}:{' '}
                       <span className="font-semibold">{spot.hostVehiclePlate}</span>
                     </>
                   ) : null}
@@ -1652,7 +1672,7 @@ if (!routeAnimRef.current) {
                       hover:bg-white/80
                     "
                   >
-                    {t('later', 'Plus tard')}
+                    {t('later', 'Later')}
                   </button>
                   <button
                     type="submit"

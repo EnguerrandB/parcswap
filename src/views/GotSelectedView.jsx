@@ -84,9 +84,9 @@ const GotSelectedView = ({ spot, onCancel }) => {
 
   const handleCancelClick = () => {
     if (!onCancel || !spot?.id) return;
-    const message = t('cancelLossConfirm', 'Tu vas perdre {{amount}} € en annulant, tu confirmes ?', {
+    const message = t('cancelLossConfirm', {
       amount: formattedPrice,
-      defaultValue: 'Tu vas perdre {{amount}} € en annulant, tu confirmes ?',
+      defaultValue: 'You will lose {{amount}} € if you cancel. Continue?',
     });
     const shouldCancel = typeof window !== 'undefined' ? window.confirm(message) : true;
     if (shouldCancel) {
@@ -123,7 +123,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
           <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center shadow-lg bg-gradient-to-br ${themeStyles.accentGradient}`}>
             <img
               src={rankIcon(transactions)}
-              alt="Rang"
+              alt={t('rankLabel', { defaultValue: 'Rank' })}
               className="w-16 h-16 object-contain drop-shadow-md"
             />
           </div>
@@ -139,7 +139,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
         <h2 className="text-3xl font-bold tracking-tight mb-1">{name}</h2>
         <div className="flex items-center gap-2 mb-8">
             <span className={`text-xs font-medium px-2.5 py-1 rounded-lg bg-opacity-10 ${isDark ? 'bg-white text-slate-300' : 'bg-black text-gray-600'}`}>
-              {t('Transactions', { defaultValue: 'Transactions' })}: {transactions}
+              {t('transactionsLabel', { defaultValue: 'Transactions' })}: {transactions}
             </span>
         </div>
 
@@ -151,10 +151,10 @@ const GotSelectedView = ({ spot, onCancel }) => {
             </div>
             <div>
                 <p className="text-sm font-semibold leading-none mb-1">
-                    {t('requestAccepted', 'Demande acceptée')}
+                    {t('requestAccepted', 'Request accepted')}
                 </p>
                 <p className={`text-xs ${themeStyles.subText}`}>
-                    {t('awaitingNavConfirm', 'En attente de confirmation...')}
+                    {t('awaitingNavConfirm', 'Waiting for confirmation...')}
                 </p>
             </div>
         </div>
@@ -172,7 +172,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
             }`}
         >
             <X className="w-4 h-4" />
-            <span>{t('cancelReturn', 'Annuler et retour')}</span>
+            <span>{t('cancelReturn', 'Cancel & return')}</span>
         </button>
       )}
     </div>

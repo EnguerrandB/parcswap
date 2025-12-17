@@ -28,6 +28,10 @@ const GotConfirmedView = ({
   isValidCoord,
 }) => {
   const { t } = useTranslation('common');
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const miniMapRef = useRef(null);
   const [miniMapEl, setMiniMapEl] = useState(null);
   const setMiniMapNode = useCallback((node) => {
@@ -158,7 +162,7 @@ const GotConfirmedView = ({
     const ui = bookerPopupUiRef.current;
     if (!ui) return;
     ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
-    ui.txLabelEl.textContent = t('Transactions', { defaultValue: 'Transactions' });
+    ui.txLabelEl.textContent = t('transactionsLabel', { defaultValue: 'Transactions' });
     ui.txValueEl.textContent =
       bookerProfile.transactions == null ? '—' : String(Number(bookerProfile.transactions) || 0);
   }, [bookerProfile, fallbackBookerName, t]);
@@ -191,12 +195,12 @@ const GotConfirmedView = ({
     try {
       const res = await onConfirmPlate?.(spot.id, formatted);
       if (res && res.ok === false) {
-        setPlateError(res.message || t('plateInvalid', { defaultValue: 'Plaque invalide.' }));
+        setPlateError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
         return;
       }
       closePlateModal();
     } catch (err) {
-      setPlateError(t('plateConfirmError', { defaultValue: 'Erreur lors de la confirmation. Réessaie.' }));
+      setPlateError(t('plateConfirmError', { defaultValue: 'Error confirming. Please try again.' }));
     } finally {
       setPlateSubmitting(false);
     }
@@ -263,7 +267,7 @@ const GotConfirmedView = ({
             ? raw.message
             : raw?.toString?.()
               ? raw.toString()
-              : 'Map error';
+              : tRef.current('mapErrorGeneric', 'Map error');
       console.error('[GotConfirmedView] Mapbox error:', e);
       setMapError(msg);
     };
@@ -276,7 +280,7 @@ const GotConfirmedView = ({
 
       const isSupported = typeof mapboxgl.supported === 'function' ? mapboxgl.supported() : true;
       if (!isSupported) {
-        setMapError('WebGL not supported on this device/browser');
+        setMapError(tRef.current('webglNotSupported', 'WebGL not supported on this device/browser'));
         return undefined;
       }
 
@@ -452,7 +456,7 @@ const GotConfirmedView = ({
           const ui = bookerPopupUiRef.current;
           if (ui) {
             ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
-            ui.txLabelEl.textContent = t('Transactions', { defaultValue: 'Transactions' });
+            ui.txLabelEl.textContent = t('transactionsLabel', { defaultValue: 'Transactions' });
             ui.txValueEl.textContent =
               bookerProfile.transactions == null ? '—' : String(Number(bookerProfile.transactions) || 0);
           }
@@ -563,7 +567,7 @@ const GotConfirmedView = ({
       {mapboxToken && !mapError && !mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <div className="px-4 py-2 rounded-full bg-white/90 text-gray-600 shadow">
-            {t('loadingMap', 'Chargement de la carte...')}
+            {t('loadingMap', 'Loading map...')}
           </div>
         </div>
       )}
@@ -611,22 +615,22 @@ const GotConfirmedView = ({
           </div>
 
           <div className={`mt-4 grid gap-3 ${onCancel ? 'grid-cols-2' : 'grid-cols-1'}`}>
-            {onCancel && (
-              <button
-                onClick={openCancelModal}
+	            {onCancel && (
+	              <button
+	                onClick={openCancelModal}
                 className="
                   h-12 rounded-2xl border border-white/50 bg-white/60
                   text-red-600 font-semibold shadow-sm
                   transition active:scale-[0.99]
                   hover:bg-white/80
                 "
-              >
-                <span className="inline-flex items-center justify-center gap-2">
-                  <X className="w-4 h-4" />
-                  {t('cancelTransaction', { defaultValue: 'Annuler' })}
-                </span>
-              </button>
-            )}
+	              >
+	                <span className="inline-flex items-center justify-center gap-2">
+	                  <X className="w-4 h-4" />
+	                  {t('cancel', { defaultValue: 'Cancel' })}
+	                </span>
+	              </button>
+	            )}
             <button
               onClick={openPlateModal}
               className="
@@ -659,17 +663,17 @@ const GotConfirmedView = ({
             style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
             role="dialog"
             aria-modal="true"
-            aria-label={t('cancelConfirmationTitle', { defaultValue: 'Confirmer l’annulation' })}
+            aria-label={t('cancelConfirmationTitle', { defaultValue: 'Confirm cancellation' })}
           >
             <div className="flex items-start justify-between gap-4 mb-3">
               <div>
                 <h3 className="text-2xl font-extrabold text-slate-900">
-                  {t('cancelConfirmationTitle', { defaultValue: 'Confirmer l’annulation' })}
+                  {t('cancelConfirmationTitle', { defaultValue: 'Confirm cancellation' })}
                 </h3>
                 <p className="mt-2 text-sm text-slate-700">
                   {t('cancelReputationWarning', {
                     defaultValue:
-                      "Annuler maintenant peut nuire à ta réputation : l'autre utilisateur est déjà en route.",
+                      "Canceling now may hurt your reputation: the other user is already on the way.",
                   })}
                 </p>
               </div>
@@ -685,7 +689,7 @@ const GotConfirmedView = ({
                   hover:bg-white/80
                 "
               >
-                {t('keepTransaction', { defaultValue: 'Garder' })}
+                {t('keepTransaction', { defaultValue: 'Keep' })}
               </button>
               <button
                 onClick={handleConfirmCancel}
@@ -695,7 +699,7 @@ const GotConfirmedView = ({
                   hover:brightness-110 transition active:scale-[0.99]
                 "
               >
-                {t('confirmCancel', { defaultValue: 'Annuler quand même' })}
+                {t('confirmCancel', { defaultValue: 'Cancel anyway' })}
               </button>
             </div>
           </div>
@@ -724,12 +728,12 @@ const GotConfirmedView = ({
                 <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                   {t('platePromptNamed', {
                     name: bookerProfile.name || fallbackBookerName,
-                    defaultValue: `Saisis la plaque de ${bookerProfile.name || fallbackBookerName}`,
+                    defaultValue: "Enter {{name}}'s plate",
                   })}
                 </h3>
                 <p className={`mt-2 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-600'}`}>
                   {t('plateSubtitleJoke', {
-                    defaultValue: "Promis, on ne la met pas en fond d’écran.",
+                    defaultValue: "Promise we won't set it as wallpaper.",
                   })}
                 </p>
               </div>

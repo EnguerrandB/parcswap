@@ -224,10 +224,26 @@ class MapErrorBoundary extends React.Component {
   }
 }
 
-const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectionStep, initialStep, currentUserId, currentUserName, userCoords }) => {
+const MapInner = ({
+  spot,
+  onClose,
+  onCancelBooking,
+  onConfirmHostPlate,
+  onNavStateChange,
+  onSelectionStep,
+  initialStep,
+  currentUserId,
+  currentUserName,
+  userCoords,
+}) => {
   const { t, i18n } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [showPlateNotice, setShowPlateNotice] = useState(false);
+  const [plateConfirmInput, setPlateConfirmInput] = useState('');
+  const [plateConfirmError, setPlateConfirmError] = useState(null);
+  const [plateConfirmSubmitting, setPlateConfirmSubmitting] = useState(false);
+  const plateNoticeSeenRef = useRef(new Set());
   const [showRoute, setShowRoute] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [navReady, setNavReady] = useState(false);
@@ -257,6 +273,75 @@ const MapInner = ({ spot, onClose, onCancelBooking, onNavStateChange, onSelectio
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   const OTHER_VISIBILITY_MIN_ZOOM = 13;
+
+  const formatPlate = (value) => {
+    const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    let letters1 = '';
+    let digits = '';
+    let letters2 = '';
+    for (const ch of cleaned) {
+      if (letters1.length < 2 && /[A-Z]/.test(ch)) {
+        letters1 += ch;
+        continue;
+      }
+      if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
+        digits += ch;
+        continue;
+      }
+      if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
+        letters2 += ch;
+      }
+    }
+    return [letters1, digits, letters2].filter(Boolean).join('-');
+  };
+  const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
+
+  useEffect(() => {
+    if (!spot?.id || !currentUserId) return undefined;
+    const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+    const unsub = onSnapshot(
+      spotRef,
+      (snap) => {
+        const data = snap.data?.() || snap.data() || {};
+        if (!data) return;
+        if (data.bookerId !== currentUserId) return;
+        if (!data.hostVerifiedBookerPlate) return;
+        if (data.plateConfirmed || data.status === 'confirmed') return;
+        if (plateNoticeSeenRef.current.has(spot.id)) return;
+        plateNoticeSeenRef.current.add(spot.id);
+        setPlateConfirmInput('');
+        setPlateConfirmError(null);
+        setShowPlateNotice(true);
+      },
+      () => {},
+    );
+    return () => unsub();
+  }, [spot?.id, currentUserId]);
+
+  const closePlateNotice = () => {
+    setShowPlateNotice(false);
+    setPlateConfirmError(null);
+  };
+
+  const handleSubmitConfirmHostPlate = async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (!spot?.id) return;
+    const formatted = formatPlate(plateConfirmInput);
+    if (!isFullPlate(formatted)) return;
+    setPlateConfirmSubmitting(true);
+    setPlateConfirmError(null);
+    try {
+      const res = await onConfirmHostPlate?.(spot.id, formatted);
+      if (res && res.ok === false) {
+        setPlateConfirmError(res.message || 'Plaque invalide.');
+        return;
+      }
+      closePlateNotice();
+    } finally {
+      setPlateConfirmSubmitting(false);
+    }
+  };
   
   // Ref to prevent double fetching
   const routeFetchedRef = useRef(false);
@@ -1498,6 +1583,90 @@ if (!routeAnimRef.current) {
                   {t('end', 'Exit')}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {showPlateNotice && (
+          <div className="absolute inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
+            <div
+              className="
+                relative w-full max-w-md
+                rounded-[28px] border border-white/25
+                bg-white/60 backdrop-blur-2xl backdrop-saturate-200
+                shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+                p-6
+              "
+              style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('plateConfirmedByOtherTitle', 'Ta plaque est confirmée')}
+            >
+              <h3 className="text-2xl font-extrabold text-slate-900">
+                {t('plateConfirmedByOtherTitle', 'Ta plaque est confirmée')}
+              </h3>
+              <p className="mt-2 text-sm text-slate-700">
+                {t(
+                  'plateNowConfirmOther',
+                  "L'autre utilisateur a confirmé ta plaque. À toi de confirmer la sienne.",
+                )}
+              </p>
+              {spot?.hostName && (
+                <p className="mt-3 text-sm text-slate-700">
+                  {t('confirmPlateFor', { defaultValue: 'Plaque de' })}{' '}
+                  <span className="font-semibold">{spot.hostName}</span>
+                  {spot?.hostVehiclePlate ? (
+                    <>
+                      {' '}— {t('announced', { defaultValue: 'annoncée' })}:{' '}
+                      <span className="font-semibold">{spot.hostVehiclePlate}</span>
+                    </>
+                  ) : null}
+                </p>
+              )}
+
+              <form onSubmit={handleSubmitConfirmHostPlate} className="mt-5">
+                <input
+                  type="text"
+                  value={plateConfirmInput}
+                  onChange={(ev) => setPlateConfirmInput(formatPlate(ev.target.value))}
+                  placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
+                  className="
+                    w-full rounded-2xl px-4 py-4
+                    text-center text-2xl font-mono uppercase tracking-widest
+                    bg-white/70 border border-white/70 shadow-inner
+                    text-slate-900 placeholder:text-slate-400
+                    focus:outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-400
+                    transition
+                  "
+                />
+                {plateConfirmError && <p className="mt-2 text-sm text-red-600">{plateConfirmError}</p>}
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={closePlateNotice}
+                    className="
+                      h-12 rounded-2xl border border-white/50 bg-white/60
+                      text-slate-700 font-semibold shadow-sm
+                      transition active:scale-[0.99]
+                      hover:bg-white/80
+                    "
+                  >
+                    {t('later', 'Plus tard')}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={plateConfirmSubmitting || !isFullPlate(formatPlate(plateConfirmInput))}
+                    className="
+                      h-12 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500
+                      text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
+                      hover:brightness-110 transition active:scale-[0.99] disabled:opacity-50
+                    "
+                  >
+                    {t('confirmPlate', 'Confirm Plate')}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

@@ -1,18 +1,20 @@
 // src/App.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  updateDoc,
-  doc,
-  deleteDoc,
-  serverTimestamp,
-  writeBatch,
-  where,
-  setDoc,
+	  collection,
+	  addDoc,
+	  onSnapshot,
+	  query,
+	  orderBy,
+	  updateDoc,
+	  doc,
+	  getDoc,
+	  getDocs,
+	  deleteDoc,
+	  serverTimestamp,
+	  writeBatch,
+	  where,
+	  setDoc,
   limit,
   increment,
 } from 'firebase/firestore';
@@ -30,9 +32,78 @@ import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
-import AppLogo from './components/AppLogo';
-import movingLogo from './assets/logo_moving.svg';
-import Map from './components/Map';
+	import AppLogo from './components/AppLogo';
+	import movingLogo from './assets/logo_moving.svg';
+	import Map from './components/Map';
+
+const hashSeed = (str) => {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+const mulberry32 = (seed) => {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const ConfettiOverlay = ({ seedKey }) => {
+  const pieces = React.useMemo(() => {
+    const rand = mulberry32(hashSeed(seedKey || 'parkswap'));
+    const colors = ['#f97316', '#fb923c', '#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#f472b6'];
+    return Array.from({ length: 70 }).map(() => {
+      const size = 6 + Math.floor(rand() * 8);
+      return {
+        left: `${Math.floor(rand() * 100)}%`,
+        delay: `${(rand() * 0.35).toFixed(2)}s`,
+        duration: `${(1.2 + rand() * 0.9).toFixed(2)}s`,
+        rotate: `${Math.floor(rand() * 360)}deg`,
+        drift: `${Math.floor((rand() - 0.5) * 220)}px`,
+        color: colors[Math.floor(rand() * colors.length)],
+        size,
+        radius: rand() > 0.6 ? 999 : 2 + Math.floor(rand() * 6),
+      };
+    });
+  }, [seedKey]);
+
+  return (
+    <div className="fixed inset-0 z-[220] pointer-events-none overflow-hidden">
+      <style>{`
+        @keyframes confetti-fall {
+          0% { transform: translate3d(var(--drift), 0, 0) rotate(var(--rot)); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translate3d(calc(var(--drift) * -1), 130vh, 0) rotate(calc(var(--rot) + 540deg)); opacity: 0; }
+        }
+      `}</style>
+      {pieces.map((p, idx) => (
+        <span
+          // eslint-disable-next-line react/no-array-index-key
+          key={idx}
+          className="absolute will-change-transform"
+          style={{
+            left: p.left,
+            top: '-12vh',
+            width: `${p.size}px`,
+            height: `${Math.max(6, Math.round(p.size * 0.6))}px`,
+            background: p.color,
+            borderRadius: `${p.radius}px`,
+            animation: `confetti-fall ${p.duration} cubic-bezier(.12,.55,.28,1) ${p.delay} both`,
+            '--drift': p.drift,
+            '--rot': p.rotate,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const userSelectionRef = (uid) =>
   doc(db, 'artifacts', appId, 'public', 'data', 'userSelections', uid);
@@ -80,13 +151,17 @@ export default function ParkSwapApp() {
   const [dragProgress, setDragProgress] = useState(0); // -1 (to prev) to 1 (to next)
   const [dragging, setDragging] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
-  const [showInvite, setShowInvite] = useState(false);
-  const [inviteMessage, setInviteMessage] = useState('');
-  const lastKnownLocationRef = useRef(null);
-  const selectionWriteInFlight = useRef(false);
-  const selectionQueueRef = useRef(null);
-  const heartbeatIntervalRef = useRef(null);
-  const heartbeatInFlightRef = useRef(false);
+	  const [showInvite, setShowInvite] = useState(false);
+	  const [inviteMessage, setInviteMessage] = useState('');
+	  const [cancelledNotice, setCancelledNotice] = useState(null);
+	  const cancelledNoticeSeenRef = useRef(new Set());
+	  const [celebration, setCelebration] = useState(null);
+	  const celebrationSeenRef = useRef(new Set());
+	  const lastKnownLocationRef = useRef(null);
+	  const selectionWriteInFlight = useRef(false);
+	  const selectionQueueRef = useRef(null);
+	  const heartbeatIntervalRef = useRef(null);
+	  const heartbeatInFlightRef = useRef(false);
 
   // Try to lock orientation to portrait (best-effort; may fail on some browsers)
   useEffect(() => {
@@ -147,6 +222,22 @@ export default function ParkSwapApp() {
     ).catch(() => {});
     if (userId === user?.uid) {
       setUser((prev) => (prev ? { ...prev, transactions: (Number(prev.transactions) || 0) + 1 } : prev));
+    }
+  };
+
+  const normalizePlate = (plate) => String(plate || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  const getDefaultVehiclePlateForUser = async (uid) => {
+    if (!uid) return null;
+    try {
+      const vehiclesRef = vehiclesCollectionForUser(uid);
+      const q = query(vehiclesRef, where('isDefault', '==', true), limit(1));
+      const snap = await getDocs(q);
+      const doc0 = snap.docs?.[0];
+      const data = doc0 ? doc0.data() : {};
+      return data?.plate || null;
+    } catch (_) {
+      return null;
     }
   };
 
@@ -503,36 +594,114 @@ export default function ParkSwapApp() {
   return () => clearTimeout(timer);
 }, [auth]);
 
-  // --- Firestore subscription for spots ---
-  useEffect(() => {
-    if (!user) return;
-    const spotsRef = collection(db, 'artifacts', appId, 'public', 'data', 'spots');
-    const q = query(spotsRef, orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedSpots = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-        }));
-        const debugSpot = fetchedSpots.find((s) => s.bookerId === user.uid || s.hostId === user.uid);
-        if (debugSpot) {
-          console.log('[Spots snapshot]', debugSpot.id, {
+	  // --- Firestore subscription for spots ---
+	  useEffect(() => {
+	    if (!user) return;
+	    const spotsRef = collection(db, 'artifacts', appId, 'public', 'data', 'spots');
+	    const q = query(spotsRef, orderBy('createdAt', 'desc'));
+	    const unsubscribe = onSnapshot(
+	      q,
+	      (snapshot) => {
+	        const fetchedSpots = snapshot.docs.map((docSnap) => ({
+	          id: docSnap.id,
+	          ...docSnap.data(),
+	        }));
+	        if (typeof window !== 'undefined' && celebrationSeenRef.current.size === 0) {
+	          try {
+	            const raw = window.localStorage?.getItem('parkswap_celebrate_seen');
+	            const list = raw ? JSON.parse(raw) : [];
+	            if (Array.isArray(list)) {
+	              celebrationSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
+	            }
+	          } catch (_) {
+	            // ignore storage errors
+	          }
+	        }
+	        if (typeof window !== 'undefined' && cancelledNoticeSeenRef.current.size === 0) {
+	          try {
+	            const raw = window.localStorage?.getItem('parkswap_cancel_seen');
+	            const list = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(list)) {
+              cancelledNoticeSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
+            }
+          } catch (_) {
+            // ignore storage errors
+          }
+        }
+
+        const cancelledForMe = fetchedSpots.find(
+          (s) => s.status === 'cancelled' && s.cancelledFor && user?.uid && s.cancelledFor === user.uid,
+        );
+        if (cancelledForMe && !cancelledNoticeSeenRef.current.has(cancelledForMe.id)) {
+          cancelledNoticeSeenRef.current.add(cancelledForMe.id);
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage?.setItem(
+                'parkswap_cancel_seen',
+                JSON.stringify(Array.from(cancelledNoticeSeenRef.current)),
+              );
+            } catch (_) {
+              // ignore storage errors
+            }
+          }
+
+          setCancelledNotice({
+            spotId: cancelledForMe.id,
+            hostName: cancelledForMe.hostName || 'Host',
+          });
+          setActiveTab('search');
+          setSelectedSearchSpot(null);
+          setBookedSpot(null);
+	          saveSelectionStep('cleared', null);
+	        }
+	        const debugSpot = fetchedSpots.find((s) => s.bookerId === user.uid || s.hostId === user.uid);
+	        if (debugSpot) {
+	          console.log('[Spots snapshot]', debugSpot.id, {
             status: debugSpot.status,
             bookerAccepted: debugSpot.bookerAccepted,
             bookerId: debugSpot.bookerId,
             hostId: debugSpot.hostId,
           });
-        }
-        const available = fetchedSpots.filter((s) => s.status === 'available' || !s.status);
-        setSpots(available);
+	        }
+	        const available = fetchedSpots.filter((s) => s.status === 'available' || !s.status);
+	        setSpots(available);
 
-        const mySpot = fetchedSpots.find((s) => s.hostId === user.uid && s.status !== 'completed');
-        setMyActiveSpot(mySpot || null);
+	        const completedForMe = fetchedSpots.find(
+	          (s) =>
+	            (s.status === 'completed' || s.plateConfirmed) &&
+	            user?.uid &&
+	            (s.hostId === user.uid || s.bookerId === user.uid),
+	        );
+	        if (completedForMe && !celebrationSeenRef.current.has(completedForMe.id)) {
+	          celebrationSeenRef.current.add(completedForMe.id);
+	          if (typeof window !== 'undefined') {
+	            try {
+	              window.localStorage?.setItem(
+	                'parkswap_celebrate_seen',
+	                JSON.stringify(Array.from(celebrationSeenRef.current)),
+	              );
+	            } catch (_) {
+	              // ignore storage errors
+	            }
+	          }
 
-        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed');
-        setBookedSpot(booked || null);
-      },
+	          setCelebration({ spotId: completedForMe.id });
+	          setActiveTab('search');
+	          setSelectedSearchSpot(null);
+	          setMyActiveSpot(null);
+	          setBookedSpot(null);
+	          saveSelectionStep('cleared', null);
+	          if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+	            window.setTimeout(() => setCelebration(null), 1700);
+	          }
+	        }
+
+	        const mySpot = fetchedSpots.find((s) => s.hostId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
+	        setMyActiveSpot(mySpot || null);
+
+	        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
+	        setBookedSpot(booked || null);
+	      },
       (error) => {
         console.error('Error fetching spots:', error);
       },
@@ -708,7 +877,7 @@ export default function ParkSwapApp() {
   }, [spots]);
 
   // --- Handlers ---
-  const handleProposeSpot = async ({ car, time, price, length }) => {
+  const handleProposeSpot = async ({ car, time, price, length, vehiclePlate, vehicleId }) => {
     if (!user) return;
     const coords = await logCurrentLocation('propose_spot');
     const arcLat = 48.8738;
@@ -721,6 +890,8 @@ export default function ParkSwapApp() {
         hostId: user.uid,
         hostName: user.displayName || 'Anonymous',
         carModel: vehicleToUse,
+        hostVehiclePlate: vehiclePlate || selectedVehicle?.plate || null,
+        hostVehicleId: vehicleId || selectedVehicle?.id || null,
         time,
         price,
         length: length ?? null,
@@ -759,6 +930,8 @@ export default function ParkSwapApp() {
           bookerAcceptedAt: serverTimestamp(),
           bookerId: user.uid,
           bookerName: user.displayName || 'Seeker',
+          bookerVehiclePlate: selectedVehicle?.plate || null,
+          bookerVehicleId: selectedVehicle?.id || null,
         });
       } catch (err) {
         console.error('Error marking nav started on spot', err);
@@ -777,6 +950,8 @@ export default function ParkSwapApp() {
         bookerName: user.displayName || 'Seeker',
         bookerAccepted: false,
         bookerAcceptedAt: null,
+        bookerVehiclePlate: selectedVehicle?.plate || null,
+        bookerVehicleId: selectedVehicle?.id || null,
       });
       await upsertTransaction({
         spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
@@ -800,30 +975,75 @@ export default function ParkSwapApp() {
   const handleConfirmPlate = async (spotId, plate) => {
     try {
       const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
+      const snap = await getDoc(spotRef);
+      const spot = snap.exists() ? { id: spotId, ...snap.data() } : findSpotById(spotId) || { id: spotId };
+
+      const expectedRaw = spot.bookerVehiclePlate || (await getDefaultVehiclePlateForUser(spot.bookerId)) || null;
+      const expected = normalizePlate(expectedRaw);
+      const submitted = normalizePlate(plate);
+      if (!expected || submitted !== expected) {
+        return {
+          ok: false,
+          message: 'La plaque ne correspond pas au véhicule actif de l’autre utilisateur.',
+        };
+      }
+
       await updateDoc(spotRef, {
-        status: 'confirmed',
-        plateConfirmed: true,
-        confirmedPlate: plate || null,
+        hostVerifiedBookerPlate: true,
+        hostVerifiedBookerPlateAt: serverTimestamp(),
+        hostConfirmedBookerPlate: plate || null,
+        hostConfirmedBookerPlateNorm: submitted || null,
       });
-      const spot = findSpotById(spotId) || { id: spotId };
-      if (spot.hostId) {
-        await upsertTransaction({
-          spot,
-          userId: spot.hostId,
-          status: 'concluded',
-          role: 'host',
-        });
-      }
-      if (spot.bookerId) {
-        await upsertTransaction({
-          spot,
-          userId: spot.bookerId,
-          status: 'concluded',
-          role: 'booker',
-        });
-      }
+      return { ok: true };
     } catch (err) {
       console.error('Error confirming plate:', err);
+      return { ok: false, message: 'Impossible de confirmer la plaque. Réessaie.' };
+    }
+  };
+
+  const handleConfirmHostPlate = async (spotId, plate) => {
+    try {
+      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
+      const snap = await getDoc(spotRef);
+      const spot = snap.exists() ? { id: spotId, ...snap.data() } : findSpotById(spotId) || { id: spotId };
+
+      const expectedRaw = spot.hostVehiclePlate || (await getDefaultVehiclePlateForUser(spot.hostId)) || null;
+      const expected = normalizePlate(expectedRaw);
+      const submitted = normalizePlate(plate);
+      if (!expected || submitted !== expected) {
+        return {
+          ok: false,
+          message: "La plaque ne correspond pas au véhicule actif de l'autre utilisateur.",
+        };
+      }
+
+      const shouldFinalize = !!spot.hostVerifiedBookerPlate;
+      const updates = {
+        bookerVerifiedHostPlate: true,
+        bookerVerifiedHostPlateAt: serverTimestamp(),
+        bookerConfirmedHostPlate: plate || null,
+        bookerConfirmedHostPlateNorm: submitted || null,
+      };
+	      if (shouldFinalize) {
+	        updates.status = 'completed';
+	        updates.plateConfirmed = true;
+	        updates.completedAt = serverTimestamp();
+	        updates.confirmedPlate = null;
+	      }
+      await updateDoc(spotRef, updates);
+
+      if (shouldFinalize) {
+        if (spot.hostId) {
+          await upsertTransaction({ spot, userId: spot.hostId, status: 'concluded', role: 'host' });
+        }
+        if (spot.bookerId) {
+          await upsertTransaction({ spot, userId: spot.bookerId, status: 'concluded', role: 'booker' });
+        }
+      }
+      return { ok: true };
+    } catch (err) {
+      console.error('Error confirming host plate:', err);
+      return { ok: false, message: 'Impossible de confirmer la plaque. Réessaie.' };
     }
   };
 
@@ -843,7 +1063,26 @@ export default function ParkSwapApp() {
 
   const handleCancelSpot = async (spotId) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId));
+      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
+      const spot = myActiveSpot?.id === spotId ? myActiveSpot : null;
+
+      if (spot?.bookerId) {
+        await updateDoc(spotRef, {
+          status: 'cancelled',
+          cancelledAt: serverTimestamp(),
+          cancelledBy: user?.uid || null,
+          cancelledByRole: 'host',
+          cancelledFor: spot.bookerId,
+          cancelledForName: spot.bookerName || null,
+          bookerId: null,
+          bookerName: null,
+          bookerAccepted: false,
+          bookerAcceptedAt: null,
+        });
+      } else {
+        await deleteDoc(spotRef);
+      }
+
       setMyActiveSpot(null);
     } catch (err) {
       console.error('Error deleting spot:', err);
@@ -1107,7 +1346,7 @@ export default function ParkSwapApp() {
   if (!user) {
     return (
       <div className="relative h-screen w-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-amber-50">
-        <div className="fixed top-4 inset-x-0 z-[80] pointer-events-none flex justify-center">
+	  <div className="fixed top-4 inset-x-0 z-[80] pointer-events-none flex justify-center">
           <AppLogo size={64} />
         </div>
        <AuthView />
@@ -1218,7 +1457,7 @@ export default function ParkSwapApp() {
         </button>
       </div>
 
-{showAccountSheet && (
+	{showAccountSheet && (
   <div className="fixed inset-0 z-[400] flex flex-col justify-end">
     {/* Définition de l'animation */}
     <style>{`
@@ -1283,11 +1522,55 @@ export default function ParkSwapApp() {
       </div>
     </div>
   </div>
-)}
-      {showInvite && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInvite(false)} />
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-orange-100 p-6 invite-pop">
+	)}
+	      {cancelledNotice && (
+	        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={() => setCancelledNotice(null)} />
+          <div
+            className="
+              relative w-full max-w-md
+              rounded-[28px] border border-white/25
+              bg-white/60 backdrop-blur-2xl backdrop-saturate-200
+              shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+              p-6 text-center
+            "
+            style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Cancellation notice"
+          >
+            <p className="text-xs uppercase tracking-[0.18em] font-semibold text-orange-600 mb-2">
+              {i18n.t('update', 'Mise à jour')}
+            </p>
+            <h3 className="text-2xl font-extrabold text-slate-900">
+              {i18n.t('offerCancelledTitle', 'Proposition annulée')}
+            </h3>
+            <p className="mt-3 text-sm text-slate-700">
+              {i18n.t(
+                'offerCancelledBody',
+                "L'utilisateur a annulé sa proposition. Tu es de retour à l'accueil.",
+              )}
+            </p>
+            <button
+              type="button"
+              onClick={() => setCancelledNotice(null)}
+              className="
+                mt-5 w-full h-12 rounded-2xl
+                bg-gradient-to-r from-orange-500 to-amber-500
+                text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
+                hover:brightness-110 transition active:scale-[0.99]
+              "
+            >
+              OK
+            </button>
+          </div>
+	        </div>
+	      )}
+	      {celebration && <ConfettiOverlay seedKey={`${celebration.spotId}:${user?.uid || 'user'}`} />}
+	      {showInvite && (
+	        <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">
+	          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInvite(false)} />
+	      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-orange-100 p-6 invite-pop">
             <button
               type="button"
               onClick={() => setShowInvite(false)}
@@ -1406,6 +1689,7 @@ export default function ParkSwapApp() {
             setHideNav(false);
           }}
           onCancelBooking={handleCancelBooking}
+          onConfirmHostPlate={handleConfirmHostPlate}
           onNavStateChange={setHideNav}
           onSelectionStep={handleSelectionStep}
           initialStep={selectionSnapshot?.step || (bookedSpot ? 'booked' : null)}

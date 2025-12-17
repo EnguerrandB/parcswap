@@ -10,6 +10,9 @@ import { appId, db } from '../firebase';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
+const ROUTE_SOURCE_ID = 'parkswap-route';
+const ROUTE_LAYER_ID = 'parkswap-route-line';
+const APP_ROUTE_COLOR = '#f97316'; // app orange
 
 const GotConfirmedView = ({
   spot,
@@ -33,13 +36,21 @@ const GotConfirmedView = ({
   }, []);
   const miniMapInstanceRef = useRef(null);
   const bookerMarkerRef = useRef(null);
-  const bookerMarkerElRef = useRef(null);
-  const bookerMarkerUiRef = useRef(null);
+  const bookerPopupRef = useRef(null);
+  const bookerPopupContentElRef = useRef(null);
+  const bookerPopupUiRef = useRef(null);
   const spotMarkerRef = useRef(null);
+  const routeAbortRef = useRef(null);
   const [showPlateModal, setShowPlateModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [plateError, setPlateError] = useState(null);
+  const [plateSubmitting, setPlateSubmitting] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
   const autoPromptedRef = useRef(false);
+  const isDark =
+    (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
+    (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
   const spotLng = spot?.lng != null ? Number(spot.lng) : null;
   const spotLat = spot?.lat != null ? Number(spot.lat) : null;
   const bookerLng = bookerCoords?.lng != null ? Number(bookerCoords.lng) : null;
@@ -52,61 +63,100 @@ const GotConfirmedView = ({
     transactions: spot?.bookerTransactions ?? spot?.bookerTx ?? null,
   }));
 
-  const ensureBookerMarkerElement = useCallback(() => {
-    if (bookerMarkerElRef.current) return bookerMarkerElRef.current;
+  const ensureBookerPopupContentElement = useCallback(() => {
+    if (bookerPopupContentElRef.current) return bookerPopupContentElRef.current;
     if (typeof document === 'undefined') return null;
 
     const root = document.createElement('div');
-    root.className = 'pointer-events-none select-none';
-
-    const stack = document.createElement('div');
-    stack.className = 'flex flex-col items-center';
-    stack.style.transform = 'translateY(-10px)';
-
-    const card = document.createElement('div');
-    card.className =
-      'min-w-[200px] max-w-[260px] rounded-[22px] border border-white/35 bg-white/70 backdrop-blur-2xl px-3 py-2 shadow-[0_18px_45px_rgba(15,23,42,0.18)]';
-    card.style.backdropFilter = 'blur(18px) saturate(180%)';
-    card.style.WebkitBackdropFilter = 'blur(18px) saturate(180%)';
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'text-[10px] uppercase tracking-[0.18em] font-semibold text-gray-500';
+    root.className = 'pointer-events-none select-none min-w-[200px] max-w-[260px]';
 
     const nameEl = document.createElement('div');
-    nameEl.className = 'mt-0.5 text-base font-bold text-slate-900 truncate max-w-[240px]';
+    nameEl.className = 'text-base font-extrabold text-slate-900 truncate max-w-[240px]';
 
     const txRow = document.createElement('div');
     txRow.className = 'mt-1 flex items-center justify-between gap-3';
     const txLabelEl = document.createElement('span');
-    txLabelEl.className = 'text-xs font-semibold text-gray-600';
+    txLabelEl.className = 'text-xs font-semibold text-slate-700';
     const txValueEl = document.createElement('span');
-    txValueEl.className = 'text-xs font-bold text-slate-900';
+    txValueEl.className = 'text-xs font-extrabold text-slate-900';
 
     txRow.append(txLabelEl, txValueEl);
-    card.append(labelEl, nameEl, txRow);
+    root.append(nameEl, txRow);
 
-    const caret = document.createElement('div');
-    caret.className =
-      'w-3 h-3 bg-white/70 border border-white/35 rotate-45 -mt-1 shadow-[0_10px_25px_rgba(15,23,42,0.12)]';
-    caret.style.backdropFilter = 'blur(18px) saturate(180%)';
-    caret.style.WebkitBackdropFilter = 'blur(18px) saturate(180%)';
-
-    const dot = document.createElement('div');
-    dot.className =
-      'mt-1 w-4 h-4 rounded-full bg-blue-600 ring-4 ring-white shadow-[0_10px_25px_rgba(37,99,235,0.35)]';
-
-    stack.append(card, caret, dot);
-    root.append(stack);
-
-    bookerMarkerElRef.current = root;
-    bookerMarkerUiRef.current = { labelEl, nameEl, txLabelEl, txValueEl };
+    bookerPopupContentElRef.current = root;
+    bookerPopupUiRef.current = { nameEl, txLabelEl, txValueEl };
     return root;
   }, []);
 
+  const upsertRoute = useCallback((map, routeFeature) => {
+      if (!map) return;
+
+      const existing = map.getSource?.(ROUTE_SOURCE_ID);
+      if (existing && typeof existing.setData === 'function') {
+        existing.setData(routeFeature);
+      } else {
+        if (map.getLayer?.(ROUTE_LAYER_ID)) map.removeLayer?.(ROUTE_LAYER_ID);
+        if (map.getSource?.(ROUTE_SOURCE_ID)) map.removeSource?.(ROUTE_SOURCE_ID);
+        map.addSource?.(ROUTE_SOURCE_ID, { type: 'geojson', data: routeFeature });
+      }
+
+      if (!map.getLayer?.(ROUTE_LAYER_ID)) {
+        map.addLayer?.({
+          id: ROUTE_LAYER_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          },
+          paint: {
+            'line-color': APP_ROUTE_COLOR,
+            'line-width': 5,
+            'line-opacity': 0.9,
+          },
+        });
+      }
+    },
+    [],
+  );
+
+  const removeRoute = useCallback((map) => {
+    if (!map) return;
+    if (map.getLayer?.(ROUTE_LAYER_ID)) map.removeLayer?.(ROUTE_LAYER_ID);
+    if (map.getSource?.(ROUTE_SOURCE_ID)) map.removeSource?.(ROUTE_SOURCE_ID);
+  }, []);
+
+  const getDirectionsRouteFeature = useCallback(async (startLngLat, endLngLat, token, signal) => {
+    const coords = `${startLngLat[0]},${startLngLat[1]};${endLngLat[0]},${endLngLat[1]}`;
+    const url = new URL(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}`);
+    url.searchParams.set('geometries', 'geojson');
+    url.searchParams.set('overview', 'full');
+    url.searchParams.set('steps', 'false');
+    url.searchParams.set('access_token', token);
+
+    const res = await fetch(url.toString(), { signal });
+    if (!res.ok) throw new Error(`Directions error: ${res.status}`);
+    const json = await res.json();
+    const routeCoords = json?.routes?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(routeCoords) || routeCoords.length < 2) throw new Error('No route geometry');
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: routeCoords },
+    };
+  }, []);
+
+  const getFallbackLineFeature = useCallback((startLngLat, endLngLat) => {
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [startLngLat, endLngLat] },
+    };
+  }, []);
+
   useEffect(() => {
-    const ui = bookerMarkerUiRef.current;
+    const ui = bookerPopupUiRef.current;
     if (!ui) return;
-    ui.labelEl.textContent = t('driver', { defaultValue: 'Driver' });
     ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
     ui.txLabelEl.textContent = t('Transactions', { defaultValue: 'Transactions' });
     ui.txValueEl.textContent =
@@ -129,12 +179,34 @@ const GotConfirmedView = ({
   })();
 
   const closePlateModal = () => setShowPlateModal(false);
-  const openPlateModal = () => setShowPlateModal(true);
-  const handleSubmitPlate = () => {
+  const openPlateModal = () => {
+    setPlateError(null);
+    setShowPlateModal(true);
+  };
+  const handleSubmitPlate = async () => {
     const formatted = formatPlate(plateInput);
     if (!isFullPlate(formatted)) return;
-    onConfirmPlate?.(spot.id, formatted);
-    closePlateModal();
+    setPlateSubmitting(true);
+    setPlateError(null);
+    try {
+      const res = await onConfirmPlate?.(spot.id, formatted);
+      if (res && res.ok === false) {
+        setPlateError(res.message || t('plateInvalid', { defaultValue: 'Plaque invalide.' }));
+        return;
+      }
+      closePlateModal();
+    } catch (err) {
+      setPlateError(t('plateConfirmError', { defaultValue: 'Erreur lors de la confirmation. Réessaie.' }));
+    } finally {
+      setPlateSubmitting(false);
+    }
+  };
+
+  const openCancelModal = () => setShowCancelModal(true);
+  const closeCancelModal = () => setShowCancelModal(false);
+  const handleConfirmCancel = () => {
+    onCancel?.(spot.id);
+    closeCancelModal();
   };
 
   // Subscribe to the other user's profile (name + transactions)
@@ -259,12 +331,17 @@ const GotConfirmedView = ({
         map.off('style.load', handleStyleLoad);
         map.off('error', handleError);
 
+        removeRoute(map);
+        if (bookerPopupRef.current) {
+          bookerPopupRef.current.remove();
+          bookerPopupRef.current = null;
+        }
         if (bookerMarkerRef.current) {
           bookerMarkerRef.current.remove();
           bookerMarkerRef.current = null;
         }
-        bookerMarkerElRef.current = null;
-        bookerMarkerUiRef.current = null;
+        bookerPopupContentElRef.current = null;
+        bookerPopupUiRef.current = null;
         if (spotMarkerRef.current) {
           spotMarkerRef.current.remove();
           spotMarkerRef.current = null;
@@ -280,6 +357,52 @@ const GotConfirmedView = ({
       return undefined;
     }
   }, [mapboxToken, miniMapEl, hasSpotCoords, spotLng, spotLat]);
+
+  // Route (Directions API)
+  useEffect(() => {
+    const map = miniMapInstanceRef.current;
+    if (!map || !mapReady) return;
+
+    if (!mapboxToken || !hasSpotCoords || !hasBookerCoords) {
+      removeRoute(map);
+      return;
+    }
+
+    const startLngLat = [spotLng, spotLat];
+    const endLngLat = [bookerLng, bookerLat];
+
+    const controller = new AbortController();
+    if (routeAbortRef.current) routeAbortRef.current.abort();
+    routeAbortRef.current = controller;
+
+    (async () => {
+      try {
+        const feature = await getDirectionsRouteFeature(startLngLat, endLngLat, mapboxToken, controller.signal);
+        if (controller.signal.aborted) return;
+        upsertRoute(map, feature);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        upsertRoute(map, getFallbackLineFeature(startLngLat, endLngLat));
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    mapReady,
+    mapboxToken,
+    hasSpotCoords,
+    hasBookerCoords,
+    spotLng,
+    spotLat,
+    bookerLng,
+    bookerLat,
+    upsertRoute,
+    removeRoute,
+    getDirectionsRouteFeature,
+    getFallbackLineFeature,
+  ]);
 
   // Update markers & camera (no re-init)
   useEffect(() => {
@@ -301,14 +424,33 @@ const GotConfirmedView = ({
 
     if (hasBookerCoords) {
       if (!bookerMarkerRef.current) {
-        const el = ensureBookerMarkerElement();
-        if (el) {
-          bookerMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+        const dot = document.createElement('div');
+        dot.className =
+          'pointer-events-none w-4 h-4 rounded-full bg-blue-600 ring-4 ring-white shadow-[0_10px_25px_rgba(37,99,235,0.35)]';
+        bookerMarkerRef.current = new mapboxgl.Marker({ element: dot, anchor: 'center' })
+          .setLngLat([bookerLng, bookerLat])
+          .addTo(map);
+      } else {
+        bookerMarkerRef.current.setLngLat([bookerLng, bookerLat]);
+      }
+
+      if (!bookerPopupRef.current) {
+        const contentEl = ensureBookerPopupContentElement();
+        if (contentEl) {
+          bookerPopupRef.current = new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            focusAfterOpen: false,
+            offset: 18,
+            maxWidth: '260px',
+            className: 'driver-info-popup pointer-events-none',
+          })
+            .setDOMContent(contentEl)
             .setLngLat([bookerLng, bookerLat])
             .addTo(map);
-          const ui = bookerMarkerUiRef.current;
+
+          const ui = bookerPopupUiRef.current;
           if (ui) {
-            ui.labelEl.textContent = t('driver', { defaultValue: 'Driver' });
             ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
             ui.txLabelEl.textContent = t('Transactions', { defaultValue: 'Transactions' });
             ui.txValueEl.textContent =
@@ -316,20 +458,28 @@ const GotConfirmedView = ({
           }
         }
       } else {
-        bookerMarkerRef.current.setLngLat([bookerLng, bookerLat]);
+        bookerPopupRef.current.setLngLat([bookerLng, bookerLat]);
       }
     } else if (bookerMarkerRef.current) {
+      if (bookerPopupRef.current) {
+        bookerPopupRef.current.remove();
+        bookerPopupRef.current = null;
+      }
       bookerMarkerRef.current.remove();
       bookerMarkerRef.current = null;
-      bookerMarkerElRef.current = null;
-      bookerMarkerUiRef.current = null;
+      bookerPopupContentElRef.current = null;
+      bookerPopupUiRef.current = null;
     }
 
     if (hasSpotCoords && hasBookerCoords) {
       const bounds = new mapboxgl.LngLatBounds();
       bounds.extend([spotLng, spotLat]);
       bounds.extend([bookerLng, bookerLat]);
-      map.fitBounds(bounds, { padding: 36, duration: 500, essential: true });
+      map.fitBounds(bounds, {
+        padding: { top: 120, bottom: 260, left: 60, right: 60 },
+        duration: 500,
+        essential: true,
+      });
       return;
     }
     if (hasSpotCoords) {
@@ -338,11 +488,21 @@ const GotConfirmedView = ({
         zoom: 16,
         pitch: 0,
         bearing: 0,
+        offset: [0, -120],
         duration: 600,
         essential: true,
       });
     }
-  }, [mapReady, spotLng, spotLat, bookerLng, bookerLat, hasSpotCoords, hasBookerCoords, ensureBookerMarkerElement]);
+  }, [
+    mapReady,
+    spotLng,
+    spotLat,
+    bookerLng,
+    bookerLat,
+    hasSpotCoords,
+    hasBookerCoords,
+    ensureBookerPopupContentElement,
+  ]);
 
   // Auto-open plate modal when close to destination
   useEffect(() => {
@@ -353,12 +513,42 @@ const GotConfirmedView = ({
     }
   }, [distanceMeters]);
 
-  
-    const content = (
-    <div
-  className="fixed inset-0 overflow-hidden bg-white"
-  style={{ zIndex: 2147483647 }}
->
+  const content = (
+    <div className="fixed inset-0 overflow-hidden bg-white" style={{ zIndex: 2147483647 }}>
+      <style>{`
+        .driver-info-popup {
+          pointer-events: none;
+        }
+        .driver-info-popup .mapboxgl-popup-content {
+          padding: 10px 12px;
+          border-radius: 22px;
+          border: 1px solid rgba(255, 255, 255, 0.55);
+          background: rgba(255, 255, 255, 0.82);
+          color: #0f172a;
+          box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+          backdrop-filter: blur(18px) saturate(180%);
+          -webkit-backdrop-filter: blur(18px) saturate(180%);
+        }
+        .driver-info-popup .mapboxgl-popup-tip {
+          filter: drop-shadow(0 10px 25px rgba(15, 23, 42, 0.12));
+        }
+        .driver-info-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip,
+        .driver-info-popup.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip,
+        .driver-info-popup.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
+          border-bottom-color: rgba(255, 255, 255, 0.82);
+        }
+        .driver-info-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip,
+        .driver-info-popup.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
+        .driver-info-popup.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
+          border-top-color: rgba(255, 255, 255, 0.82);
+        }
+        .driver-info-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+          border-right-color: rgba(255, 255, 255, 0.82);
+        }
+        .driver-info-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+          border-left-color: rgba(255, 255, 255, 0.82);
+        }
+      `}</style>
       <div ref={setMiniMapNode} className="absolute inset-0 z-0 w-full h-full bg-gray-100" />
       {!mapboxToken && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 text-white">
@@ -366,12 +556,10 @@ const GotConfirmedView = ({
         </div>
       )}
       {mapboxToken && mapError && (
-  <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
-    <div className="px-4 py-2 rounded-xl bg-black/80 text-white text-xs shadow max-w-[90vw]">
-      {mapError}
-    </div>
-  </div>
-)}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+          <div className="px-4 py-2 rounded-xl bg-black/80 text-white text-xs shadow max-w-[90vw]">{mapError}</div>
+        </div>
+      )}
       {mapboxToken && !mapError && !mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <div className="px-4 py-2 rounded-full bg-white/90 text-gray-600 shadow">
@@ -425,7 +613,7 @@ const GotConfirmedView = ({
           <div className={`mt-4 grid gap-3 ${onCancel ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {onCancel && (
               <button
-                onClick={() => onCancel(spot.id)}
+                onClick={openCancelModal}
                 className="
                   h-12 rounded-2xl border border-white/50 bg-white/60
                   text-red-600 font-semibold shadow-sm
@@ -457,9 +645,9 @@ const GotConfirmedView = ({
         </div>
       </div>
 
-      {showPlateModal && (
+      {showCancelModal && (
         <div className="fixed inset-0 z-20 flex items-center justify-center px-6">
-          <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={closePlateModal} />
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={closeCancelModal} />
           <div
             className="
               relative w-full max-w-md
@@ -469,40 +657,102 @@ const GotConfirmedView = ({
               p-6
             "
             style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('cancelConfirmationTitle', { defaultValue: 'Confirmer l’annulation' })}
+          >
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div>
+                <h3 className="text-2xl font-extrabold text-slate-900">
+                  {t('cancelConfirmationTitle', { defaultValue: 'Confirmer l’annulation' })}
+                </h3>
+                <p className="mt-2 text-sm text-slate-700">
+                  {t('cancelReputationWarning', {
+                    defaultValue:
+                      "Annuler maintenant peut nuire à ta réputation : l'autre utilisateur est déjà en route.",
+                  })}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                onClick={closeCancelModal}
+                className="
+                  h-12 rounded-2xl border border-white/50 bg-white/60
+                  text-slate-700 font-semibold shadow-sm
+                  transition active:scale-[0.99]
+                  hover:bg-white/80
+                "
+              >
+                {t('keepTransaction', { defaultValue: 'Garder' })}
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                className="
+                  h-12 rounded-2xl bg-gradient-to-r from-red-500 to-rose-500
+                  text-white font-extrabold shadow-[0_12px_30px_rgba(239,68,68,0.35)]
+                  hover:brightness-110 transition active:scale-[0.99]
+                "
+              >
+                {t('confirmCancel', { defaultValue: 'Annuler quand même' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPlateModal && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center px-6">
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={closePlateModal} />
+          <div
+            className="
+              relative w-full max-w-md
+              rounded-[28px] border
+              backdrop-blur-2xl backdrop-saturate-200
+              shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+              p-6
+            "
+            style={
+              isDark
+                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.72)', borderColor: 'rgba(255,255,255,0.12)' }
+                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.60)', borderColor: 'rgba(255,255,255,0.25)' }
+            }
           >
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] font-semibold text-gray-500">
-                  {t('driver', { defaultValue: 'Driver' })}
-                </p>
-                <h3 className="text-2xl font-extrabold text-slate-900">
-                  {t('verifyLicensePlate', { defaultValue: "Plaque d'immatriculation" })}
+                <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {t('platePromptNamed', {
+                    name: bookerProfile.name || fallbackBookerName,
+                    defaultValue: `Saisis la plaque de ${bookerProfile.name || fallbackBookerName}`,
+                  })}
                 </h3>
+                <p className={`mt-2 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-600'}`}>
+                  {t('plateSubtitleJoke', {
+                    defaultValue: "Promis, on ne la met pas en fond d’écran.",
+                  })}
+                </p>
               </div>
-              <button
-                onClick={closePlateModal}
-                className="w-10 h-10 rounded-full bg-white/70 border border-white/70 shadow-sm text-gray-500 hover:text-gray-700 hover:bg-white/90 transition"
-                aria-label={t('close', { defaultValue: 'Close' })}
-              >
-                <X className="w-5 h-5 mx-auto" />
-              </button>
             </div>
-            <p className="text-sm text-gray-500 mb-3">
-              {t('platePrompt', { defaultValue: "Saisis la plaque de l'autre utilisateur quand tu es arrivé." })}
-            </p>
             <input
               type="text"
               placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
-              className="
+              className={`
                 w-full rounded-2xl px-4 py-4
                 text-center text-2xl font-mono uppercase tracking-widest
-                bg-white/70 border border-white/70 shadow-inner
+                border shadow-inner
                 focus:outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-400
                 transition
-              "
+                ${
+                  isDark
+                    ? 'bg-white/10 border-white/15 text-white placeholder:text-slate-400'
+                    : 'bg-white/70 border-white/70 text-slate-900 placeholder:text-slate-400'
+                }
+              `}
               value={plateInput}
               onChange={(e) => setPlateInput(formatPlate(e.target.value))}
             />
+            {plateError && <p className={`mt-3 text-sm ${isDark ? 'text-red-300' : 'text-red-600'}`}>{plateError}</p>}
             <button
               onClick={handleSubmitPlate}
               className="
@@ -511,7 +761,7 @@ const GotConfirmedView = ({
                 text-white font-bold shadow-[0_12px_30px_rgba(16,185,129,0.35)]
                 hover:brightness-110 transition disabled:opacity-50
               "
-              disabled={!isFullPlate(formatPlate(plateInput))}
+              disabled={plateSubmitting || !isFullPlate(formatPlate(plateInput))}
             >
               {t('confirmPlate', 'Confirm Plate')}
             </button>

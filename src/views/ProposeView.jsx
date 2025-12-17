@@ -243,7 +243,10 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
 
       <div className="mt-8 pb-8 pt-2">
         <button
-          onClick={() => onProposeSpot(proposeForm)}
+          onClick={() => {
+            const selected = vehicles.find((v) => v.model === proposeForm.car) || vehicles.find((v) => v.isDefault) || vehicles[0] || null;
+            onProposeSpot({ ...proposeForm, vehiclePlate: selected?.plate || null, vehicleId: selected?.id || null });
+          }}
           className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-4 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition text-lg flex items-center justify-center space-x-2"
         >
           <span>{t('publishSpot', 'Publish Spot')}</span>

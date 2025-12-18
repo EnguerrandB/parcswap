@@ -257,6 +257,20 @@ const MapInner = ({
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
   const [destInfo, setDestInfo] = useState(null);
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof document !== 'undefined') {
+      const domTheme = document.body?.dataset?.theme;
+      if (domTheme === 'dark') return true;
+      if (domTheme === 'light') return false;
+    }
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage?.getItem('theme');
+      if (stored === 'dark') return true;
+      if (stored === 'light') return false;
+      return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false;
+    }
+    return false;
+  });
 
   const summaryRef = useRef(null);
   const [summaryHeight, setSummaryHeight] = useState(0);
@@ -277,6 +291,37 @@ const MapInner = ({
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   const OTHER_VISIBILITY_MIN_ZOOM = 13;
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+
+    const update = () => {
+      const domTheme = document.body?.dataset?.theme;
+      if (domTheme === 'dark') setIsDark(true);
+      else if (domTheme === 'light') setIsDark(false);
+      else if (typeof window !== 'undefined') {
+        const stored = window.localStorage?.getItem('theme');
+        if (stored === 'dark') setIsDark(true);
+        else if (stored === 'light') setIsDark(false);
+        else setIsDark(window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false);
+      }
+    };
+
+    const observer = new MutationObserver(update);
+    if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
+    window.addEventListener('storage', update);
+
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const onMediaChange = () => update();
+    media?.addEventListener?.('change', onMediaChange);
+
+    update();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', update);
+      media?.removeEventListener?.('change', onMediaChange);
+    };
+  }, []);
 
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -366,6 +411,15 @@ const MapInner = ({
     if (candidate && isValidCoord(candidate.lng, candidate.lat)) return [candidate.lng, candidate.lat];
     if (spot && isValidCoord(spot.lng, spot.lat)) return [spot.lng, spot.lat];
     return [2.295, 48.8738];
+  };
+
+  const applyDayNightPreset = (map) => {
+    if (!map || typeof map.setConfigProperty !== 'function') return;
+    try {
+      map.setConfigProperty('basemap', 'lightPreset', isDark ? 'night' : 'day');
+    } catch {
+      // ignore: style might not support config properties
+    }
   };
 
   const enableRainEffect = (map) => {
@@ -816,8 +870,7 @@ useEffect(() => {
    const map = new mapboxgl.Map({
   container: mapContainerRef.current,
 
-  // ✅ comme l’exemple Mapbox
-  style: 'mapbox://styles/mapbox/light-v11',
+  style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
 
   center: isValidCoord(spot?.lng, spot?.lat)
     ? [spot.lng, spot.lat]
@@ -871,7 +924,15 @@ const add3DBuildings = () => {
   );
 };
 
-map.on('style.load', add3DBuildings);
+const handleStyleLoad = () => {
+  applyDayNightPreset(map);
+  const last = lastRainCheckRef.current?.isRaining;
+  if (last === true) enableRainEffect(map);
+  add3DBuildings();
+};
+
+map.on('style.load', handleStyleLoad);
+applyDayNightPreset(map);
 
     map.on('load', () => { setMapLoaded(true); map.resize(); updateOtherMarkersVisibility(map.getZoom()); });
     map.on('error', () => setMapLoaded(false));
@@ -888,8 +949,9 @@ map.on('style.load', add3DBuildings);
     return () => {
       map.off('movestart', handleMoveStart);
       map.off('zoom', handleZoom);
-      map.off('style.load', add3DBuildings);
+      map.off('style.load', handleStyleLoad);
 if (map.getLayer('add-3d-buildings')) map.removeLayer('add-3d-buildings');
+      disableRainEffect(map);
 
       map.remove();
       mapRef.current = null;
@@ -899,6 +961,12 @@ if (map.getLayer('add-3d-buildings')) map.removeLayer('add-3d-buildings');
       destMarkerRef.current = null;
     };
   }, [mapboxToken]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyDayNightPreset(map);
+  }, [isDark]);
 
   useEffect(() => {
     const map = mapRef.current;

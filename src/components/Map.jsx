@@ -396,10 +396,6 @@ const MapInner = ({
   const routeFetchedRef = useRef(false);
   const lastPersistTsRef = useRef(0);
 
-  const isDark =
-    (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
-    (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
-
   const isValidCoord = (lng, lat) => (
     typeof lng === 'number' && typeof lat === 'number' &&
     !isNaN(lng) && !isNaN(lat) &&

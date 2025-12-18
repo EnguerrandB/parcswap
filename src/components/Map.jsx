@@ -266,6 +266,9 @@ const MapInner = ({
   const markerRef = useRef(null);
   const markerPopupRef = useRef(null);
   const destMarkerRef = useRef(null);
+  const rainAbortRef = useRef(null);
+  const rainZoomHandlerRef = useRef(null);
+  const lastRainCheckRef = useRef({ at: 0, key: null, isRaining: null });
   const otherUserMarkersRef = useRef(new globalThis.Map());
   const otherUserIconsRef = useRef(new globalThis.Map());
   const otherUserPositionsRef = useRef(new globalThis.Map());
@@ -363,6 +366,58 @@ const MapInner = ({
     if (candidate && isValidCoord(candidate.lng, candidate.lat)) return [candidate.lng, candidate.lat];
     if (spot && isValidCoord(spot.lng, spot.lat)) return [spot.lng, spot.lat];
     return [2.295, 48.8738];
+  };
+
+  const enableRainEffect = (map) => {
+    if (!map || typeof map.setRain !== 'function') return;
+    if (rainZoomHandlerRef.current) return;
+
+    const zoomBasedReveal = (value) => {
+      const z = typeof map.getZoom === 'function' ? map.getZoom() : 0;
+      const t = Math.max(0, Math.min(1, (z - 11) / 5));
+      return value * t;
+    };
+
+    const updateRain = () => {
+      try {
+        map.setRain({
+          density: zoomBasedReveal(0.5),
+          intensity: 1.0,
+          color: '#a8adbc',
+          opacity: 0.7,
+          vignette: zoomBasedReveal(1.0),
+          'vignette-color': '#464646',
+          direction: [0, 80],
+          'droplet-size': [2.6, 18.2],
+          'distortion-strength': 0.7,
+          'center-thinning': 0,
+        });
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    rainZoomHandlerRef.current = updateRain;
+    map.on('zoom', updateRain);
+    updateRain();
+  };
+
+  const disableRainEffect = (map) => {
+    if (!map || typeof map.setRain !== 'function') return;
+    const handler = rainZoomHandlerRef.current;
+    if (handler) {
+      map.off('zoom', handler);
+      rainZoomHandlerRef.current = null;
+    }
+    try {
+      map.setRain(null);
+    } catch (_) {
+      try {
+        map.setRain({ density: 0, intensity: 0, opacity: 0, vignette: 0, 'center-thinning': 0 });
+      } catch {
+        // ignore
+      }
+    }
   };
 
 useEffect(() => {
@@ -758,17 +813,65 @@ useEffect(() => {
     if (mapRef.current) return undefined;
 
     mapboxgl.accessToken = mapboxToken;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: isValidCoord(spot?.lng, spot?.lat)
-      ? [spot.lng, spot.lat]
-      : getSafeCenter(),
-      pitch: 0,
-      zoom: 15,
-      interactive: true,
-      attributionControl: false,
-    });
+   const map = new mapboxgl.Map({
+  container: mapContainerRef.current,
+
+  // ✅ comme l’exemple Mapbox
+  style: 'mapbox://styles/mapbox/light-v11',
+
+  center: isValidCoord(spot?.lng, spot?.lat)
+    ? [spot.lng, spot.lat]
+    : getSafeCenter(),
+
+  zoom: 15.5,
+  pitch: 45,
+  bearing: -17.6,
+
+  antialias: true,         // ✅ important pour le rendu 3D
+  interactive: true,
+  attributionControl: false,
+});
+
+const add3DBuildings = () => {
+  const layers = map.getStyle()?.layers || [];
+  const labelLayerId = layers.find(
+    (layer) => layer.type === 'symbol' && layer.layout && layer.layout['text-field']
+  )?.id;
+
+  if (map.getLayer('add-3d-buildings')) return;
+
+  map.addLayer(
+    {
+      id: 'add-3d-buildings',
+      source: 'composite',
+      'source-layer': 'building',
+      filter: ['==', 'extrude', 'true'],
+      type: 'fill-extrusion',
+      minzoom: 15,
+      paint: {
+        'fill-extrusion-color': '#aaa',
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15, 0,
+          15.05, ['get', 'height'],
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15, 0,
+          15.05, ['get', 'min_height'],
+        ],
+        'fill-extrusion-opacity': 0.6,
+      },
+    },
+    labelLayerId
+  );
+};
+
+map.on('style.load', add3DBuildings);
 
     map.on('load', () => { setMapLoaded(true); map.resize(); updateOtherMarkersVisibility(map.getZoom()); });
     map.on('error', () => setMapLoaded(false));
@@ -785,6 +888,9 @@ useEffect(() => {
     return () => {
       map.off('movestart', handleMoveStart);
       map.off('zoom', handleZoom);
+      map.off('style.load', add3DBuildings);
+if (map.getLayer('add-3d-buildings')) map.removeLayer('add-3d-buildings');
+
       map.remove();
       mapRef.current = null;
       if (destMarkerRef.current?._clickHandler && destMarkerRef.current?.getElement()) {
@@ -793,6 +899,61 @@ useEffect(() => {
       destMarkerRef.current = null;
     };
   }, [mapboxToken]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return undefined;
+
+    const coords = userLoc || userCoords;
+    if (!coords || !isValidCoord(coords.lng, coords.lat)) return undefined;
+
+    const roundKey = `${coords.lat.toFixed(2)}:${coords.lng.toFixed(2)}`;
+    const checkRain = async () => {
+      const now = Date.now();
+      const { at: lastAt, key: lastKey, isRaining: lastIsRaining } = lastRainCheckRef.current;
+
+      if (lastKey === roundKey && now - lastAt < 10 * 60 * 1000 && typeof lastIsRaining === 'boolean') {
+        if (lastIsRaining) enableRainEffect(map);
+        else disableRainEffect(map);
+        return;
+      }
+
+      const controller = new AbortController();
+      if (rainAbortRef.current) rainAbortRef.current.abort();
+      rainAbortRef.current = controller;
+
+      try {
+        const url = new URL('https://api.open-meteo.com/v1/forecast');
+        url.searchParams.set('latitude', String(coords.lat));
+        url.searchParams.set('longitude', String(coords.lng));
+        url.searchParams.set('current', 'precipitation,rain');
+        url.searchParams.set('timezone', 'auto');
+
+        const res = await fetch(url.toString(), { signal: controller.signal });
+        if (!res.ok) throw new Error(`Weather API error: ${res.status}`);
+        const data = await res.json();
+        const cur = data?.current || {};
+        const precipitation = Number(cur.precipitation);
+        const rain = Number(cur.rain);
+        const isRaining = (Number.isFinite(rain) ? rain : 0) > 0 || (Number.isFinite(precipitation) ? precipitation : 0) > 0;
+
+        lastRainCheckRef.current = { at: now, key: roundKey, isRaining };
+        if (isRaining) enableRainEffect(map);
+        else disableRainEffect(map);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        // Keep last known effect; don't hard-disable on transient network errors.
+        console.warn('[Map] Weather check failed:', err);
+      }
+    };
+
+    checkRain();
+    const id = window.setInterval(checkRain, 10 * 60 * 1000);
+    return () => {
+      window.clearInterval(id);
+      if (rainAbortRef.current) rainAbortRef.current.abort();
+    };
+  }, [mapLoaded, userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
 
   // PREVIEW MODE: center ONLY on destination (before Accept)
 useEffect(() => {
@@ -803,7 +964,7 @@ useEffect(() => {
   mapRef.current.easeTo({
     center: [spot.lng, spot.lat],
     zoom: 17,
-    pitch: 0,
+    pitch: 45,
     bearing: 0,
     duration: 800,
     essential: true,
@@ -1447,6 +1608,13 @@ if (!routeAnimRef.current) {
                     />
 
                     <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onSelectionStep?.('cleared', null);
+                        onClose?.();
+                      }}
                       className="
                         flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full
                         text-gray-500 hover:text-gray-700 transition-colors duration-300 active:scale-95
@@ -1595,8 +1763,8 @@ if (!routeAnimRef.current) {
                       onCancelBooking(spot.id);
                     }
                     setConfirming(false);
-                    onClose?.();
                     onSelectionStep?.('cleared', null);
+                    onClose?.();
                   }}
                   className="flex-1 py-2.5 rounded-xl font-semibold bg-orange-600 text-white hover:bg-orange-700"
                 >

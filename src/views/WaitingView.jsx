@@ -269,28 +269,28 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
           <div className="flex-1 flex flex-col items-center justify-start relative space-y-6">
           {!isExpired && (
             <>
-              <div className="absolute  w-64 h-64 bg-orange-100 rounded-full animate-ping opacity-20 z-20 pointer-events-none" />
-              <div className="absolute  w-48 h-48 bg-orange-200 rounded-full animate-pulse opacity-30 z-20 pointer-events-none" />
+              <div className="absolute w-[clamp(160px,62vmin,256px)] h-[clamp(160px,62vmin,256px)] bg-orange-100 rounded-full animate-ping opacity-20 z-20 pointer-events-none" />
+              <div className="absolute w-[clamp(120px,48vmin,208px)] h-[clamp(120px,48vmin,208px)] bg-orange-200 rounded-full animate-pulse opacity-30 z-20 pointer-events-none" />
             </>
           )}
           <div
-            className="bg-white p-6 rounded-full shadow-xl z-30 relative"
+            className="bg-white p-[clamp(14px,4.5vmin,24px)] rounded-full shadow-xl z-30 relative"
             style={!isExpired ? carMotionStyle : { animationPlayState: 'paused' }}
           >
-            <Car size={48} className="text-orange-600" />
+            <Car className="text-orange-600 w-[clamp(32px,9vmin,48px)] h-[clamp(32px,9vmin,48px)]" />
             {!isExpired && !isReservedPendingAccept && (
               <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce">
                 {t('liveTag', 'Live')}
               </div>
             )}
           </div>
-          <div className="w-full max-w-sm bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-orange-100 px-5 py-4 z-40">
+          <div className="w-full max-w-[clamp(280px,92vmin,420px)] bg-white/90 backdrop-blur rounded-2xl shadow-lg border border-orange-100 p-[clamp(14px,4vmin,20px)] z-40">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">
+                <p className="text-[clamp(12px,3.2vmin,14px)] text-gray-500">
                   {isExpired ? t('listingExpiredLabel', 'Listing expired') : t('listingExpiresIn', 'Listing expires in')}
                 </p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-[clamp(18px,6vmin,26px)] font-bold text-gray-900 leading-tight">
                   {remainingMs != null && !isExpired
                     ? `${String(Math.floor(remainingMs / 60000)).padStart(2, '0')}:${String(
                         Math.floor((remainingMs % 60000) / 1000),
@@ -301,15 +301,15 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">{t('priceLabel', 'Price')}</p>
-                <p className="text-xl font-bold text-gray-900">{formatPrice(myActiveSpot.price)}</p>
+                <p className="text-[clamp(12px,3.2vmin,14px)] text-gray-500">{t('priceLabel', 'Price')}</p>
+                <p className="text-[clamp(16px,5vmin,22px)] font-bold text-gray-900 leading-tight">{formatPrice(myActiveSpot.price)}</p>
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="mt-[clamp(12px,3.5vmin,16px)] grid grid-cols-2 gap-[clamp(10px,2.8vmin,14px)]">
               {onCancel && (
                 <button
                   onClick={() => onCancel(myActiveSpot.id)}
-                  className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-semibold shadow-sm hover:bg-gray-50 transition"
+                  className="w-full bg-white border border-gray-200 text-gray-700 py-[clamp(10px,2.8vmin,12px)] rounded-[clamp(12px,3.5vmin,16px)] font-semibold shadow-sm hover:bg-gray-50 transition text-[clamp(13px,3.6vmin,15px)]"
                 >
                   {t('cancel', 'Cancel')}
                 </button>
@@ -317,7 +317,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
               {onRenew && (
                 <button
                   onClick={() => onRenew(myActiveSpot.id)}
-                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:scale-[1.01] transition"
+                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-[clamp(10px,2.8vmin,12px)] rounded-[clamp(12px,3.5vmin,16px)] font-bold shadow-md hover:scale-[1.01] transition text-[clamp(13px,3.6vmin,15px)]"
                 >
                   {t('renew', 'Renew')}
                 </button>
@@ -379,8 +379,8 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
           paddingBottom: 'var(--bottom-safe-offset, 96px)',
         }}
       >
-      <div className="w-16 h-16 rounded-full bg-white shadow-lg border border-orange-100 flex items-center justify-center mb-4">
-        <Car className="text-orange-500" size={32} />
+      <div className="w-[clamp(52px,14vmin,64px)] h-[clamp(52px,14vmin,64px)] rounded-full bg-white shadow-lg border border-orange-100 flex items-center justify-center mb-4">
+        <Car className="text-orange-500 w-[clamp(24px,7vmin,32px)] h-[clamp(24px,7vmin,32px)]" />
       </div>
       <h1 className="text-3xl font-extrabold text-slate-900 mb-2">
         {t('waitingDriverTitle', 'Waiting for the driver')}

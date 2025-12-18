@@ -322,6 +322,7 @@ export default function ParkSwapApp() {
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
+  const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
   const [logoOffset, setLogoOffset] = useState(0); // horizontal drag offset for the logo
   const logoDragRef = useRef(false);
@@ -711,6 +712,7 @@ export default function ParkSwapApp() {
 
   // Restore selected spot (itinerary) from persisted state or current booking
   useEffect(() => {
+    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
     // First priority: persisted selection with a spotId
     if (selectionSnapshot?.spotId) {
       const match = findSpotById(selectionSnapshot.spotId);
@@ -1684,7 +1686,9 @@ export default function ParkSwapApp() {
         <Map
           spot={selectedSearchSpot}
           onClose={() => {
+            suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
             setSelectedSearchSpot(null);
+            setSelectionSnapshot(null);
             handleSelectionStep('cleared', null);
             setHideNav(false);
           }}

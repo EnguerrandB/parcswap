@@ -812,10 +812,14 @@ const ProfileView = ({
 
         <button
           onClick={() => onLogout?.()}
-          className="w-full bg-white p-4 rounded-xl shadow-sm flex items-center space-x-3 text-red-500 hover:bg-red-50 border border-red-100 transition"
+          className={`w-full p-4 rounded-xl shadow-sm flex items-center space-x-3 border transition ${
+            isDark
+              ? 'bg-slate-900/60 border-white/10 text-slate-100 hover:bg-slate-900/80'
+              : 'bg-white border-gray-200 text-gray-900 hover:bg-gray-50'
+          }`}
         >
           <LogOut size={20} style={iconStyle('logout')} />
-          <span className="font-medium">{t('logout', 'Log Out')}</span>
+          <span className="font-medium text-red-600">{t('logout', 'Log Out')}</span>
         </button>
       </div>
 

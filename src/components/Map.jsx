@@ -236,6 +236,7 @@ const MapInner = ({
   currentUserId,
   currentUserName,
   userCoords,
+  isExiting = false,
 }) => {
   const { t, i18n: i18nInstance } = useTranslation('common');
   const [userLoc, setUserLoc] = useState(null);
@@ -1584,9 +1585,15 @@ if (!routeAnimRef.current) {
   }, [mapLoaded, currentUserId]);
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">
+    <div
+      className={`fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans transition-opacity duration-300 ease-out ${
+        isExiting ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}
+    >
       <div
-        className="relative w-full h-full bg-gray-900 overflow-hidden"
+        className={`relative w-full h-full bg-gray-900 overflow-hidden transform-gpu transition-transform duration-300 ease-out ${
+          isExiting ? 'scale-[0.985]' : 'scale-100'
+        }`}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 0 }}
       >
         {/* Style injection for Custom Popup (AJOUT) */}

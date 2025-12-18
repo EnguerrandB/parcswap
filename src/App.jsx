@@ -323,6 +323,8 @@ export default function ParkSwapApp() {
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
+  const [mapClosing, setMapClosing] = useState(false);
+  const mapCloseTimerRef = useRef(null);
   const [userCoords, setUserCoords] = useState(null);
   const [logoOffset, setLogoOffset] = useState(0); // horizontal drag offset for the logo
   const logoDragRef = useRef(false);
@@ -731,6 +733,32 @@ export default function ParkSwapApp() {
       setSelectedSearchSpot(null);
     }
   }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
+
+  useEffect(() => {
+    // Any time a spot is selected/opened, cancel closing state.
+    if (selectedSearchSpot) setMapClosing(false);
+  }, [selectedSearchSpot?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (mapCloseTimerRef.current) window.clearTimeout(mapCloseTimerRef.current);
+    };
+  }, []);
+
+  const closeMapWithTransition = () => {
+    suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
+    setSelectionSnapshot(null);
+    handleSelectionStep('cleared', null);
+    setHideNav(false);
+
+    if (mapCloseTimerRef.current) window.clearTimeout(mapCloseTimerRef.current);
+    setMapClosing(true);
+    mapCloseTimerRef.current = window.setTimeout(() => {
+      setSelectedSearchSpot(null);
+      setMapClosing(false);
+      mapCloseTimerRef.current = null;
+    }, 280);
+  };
 
   // --- Persisted selection subscription (to restore itinerary after reload) ---
   useEffect(() => {
@@ -1677,13 +1705,8 @@ export default function ParkSwapApp() {
       {selectedSearchSpot && (
         <Map
           spot={selectedSearchSpot}
-          onClose={() => {
-            suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
-            setSelectedSearchSpot(null);
-            setSelectionSnapshot(null);
-            handleSelectionStep('cleared', null);
-            setHideNav(false);
-          }}
+          isExiting={mapClosing}
+          onClose={closeMapWithTransition}
           onCancelBooking={handleCancelBooking}
           onConfirmHostPlate={handleConfirmHostPlate}
           onNavStateChange={setHideNav}

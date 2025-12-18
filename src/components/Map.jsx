@@ -412,7 +412,7 @@ const MapInner = ({
   const applyDayNightPreset = (map) => {
     if (!map || typeof map.setConfigProperty !== 'function') return;
     try {
-      map.setConfigProperty('basemap', 'lightPreset', isDark ? 'night' : 'day');
+      map.setConfigProperty('basemap', 'lightPreset', isDark ? 'dusk' : 'day');
     } catch {
       // ignore: style might not support config properties
     }

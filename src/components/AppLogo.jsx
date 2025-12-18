@@ -7,13 +7,7 @@ const AppLogo = ({ size = 40, className = '' }) => (
     className={`relative rounded-full overflow-visible flex items-center justify-center ${className}`}
     style={{ width: size, height: size }}
   >
-    <div
-      className="absolute inset-0 rounded-full bg-white/60 blur-md halo-pulse"
-      aria-hidden="true"
-    />
-    <div className="relative rounded-full bg-white shadow-md overflow-hidden flex items-center justify-center">
-      <img src={logo} alt="ParkSwap logo" className="w-full h-full object-contain" />
-    </div>
+    <img src={logo} alt="ParkSwap logo" className="w-full h-full object-contain" />
   </div>
 );
 

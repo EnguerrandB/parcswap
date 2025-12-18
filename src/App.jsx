@@ -1445,15 +1445,7 @@ export default function ParkSwapApp() {
             }`}
           >
             <div className="relative w-16 h-16">
-              <div
-                className="absolute inset-0 rounded-full bg-white/60 blur-md scale-140"
-                aria-hidden="true"
-              />
-              <img
-                src={movingLogo}
-                alt="Logo"
-                className="relative w-full h-full object-contain rounded-full shadow-md"
-              />
+              <img src={movingLogo} alt="Logo" className="w-full h-full object-contain" />
             </div>
           </div>
         </button>

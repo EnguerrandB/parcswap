@@ -21,7 +21,7 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-[300] flex justify-center pointer-events-none pb-[calc(env(safe-area-inset-bottom)+24px)]"
+      className="fixed bottom-0 left-0 right-0 z-[300] flex justify-center pb-[calc(env(safe-area-inset-bottom)+24px)]"
       data-role="bottom-nav-wrapper"
     >
       {/* CONTENEUR PRINCIPAL */}
@@ -33,7 +33,7 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
            ================================================================= */}
         <div
           className={`
-            absolute rounded-full halo-pulse scale-115
+            pointer-events-none absolute rounded-full halo-pulse scale-115
             bg-white/35
             ${HALO_SPREAD}
             ${HALO_BLUR_CLASS}
@@ -77,7 +77,9 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
           
           {/* Bouton Recherche */}
           <button
+            type="button"
             onClick={() => setActiveTab('search')}
+            style={{ touchAction: 'manipulation' }}
             className={`
               flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
               ${activeTab === 'search' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
@@ -93,7 +95,9 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
 
           {/* Bouton Proposer */}
           <button
+            type="button"
             onClick={() => setActiveTab('propose')}
+            style={{ touchAction: 'manipulation' }}
             className={`
               flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
               ${activeTab === 'propose' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}

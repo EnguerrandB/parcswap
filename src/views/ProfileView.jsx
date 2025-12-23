@@ -482,9 +482,10 @@ const ProfileView = ({
   };
 
   return (
-    <div className="relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
-      <div id="recaptcha-container" className="hidden" />
-      <div className="flex items-center justify-between mb-8 mt-4">
+    <div className="relative h-full bg-gray-50 overflow-y-auto no-scrollbar">
+      <div className="p-6 pb-6">
+        <div id="recaptcha-container" className="hidden" />
+        <div className="flex items-center justify-between mb-8 mt-4">
         <div className="flex items-center space-x-3">
           <img
             src={rankIcon(userTransactionCount)}
@@ -520,133 +521,143 @@ const ProfileView = ({
         </button>
       </div>
 
-      {/* Profil - ouvre désormais une modale */}
-      <div
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 cursor-pointer hover:border-orange-200 transition"
-        role="button"
-        tabIndex={0}
-        onClick={() => setShowProfileModal(true)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setShowProfileModal(true);
-          }
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
-              <User size={20} style={iconStyle('profile')} />
-            </div>
-            <span className="font-semibold">{t('profile')}</span>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 cursor-pointer hover:border-orange-200 transition"
-        role="button"
-        tabIndex={0}
-        onClick={() => setShowModal(true)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setShowModal(true);
-          }
-        }}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
-              <Car size={20} style={iconStyle('vehicle')} />
-            </div>
-            <span className="font-semibold">{t('myVehicles')}</span>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {vehicles.length === 0 && (
-            <p className="text-sm text-gray-400">{t('noVehicles', 'No vehicles yet. Tap Manage to add one.')}</p>
-          )}
-          {vehicles.map((v) => (
-            <div
-              key={v.id}
-              className={`flex items-center justify-between border rounded-xl px-3 py-2 ${
-                v.isDefault ? 'border-orange-200 bg-orange-50' : 'border-gray-100'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                {v.photo ? (
-                  <img
-                    src={v.photo}
-                    alt={`${v.model} photo`}
-                    className="w-12 h-12 rounded-lg object-cover border border-gray-200"
-                  />
-                ) : null}
-                <p className="font-semibold text-gray-900">{v.model}</p>
-                <p className="text-xs text-gray-500 tracking-widest font-mono">{v.plate}</p>
+      <div className="mt-3 mb-4">
+        <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-400' : 'text-gray-400'}`}>
+          {t('myInfo', { defaultValue: 'Mes infos' })}
+        </h3>
+        <div
+          className={`rounded-2xl shadow-sm border overflow-hidden divide-y ${
+            isDark
+              ? 'bg-slate-900 border-slate-800 divide-slate-800'
+              : 'bg-white border-gray-100 divide-gray-100'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              collapseLegal();
+              setShowProfileModal(true);
+            }}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <User size={20} style={iconStyle('profile')} />
               </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>{t('profile')}</span>
             </div>
-          ))}
-        </div>
-      </div>
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+          </button>
 
-      {/* Achievements */}
-      <div
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4 cursor-pointer hover:border-orange-200 transition"
-        role="button"
-        tabIndex={0}
-        onClick={openAchievementsModal}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openAchievementsModal();
-          }
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-             <div className="w-9 h-9 flex items-center justify-center bg-white p-2 rounded-lg border border-gray-100">
-              🏅
+          <button
+            type="button"
+            onClick={() => {
+              collapseLegal();
+              setShowModal(true);
+            }}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <Car size={20} style={iconStyle('vehicle')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>{t('myVehicles')}</span>
             </div>
-            <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+          </button>
+
+          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <CreditCard size={20} style={iconStyle('stripe')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('stripeConnection', 'Stripe Connection')}
+              </span>
+            </div>
+            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
+              {t('stripeActive', 'Active')}
+            </span>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-100 overflow-hidden">
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
-              <CreditCard size={20} style={iconStyle('stripe')} />
-            </div>
-            <span className="font-medium">{t('stripeConnection', 'Stripe Connection')}</span>
-          </div>
-          <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
-            {t('stripeActive', 'Active')}
-          </span>
-        </div>
-
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-white p-2 rounded-lg border border-gray-100">
-              <ArrowRight size={20} style={iconStyle('invite')} />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-medium text-gray-800">{t('inviteFriends', 'Invite friends')}</span>
-              <p className="text-xs text-gray-500">{t('inviteSubtitle', 'Share ParkSwap with your friends')}</p>
-              {inviteMessage ? <span className="text-xs text-green-600 font-semibold">{inviteMessage}</span> : null}
-            </div>
-          </div>
+      <div className="mt-8">
+        <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-400' : 'text-gray-400'}`}>
+          {t('social', { defaultValue: 'Social' })}
+        </h3>
+        <div
+          className={`rounded-2xl shadow-sm border overflow-hidden mb-3 divide-y ${
+            isDark
+              ? 'bg-slate-900 border-slate-800 divide-slate-800'
+              : 'bg-white border-gray-100 divide-gray-100'
+          }`}
+        >
           <button
             type="button"
             onClick={() => {
               collapseLegal();
               onInvite?.();
             }}
-            className="text-orange-600 font-semibold hover:underline"
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+            }`}
           >
-            {t('inviteShare', 'Share')}
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <ArrowRight size={20} style={iconStyle('invite')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('inviteFriends', { defaultValue: 'Inviter des amis' })}
+              </span>
+            </div>
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              collapseLegal();
+              openAchievementsModal();
+            }}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 flex items-center justify-center bg-white p-2 rounded-lg border border-gray-100">
+                🏅
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('achievements', { defaultValue: 'Défis' })}
+              </span>
+            </div>
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              collapseLegal();
+              setShowHistory(true);
+            }}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <History size={20} style={iconStyle('history')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('historyTitle', { defaultValue: 'Historique' })}
+              </span>
+            </div>
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
           </button>
         </div>
       </div>
@@ -700,26 +711,6 @@ const ProfileView = ({
           </button>
 
           <button
-            onClick={() => {
-              collapseLegal();
-              setShowHistory(true);
-            }}
-            className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'text-slate-100 hover:bg-slate-800' : 'text-gray-900 hover:bg-gray-50'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <History size={20} style={iconStyle('history')} />
-              </div>
-              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-                {t('historyTitle', 'History')}
-              </span>
-            </div>
-            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
-          </button>
-
-          <button
             type="button"
             onClick={() => setShowLegal((s) => !s)}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
@@ -730,14 +721,9 @@ const ProfileView = ({
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <FileText size={20} style={iconStyle('legal')} />
               </div>
-              <div className="flex flex-col flex-1">
-                <span className={`font-semibold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
-                  {t('legalAndContact', 'Legal & Contact')}
-                </span>
-                <p className={`text-xs mt-1 ${isDark ? 'text-slate-300' : 'text-gray-500'}`}>
-                  {t('legalSubtitle', 'Terms, Privacy and contact info')}
-                </p>
-              </div>
+              <span className={`font-semibold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
+                {t('legalAndContact', 'Legal & Contact')}
+              </span>
             </div>
             <ArrowRight
               size={16}
@@ -799,21 +785,27 @@ const ProfileView = ({
           )}
         </div>
 
+      </div>
+
+        <div className="mt-8 text-center text-gray-400 text-xs">
+          <p>{t('versionLabel', 'Park Swap v1.0.2')}</p>
+        </div>
+      </div>
+
+      <div className="px-6">
         <button
+          type="button"
           onClick={() => onLogout?.()}
-          className={`w-full p-4 rounded-xl shadow-sm flex items-center space-x-3 border transition ${
+          className={`w-full px-6 py-5 shadow-sm flex items-center space-x-3 border-t transition rounded-t-2xl rounded-b-none ${
             isDark
-              ? 'bg-slate-900/60 border-white/10 text-slate-100 hover:bg-slate-900/80'
-              : 'bg-white border-gray-200 text-gray-900 hover:bg-gray-50'
+              ? 'bg-slate-950/95 border-white/10 text-slate-100 hover:bg-slate-950'
+              : 'bg-white/95 border-gray-200 text-gray-900 hover:bg-gray-50'
           }`}
+          style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
         >
           <LogOut size={20} style={iconStyle('logout')} />
           <span className="font-medium text-red-600">{t('logout', 'Log Out')}</span>
         </button>
-      </div>
-
-      <div className="mt-8 text-center text-gray-400 text-xs">
-        <p>{t('versionLabel', 'Park Swap v1.0.2')}</p>
       </div>
 
 {/* Modale Profil */}

@@ -482,7 +482,7 @@ const ProfileView = ({
   };
 
   return (
-    <div className="page-enter relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
+    <div className="relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
       <div id="recaptcha-container" className="hidden" />
       <div className="flex items-center justify-between mb-8 mt-4">
         <div className="flex items-center space-x-3">
@@ -538,10 +538,7 @@ const ProfileView = ({
             <div className="bg-white p-2 rounded-lg border border-gray-100">
               <User size={20} style={iconStyle('profile')} />
             </div>
-            <div className="flex flex-col">
-              <span className="font-semibold">{t('profile')}</span>
-              <span className="text-xs text-gray-500">{t('profileSubtitle', 'View and edit your info')}</span>
-            </div>
+            <span className="font-semibold">{t('profile')}</span>
           </div>
         </div>
       </div>
@@ -607,7 +604,7 @@ const ProfileView = ({
           }
         }}
       >
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
              <div className="w-9 h-9 flex items-center justify-center bg-white p-2 rounded-lg border border-gray-100">
               🏅
@@ -615,9 +612,6 @@ const ProfileView = ({
             <span className="font-semibold text-gray-900">{t('achievements', 'Achievements')}</span>
           </div>
         </div>
-        <p className="text-sm text-gray-500">
-          {t('achievementsHint', 'Discover all badges and their challenges in the dedicated modal.')}
-        </p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-100 overflow-hidden">
@@ -686,14 +680,9 @@ const ProfileView = ({
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {theme === 'dark' ? <Moon size={20} style={iconStyle('appearance')} /> : <Sun size={20} style={iconStyle('appearance')} />}
               </div>
-              <div>
-                <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-                  {t('appearance', 'Appearance')}
-                </span>
-                <p className={`text-xs ${isDark ? 'text-slate-300' : 'text-gray-500'}`}>
-                  {isDark ? t('darkMode', 'Dark mode') : t('lightMode', 'Light mode')}
-                </p>
-              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('appearance', 'Appearance')}
+              </span>
             </div>
             <span
               role="switch"

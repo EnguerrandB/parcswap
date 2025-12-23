@@ -113,7 +113,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
   };
 
   return (
-    <div className={`page-enter fixed inset-0 overflow-hidden flex flex-col items-center justify-center p-6 ${themeStyles.bg}`}>
+    <div className={`fixed inset-0 overflow-hidden flex flex-col items-center justify-center p-6 ${themeStyles.bg}`}>
       
       {/* Background Ambience (Orbs) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

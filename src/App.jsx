@@ -139,16 +139,11 @@ export default function ParkSwapApp() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [activeTab, setActiveTab] = useState('search');
-  const ENABLE_TAB_SWIPE = false; // toggle to true to re-enable swipe between tabs
-  const touchStartX = useRef(null);
-  const touchStartY = useRef(null);
-  const touchStartTime = useRef(null);
   const tabOrder = ['search', 'propose', 'profile'];
   const [slideDir, setSlideDir] = useState('left');
+  const prevTabRef = useRef('search');
   // Ajoutez ceci avec vos autres useState
   const [sheetEntryAnim, setSheetEntryAnim] = useState(false);
-  const [dragProgress, setDragProgress] = useState(0); // -1 (to prev) to 1 (to next)
-  const [dragging, setDragging] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
 	  const [showInvite, setShowInvite] = useState(false);
 	  const [inviteMessage, setInviteMessage] = useState('');
@@ -322,8 +317,6 @@ export default function ParkSwapApp() {
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
-  const [mapClosing, setMapClosing] = useState(false);
-  const mapCloseTimerRef = useRef(null);
   const [userCoords, setUserCoords] = useState(null);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
   const [accountSheetOffset, setAccountSheetOffset] = useState(0);
@@ -688,30 +681,12 @@ export default function ParkSwapApp() {
     }
   }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
 
-  useEffect(() => {
-    // Any time a spot is selected/opened, cancel closing state.
-    if (selectedSearchSpot) setMapClosing(false);
-  }, [selectedSearchSpot?.id]);
-
-  useEffect(() => {
-    return () => {
-      if (mapCloseTimerRef.current) window.clearTimeout(mapCloseTimerRef.current);
-    };
-  }, []);
-
-  const closeMapWithTransition = () => {
+  const closeMap = () => {
     suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
     setSelectionSnapshot(null);
     handleSelectionStep('cleared', null);
     setHideNav(false);
-
-    if (mapCloseTimerRef.current) window.clearTimeout(mapCloseTimerRef.current);
-    setMapClosing(true);
-    mapCloseTimerRef.current = window.setTimeout(() => {
-      setSelectedSearchSpot(null);
-      setMapClosing(false);
-      mapCloseTimerRef.current = null;
-    }, 280);
+    setSelectedSearchSpot(null);
   };
 
   // --- Persisted selection subscription (to restore itinerary after reload) ---
@@ -1234,6 +1209,10 @@ export default function ParkSwapApp() {
     setActiveTab(nextTab);
   };
 
+  useEffect(() => {
+    prevTabRef.current = activeTab;
+  }, [activeTab]);
+
   const inviteLink = typeof window !== 'undefined' ? window.location.origin : 'https://parkswap.app';
   const handleInviteShare = async () => {
     setInviteMessage('');
@@ -1336,63 +1315,16 @@ export default function ParkSwapApp() {
     );
   }
 
+  const prevTab = prevTabRef.current;
+  const shouldTabSlide =
+    (prevTab === 'search' || prevTab === 'propose') &&
+    (activeTab === 'search' || activeTab === 'propose') &&
+    prevTab !== activeTab;
+  const tabSlideClass = shouldTabSlide ? (slideDir === 'left' ? 'tab-slide-left' : 'tab-slide-right') : '';
+
   return (
     <div
       className="relative h-screen w-full bg-gradient-to-br from-orange-50 via-white to-amber-50 font-sans overflow-hidden"
-      onTouchStart={(e) => {
-        if (!ENABLE_TAB_SWIPE) return;
-        touchStartX.current = e.touches[0].clientX;
-        touchStartY.current = e.touches[0].clientY;
-        touchStartTime.current = Date.now();
-        setDragging(false);
-        setDragProgress(0);
-      }}
-      onTouchMove={(e) => {
-        if (!ENABLE_TAB_SWIPE) return;
-        if (touchStartX.current == null || touchStartY.current == null) return;
-        const dx = e.touches[0].clientX - touchStartX.current;
-        const dy = e.touches[0].clientY - touchStartY.current;
-        if (Math.abs(dy) > Math.abs(dx) * 1.5) {
-          setDragProgress(0);
-          return;
-        }
-        const width = window.innerWidth || 1;
-        let progress = Math.max(-1, Math.min(1, dx / (width * 0.65)));
-        const currentIndex = tabOrder.indexOf(activeTab);
-        const nextTab = currentIndex < tabOrder.length - 1 ? tabOrder[currentIndex + 1] : null;
-        const prevTab = currentIndex > 0 ? tabOrder[currentIndex - 1] : null;
-        if (progress < 0 && !nextTab) progress = 0;
-        if (progress > 0 && !prevTab) progress = 0;
-        setDragging(true);
-        setDragProgress(progress);
-      }}
-      onTouchEnd={(e) => {
-        if (!ENABLE_TAB_SWIPE) return;
-        if (touchStartX.current == null || touchStartY.current == null) return;
-        const dx = e.changedTouches[0].clientX - touchStartX.current;
-        const dy = e.changedTouches[0].clientY - touchStartY.current;
-        const dt = Date.now() - (touchStartTime.current || 0);
-        touchStartX.current = null;
-        touchStartY.current = null;
-        touchStartTime.current = null;
-
-        const dragStrength = Math.abs(dragProgress);
-        const speed = Math.abs(dx) / Math.max(dt, 1);
-        const horizontalEnough = dragStrength > 0.35 || (Math.abs(dx) > 120 && Math.abs(dx) > Math.abs(dy) * 1.2);
-        const quickEnough = speed > 0.4 || dt < 800;
-        const shouldFlip = horizontalEnough && quickEnough;
-
-        const currentIndex = tabOrder.indexOf(activeTab);
-        if (shouldFlip) {
-          if (dx < 0 && currentIndex < tabOrder.length - 1) {
-            changeTab(tabOrder[currentIndex + 1]);
-          } else if (dx > 0 && currentIndex > 0) {
-            changeTab(tabOrder[currentIndex - 1]);
-          }
-        }
-        setDragProgress(0);
-        setDragging(false);
-      }}
     >
      <div
         className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
@@ -1566,73 +1498,10 @@ export default function ParkSwapApp() {
         </div>
       )}
       <div className="relative flex flex-col h-full">
-        <div className="flex-1 overflow-hidden relative" style={{ perspective: '1600px' }}>
-          {(() => {
-            const currentIndex = tabOrder.indexOf(activeTab);
-            const nextTab = currentIndex < tabOrder.length - 1 ? tabOrder[currentIndex + 1] : null;
-            const prevTab = currentIndex > 0 ? tabOrder[currentIndex - 1] : null;
-            const targetTab = dragProgress < 0 ? nextTab : dragProgress > 0 ? prevTab : null;
-            const progress = Math.max(-1, Math.min(1, dragProgress));
-            const absP = Math.abs(progress);
-            const origin = progress < 0 ? 'left center' : 'right center';
-
-            const activeTransform = `translateX(${progress * 24}px) rotateY(${progress * 55}deg) scale(${1 - absP * 0.03})`;
-            const activeShadow = absP === 0 ? '0 20px 50px rgba(15,23,42,0.12)' : '0 24px 60px rgba(15,23,42,0.18)';
-            const backTransform =
-              progress === 0
-                ? 'translateX(0px) rotateY(0deg) scale(0.97)'
-                : `translateX(${progress < 0 ? -20 + absP * 26 : 20 - absP * 26}px) rotateY(${progress < 0 ? -16 + absP * 16 : 16 - absP * 16}deg) scale(${0.94 + absP * 0.05})`;
-
-            return (
-              <>
-                <div
-                  className="absolute inset-0 will-change-transform"
-                  style={{
-                    transform: backTransform,
-                    transformOrigin: progress < 0 ? 'right center' : 'left center',
-                    transition: dragging ? 'none' : 'transform 0.35s ease, filter 0.35s ease',
-                    filter: absP > 0 ? 'brightness(0.94)' : 'brightness(0.98)',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {renderTabContent(targetTab || activeTab)}
-                  <div
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      background: progress < 0
-                        ? 'linear-gradient(90deg, rgba(0,0,0,0.06), rgba(0,0,0,0))'
-                        : 'linear-gradient(270deg, rgba(0,0,0,0.06), rgba(0,0,0,0))',
-                      opacity: 0.7 * absP,
-                    }}
-                  />
-                </div>
-
-                <div
-                  className="absolute inset-0 will-change-transform bg-white/0"
-                  style={{
-                    transform: progress === 0 ? 'none' : activeTransform,
-                    transformOrigin: origin,
-                    transition: dragging ? 'none' : 'transform 0.35s ease, box-shadow 0.35s ease, filter 0.35s ease',
-                    boxShadow: activeShadow,
-                    filter: `brightness(${1 - absP * 0.06})`,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  {renderTabContent(activeTab)}
-                  <div
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      background:
-                        progress < 0
-                          ? 'linear-gradient(90deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.02) 35%, rgba(0,0,0,0) 100%)'
-                          : 'linear-gradient(270deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.02) 35%, rgba(0,0,0,0) 100%)',
-                      opacity: absP,
-                    }}
-                  />
-                </div>
-              </>
-            );
-          })()}
+        <div className="flex-1 overflow-hidden relative">
+          <div key={activeTab} className={`absolute inset-0 ${tabSlideClass}`}>
+            {renderTabContent(activeTab)}
+          </div>
         </div>
         <div className="transition-opacity duration-300 opacity-100 z-0" style={{ '--bottom-nav-height': 'auto' }}>
           <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
@@ -1641,8 +1510,7 @@ export default function ParkSwapApp() {
       {selectedSearchSpot && (
         <Map
           spot={selectedSearchSpot}
-          isExiting={mapClosing}
-          onClose={closeMapWithTransition}
+          onClose={closeMap}
           onCancelBooking={handleCancelBooking}
           onConfirmHostPlate={handleConfirmHostPlate}
           onNavStateChange={setHideNav}

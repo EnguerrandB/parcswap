@@ -744,7 +744,7 @@ const SearchView = ({
   return (
     <div
       ref={viewRef}
-      className={`page-enter h-full w-full flex flex-col relative overflow-hidden font-sans app-surface ${
+      className={`h-full w-full flex flex-col relative overflow-hidden font-sans app-surface ${
         isDark ? 'bg-gradient-to-br from-slate-900 via-slate-950 to-black' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
       }`}
       style={{

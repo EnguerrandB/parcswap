@@ -116,6 +116,10 @@ const formatEuro = (value) => {
   return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
 };
 
+const RADIUS_MIN_KM = 0.1;
+const RADIUS_MAX_KM = 5000;
+const DEFAULT_RADIUS_KM = 2000;
+
 // --- COMPOSANT CARTE (SWIPE) ---
 // caca
 // Ajoutez forwardRef et useImperativeHandle aux imports
@@ -374,7 +378,7 @@ const SearchView = ({
   const selectedSpot = controlledSelectedSpot ?? internalSelectedSpot;
   const setSelectedSpot = setControlledSelectedSpot ?? setInternalSelectedSpot;
   const [nowMs, setNowMs] = useState(Date.now());
-  const [radius, setRadius] = useState(2);
+  const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null); // null => any price
   const [showRadiusPicker, setShowRadiusPicker] = useState(false);
   const [distanceOverrides, setDistanceOverrides] = useState({});
@@ -496,7 +500,10 @@ const SearchView = ({
           prefsHydratedRef.current = true;
           return;
         }
-        const nextRadius = Number(data.radiusKm);
+        const nextRadiusRaw = Number(data.radiusKm);
+        const nextRadius = Number.isFinite(nextRadiusRaw)
+          ? Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw))
+          : NaN;
         const nextPriceMax = data.priceMax == null ? null : Number(data.priceMax);
 
         if (Number.isFinite(nextRadius) && nextRadius > 0) {
@@ -524,7 +531,7 @@ const SearchView = ({
     if (!currentUserId) return undefined;
     if (!prefsHydratedRef.current) return undefined;
 
-    const safeRadius = Math.max(0.1, Math.min(2000, Number(radius) || 2));
+    const safeRadius = Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, Number(radius) || DEFAULT_RADIUS_KM));
     const safePriceMax = priceMax == null ? null : Number(priceMax);
 
     const last = prefsLastSavedRef.current;
@@ -796,12 +803,12 @@ const SearchView = ({
               <input
                 ref={radiusSliderRef}
                 type="range"
-                min="0.1"
-                max="2000"
+                min={RADIUS_MIN_KM}
+                max={RADIUS_MAX_KM}
                 step="0.1"
                 value={radius}
                 onPointerDown={(e) =>
-                  startRangeDrag(e, radiusSliderRef, 0.1, 2000, 0.1, setRadius)
+                  startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadius)
                 }
                 onChange={(e) => setRadius(parseFloat(e.target.value))}
                 className="w-full accent-orange-500"
@@ -809,7 +816,7 @@ const SearchView = ({
               <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                 <span>100 m</span>
                 <span>500 m</span>
-                <span>2000 km</span>
+                <span>{RADIUS_MAX_KM} km</span>
               </div>
 
               <div className={`mt-5 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200/60'}`}>

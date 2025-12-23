@@ -22,6 +22,8 @@ const GotSelectedView = ({ spot, onCancel }) => {
     transactions: spot?.bookerTransactions ?? spot?.bookerTx ?? null,
     rank: spot?.bookerRank ?? null,
   });
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
 
   // Détection du thème (inchangée pour compatibilité)
   const isDark =
@@ -84,13 +86,17 @@ const GotSelectedView = ({ spot, onCancel }) => {
 
   const handleCancelClick = () => {
     if (!onCancel || !spot?.id) return;
-    const message = t('cancelLossConfirm', {
-      amount: formattedPrice,
-      defaultValue: 'You will lose {{amount}} € if you cancel. Continue?',
-    });
-    const shouldCancel = typeof window !== 'undefined' ? window.confirm(message) : true;
-    if (shouldCancel) {
-      onCancel(spot.id);
+    setShowCancelModal(true);
+  };
+
+  const confirmCancel = async () => {
+    if (!onCancel || !spot?.id) return;
+    setCancelSubmitting(true);
+    try {
+      await Promise.resolve(onCancel(spot.id));
+    } finally {
+      setCancelSubmitting(false);
+      setShowCancelModal(false);
     }
   };
 
@@ -107,7 +113,7 @@ const GotSelectedView = ({ spot, onCancel }) => {
   };
 
   return (
-    <div className={`fixed inset-0 overflow-hidden flex flex-col items-center justify-center p-6 ${themeStyles.bg}`}>
+    <div className={`page-enter fixed inset-0 overflow-hidden flex flex-col items-center justify-center p-6 ${themeStyles.bg}`}>
       
       {/* Background Ambience (Orbs) */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -174,6 +180,53 @@ const GotSelectedView = ({ spot, onCancel }) => {
             <X className="w-4 h-4" />
             <span>{t('cancelReturn', 'Cancel & return')}</span>
         </button>
+      )}
+
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-md"
+            onClick={() => (!cancelSubmitting ? setShowCancelModal(false) : null)}
+          />
+          <div
+            className={`relative w-full max-w-sm rounded-3xl border shadow-2xl p-6 ${
+              isDark ? 'bg-slate-900/85 border-white/10 text-white' : 'bg-white/85 border-white/40 text-slate-900'
+            }`}
+            style={{ WebkitBackdropFilter: 'blur(18px) saturate(180%)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('cancelLossTitle', { defaultValue: 'Cancel?' })}
+          >
+            <h3 className="text-lg font-extrabold">{t('cancelLossTitle', { defaultValue: 'Cancel?' })}</h3>
+            <p className={`mt-2 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-600'}`}>
+              {t('cancelLossConfirm', {
+                amount: formattedPrice,
+                defaultValue: 'You will lose {{amount}} € if you cancel. Continue?',
+              })}
+            </p>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                disabled={cancelSubmitting}
+                onClick={() => setShowCancelModal(false)}
+                className={`flex-1 h-12 rounded-2xl font-semibold transition active:scale-[0.99] disabled:opacity-50 ${
+                  isDark ? 'bg-white/10 hover:bg-white/15 text-white' : 'bg-slate-900/5 hover:bg-slate-900/10 text-slate-700'
+                }`}
+              >
+                {t('resume', 'Resume')}
+              </button>
+              <button
+                type="button"
+                disabled={cancelSubmitting}
+                onClick={confirmCancel}
+                className="flex-1 h-12 rounded-2xl font-extrabold bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-[0_12px_30px_rgba(249,115,22,0.35)] hover:brightness-110 transition active:scale-[0.99] disabled:opacity-50"
+              >
+                {cancelSubmitting ? t('loading', { defaultValue: 'Loading…' }) : t('confirm', { defaultValue: 'Confirm' })}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

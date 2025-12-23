@@ -518,7 +518,7 @@ const GotConfirmedView = ({
   }, [distanceMeters]);
 
   const content = (
-    <div className="fixed inset-0 overflow-hidden bg-white" style={{ zIndex: 2147483647 }}>
+    <div className="page-enter fixed inset-0 overflow-hidden bg-white" style={{ zIndex: 2147483647 }}>
       <style>{`
         .driver-info-popup {
           pointer-events: none;

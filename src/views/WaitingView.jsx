@@ -213,7 +213,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     if (myActiveSpot.status === 'confirmed') {
       return (
-        <div className="fixed inset-0 z-[9999] overflow-hidden flex flex-col items-center justify-center text-center">
+        <div className="page-enter fixed inset-0 z-[9999] overflow-hidden flex flex-col items-center justify-center text-center">
           <div className="bg-green-100 p-6 rounded-full mb-6">
             <CheckCircle size={48} className="text-green-600" />
           </div>
@@ -233,7 +233,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
 
     return (
       <div
-        className="fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white app-surface"
+        className="page-enter fixed inset-0 overflow-hidden flex flex-col p-6 bg-gradient-to-b from-orange-50 to-white app-surface"
         style={{
           paddingBottom: 'var(--bottom-safe-offset, 96px)',
         }}

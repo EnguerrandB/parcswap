@@ -235,7 +235,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="h-full bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center px-6 overflow-hidden">
+    <div className="page-enter h-full bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center px-6 overflow-hidden">
       <div className="w-full max-w-md bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/80 p-8 space-y-6 overflow-hidden">
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">{t('authWelcome', 'Welcome to ParkSwap')}</h1>

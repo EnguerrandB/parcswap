@@ -482,7 +482,7 @@ const ProfileView = ({
   };
 
   return (
-    <div className="relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
+    <div className="page-enter relative h-full bg-gray-50 p-6 overflow-y-auto no-scrollbar">
       <div id="recaptcha-container" className="hidden" />
       <div className="flex items-center justify-between mb-8 mt-4">
         <div className="flex items-center space-x-3">

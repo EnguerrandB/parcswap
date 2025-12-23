@@ -32,9 +32,8 @@ import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
-	import AppLogo from './components/AppLogo';
-	import movingLogo from './assets/logo_moving.svg';
 	import Map from './components/Map';
+import { Menu } from 'lucide-react';
 
 const hashSeed = (str) => {
   let h = 2166136261;
@@ -326,11 +325,6 @@ export default function ParkSwapApp() {
   const [mapClosing, setMapClosing] = useState(false);
   const mapCloseTimerRef = useRef(null);
   const [userCoords, setUserCoords] = useState(null);
-  const [logoOffset, setLogoOffset] = useState(0); // horizontal drag offset for the logo
-  const logoDragRef = useRef(false);
-  const logoDragStart = useRef({ x: 0, offset: 0 });
-  const logoMovedRef = useRef(false);
-  const [logoDragging, setLogoDragging] = useState(false);
   const [showAccountSheet, setShowAccountSheet] = useState(false);
   const [accountSheetOffset, setAccountSheetOffset] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
@@ -338,50 +332,10 @@ export default function ParkSwapApp() {
   const sheetStartY = useRef(0);
   const sheetOffsetRef = useRef(0);
 
-  const clampLogoOffset = (value) => {
-    if (typeof window === 'undefined') return 0;
-    const max = Math.max(0, window.innerWidth / 2 - 48); // keep logo fully visible
-    const min = -max;
-    return Math.min(Math.max(value, min), max);
-  };
-
-  const handleLogoClick = () => {
-    // Only trigger sharing if this interaction wasn't a drag
-    if (logoMovedRef.current) return;
-    setSheetEntryAnim(true)
+  const handleMenuClick = () => {
+    setSheetEntryAnim(true);
     setShowAccountSheet(true);
     setAccountSheetOffset(0);
-  };
-
-  const handleLogoPointerDown = (e) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    logoDragRef.current = true;
-    logoMovedRef.current = false;
-    setLogoDragging(false);
-    logoDragStart.current = { x: startX, offset: logoOffset };
-
-    const onMove = (ev) => {
-      if (!logoDragRef.current) return;
-      const delta = ev.clientX - logoDragStart.current.x;
-      if (Math.abs(delta) > 3) {
-        logoMovedRef.current = true;
-        setLogoDragging(true);
-      }
-      setLogoOffset(clampLogoOffset(logoDragStart.current.offset + delta));
-    };
-
-    const onEnd = () => {
-      logoDragRef.current = false;
-      setLogoDragging(false);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onEnd);
-      window.removeEventListener('pointercancel', onEnd);
-    };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onEnd);
-    window.addEventListener('pointercancel', onEnd);
   };
 
   const handleAccountSheetPointerDown = (e) => {
@@ -1322,6 +1276,7 @@ export default function ParkSwapApp() {
             onSelectionStep={handleSelectionStep}
             leaderboard={leaderboard}
             userCoords={userCoords}
+            currentUserId={user?.uid || null}
           />
         </div>
       );
@@ -1376,9 +1331,6 @@ export default function ParkSwapApp() {
   if (!user) {
     return (
       <div className="relative h-screen w-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-amber-50">
-	  <div className="fixed top-4 inset-x-0 z-[80] pointer-events-none flex justify-center">
-          <AppLogo size={64} />
-        </div>
        <AuthView />
       </div>
     );
@@ -1443,39 +1395,23 @@ export default function ParkSwapApp() {
       }}
     >
      <div
-        className={`fixed top-4 left-1/2 z-[90] pointer-events-none transition-opacity duration-300 ${
+        className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
           hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
-        style={{ transform: `translateX(${logoOffset}px)` }}
       >
         <button
           type="button"
-          onClick={handleLogoClick}
-          onPointerDown={handleLogoPointerDown}
-          // Added 'relative w-16 h-16' to lock dimensions so it doesn't jump
-          className="pointer-events-auto relative w-16 h-16 flex items-center justify-center active:scale-95 transition-transform"
-          aria-label="Invite friends"
-          title="Glisser pour déplacer le logo"
+          onClick={handleMenuClick}
+          className={`w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+            theme === 'dark'
+              ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+              : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+          }`}
+          style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+          aria-label={i18n.t('settings', 'Settings')}
+          title={i18n.t('settings', 'Settings')}
         >
-          {/* 1. Static Logo: Always rendered, fades out when dragging */}
-          <div
-            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ease-out ${
-              logoDragging ? 'opacity-0' : 'opacity-100'
-            }`}
-          >
-            <AppLogo size={64} />
-          </div>
-
-          {/* 2. Moving Logo: Always rendered (preloaded), fades in when dragging */}
-          <div
-            className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ease-out ${
-              logoDragging ? 'opacity-100' : 'opacity-0'
-            }`}
-          >
-            <div className="relative w-16 h-16">
-              <img src={movingLogo} alt="Logo" className="w-full h-full object-contain" />
-            </div>
-          </div>
+          <Menu size={22} strokeWidth={2.5} />
         </button>
       </div>
 

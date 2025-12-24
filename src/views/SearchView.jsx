@@ -381,6 +381,8 @@ const SearchView = ({
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null); // null => any price
   const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+  const filtersButtonRef = useRef(null);
+  const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
   const [distanceOverrides, setDistanceOverrides] = useState({});
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
@@ -400,6 +402,7 @@ const SearchView = ({
     const max = values.length ? Math.max(...values) : 0;
     return Math.max(10, Math.ceil(max));
   }, [spots]);
+  const anyLabel = t('any', { defaultValue: 'Any' });
 
   const startRangeDrag = (e, ref, min, max, step, setter) => {
     if (!ref?.current) return;
@@ -423,6 +426,55 @@ const SearchView = ({
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
   };
+
+  const setRadiusFromRange = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    if (n >= RADIUS_MAX_KM - 1e-6) {
+      setRadius(null);
+    } else {
+      setRadius(n);
+    }
+  };
+
+  const setPriceMaxFromRange = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    if (n >= maxSpotPrice - 1e-6) {
+      setPriceMax(null);
+    } else {
+      setPriceMax(n);
+    }
+  };
+
+  const computeFiltersPanelTop = () => {
+    if (!viewRef.current || !filtersButtonRef.current) return null;
+    const viewRect = viewRef.current.getBoundingClientRect();
+    const buttonRect = filtersButtonRef.current.getBoundingClientRect();
+    const top = buttonRect.bottom - viewRect.top + 10;
+    return Math.max(0, Math.round(top));
+  };
+
+  useEffect(() => {
+    if (!showRadiusPicker) return undefined;
+    const update = () => setFiltersPanelTopPx(computeFiltersPanelTop());
+    const rafUpdate = () => window.requestAnimationFrame(update);
+
+    rafUpdate();
+    window.addEventListener('resize', rafUpdate);
+    window.addEventListener('orientationchange', rafUpdate);
+
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', rafUpdate);
+    viewport?.addEventListener('scroll', rafUpdate);
+
+    return () => {
+      window.removeEventListener('resize', rafUpdate);
+      window.removeEventListener('orientationchange', rafUpdate);
+      viewport?.removeEventListener('resize', rafUpdate);
+      viewport?.removeEventListener('scroll', rafUpdate);
+    };
+  }, [showRadiusPicker]);
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -501,13 +553,16 @@ const SearchView = ({
           prefsHydratedRef.current = true;
           return;
         }
-        const nextRadiusRaw = Number(data.radiusKm);
-        const nextRadius = Number.isFinite(nextRadiusRaw)
-          ? Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw))
-          : NaN;
+        const nextRadiusRaw = data.radiusKm == null ? null : Number(data.radiusKm);
+        const nextRadius =
+          nextRadiusRaw == null || !Number.isFinite(nextRadiusRaw)
+            ? null
+            : nextRadiusRaw >= RADIUS_MAX_KM - 1e-6
+              ? null
+              : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw));
         const nextPriceMax = data.priceMax == null ? null : Number(data.priceMax);
 
-        if (Number.isFinite(nextRadius) && nextRadius > 0) {
+        if (nextRadius == null || (Number.isFinite(nextRadius) && nextRadius > 0)) {
           setRadius((prev) => (prefsHydratedRef.current ? prev : nextRadius));
         }
         if (nextPriceMax == null || Number.isFinite(nextPriceMax)) {
@@ -515,7 +570,7 @@ const SearchView = ({
         }
 
         prefsLastSavedRef.current = {
-          radius: Number.isFinite(nextRadius) ? nextRadius : prefsLastSavedRef.current.radius,
+          radius: nextRadius == null || Number.isFinite(nextRadius) ? nextRadius : prefsLastSavedRef.current.radius,
           priceMax: nextPriceMax,
         };
         prefsHydratedRef.current = true;
@@ -532,7 +587,10 @@ const SearchView = ({
     if (!currentUserId) return undefined;
     if (!prefsHydratedRef.current) return undefined;
 
-    const safeRadius = Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, Number(radius) || DEFAULT_RADIUS_KM));
+    const safeRadius =
+      radius == null
+        ? null
+        : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, Number(radius) || DEFAULT_RADIUS_KM));
     const safePriceMax = priceMax == null ? null : Number(priceMax);
 
     const last = prefsLastSavedRef.current;
@@ -560,7 +618,7 @@ const SearchView = ({
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
   const availableSpots = sortedSpots.filter((spot) => {
-    const withinRadius = getDistanceMeters(spot, userCoords) <= radius * 1000;
+    const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
     if (!withinRadius) return false;
     if (priceMax == null) return true;
     const p = Number(spot?.price ?? 0);
@@ -777,48 +835,50 @@ const SearchView = ({
             onClick={() => setShowRadiusPicker(false)}
           />
           {/* Panneau filtres (radius + prix) */}
-          <div
-            className={`absolute left-6 right-6 transition-all duration-200 origin-top ${
-              showRadiusPicker
-                ? 'opacity-100 scale-100 pointer-events-auto'
-                : 'opacity-0 scale-90 pointer-events-none'
-            }`}
-            style={{ top: 'calc(64px + 50px)' }}
-          >
+	          <div
+	            className={`absolute left-6 right-6 transition-all duration-200 origin-top ${
+	              showRadiusPicker
+	                ? 'opacity-100 scale-100 pointer-events-auto'
+	                : 'opacity-0 scale-90 pointer-events-none'
+	            }`}
+	            style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
+	          >
             <div
               className={`backdrop-blur-lg rounded-2xl shadow-2xl border p-4 ${
                 isDark ? 'bg-slate-900/90 border-white/10 shadow-black/40' : 'bg-white/95 border-white/80'
               }`}
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                  {t('searchRadius', 'Search radius')}
-                </span>
-                <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
-                  {t('radiusValue', {
-                    value: radius.toFixed(1),
-                    defaultValue: '{{value}} km',
-                  })}
-                </span>
-              </div>
-              <input
-                ref={radiusSliderRef}
-                type="range"
-                min={RADIUS_MIN_KM}
-                max={RADIUS_MAX_KM}
-                step="0.1"
-                value={radius}
-                onPointerDown={(e) =>
-                  startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadius)
-                }
-                onChange={(e) => setRadius(parseFloat(e.target.value))}
-                className="w-full accent-orange-500"
-              />
-              <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                <span>100 m</span>
-                <span>500 m</span>
-                <span>{RADIUS_MAX_KM} km</span>
-              </div>
+	              <div className="flex items-center justify-between mb-2">
+	                <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+	                  {t('searchRadius', 'Search radius')}
+	                </span>
+	                <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
+	                  {radius == null
+	                    ? anyLabel
+	                    : t('radiusValue', {
+	                        value: radius.toFixed(1),
+	                        defaultValue: '{{value}} km',
+	                      })}
+	                </span>
+	              </div>
+	              <input
+	                ref={radiusSliderRef}
+	                type="range"
+	                min={RADIUS_MIN_KM}
+	                max={RADIUS_MAX_KM}
+	                step="0.1"
+	                value={radius == null ? RADIUS_MAX_KM : radius}
+	                onPointerDown={(e) =>
+	                  startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadiusFromRange)
+	                }
+	                onChange={(e) => setRadiusFromRange(parseFloat(e.target.value))}
+	                className="w-full accent-orange-500"
+	              />
+	              <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
+	                <span>100 m</span>
+	                <span>500 m</span>
+	                <span>{anyLabel}</span>
+	              </div>
 
               <div className={`mt-5 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200/60'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -831,28 +891,19 @@ const SearchView = ({
                         ? t('anyPrice', { defaultValue: 'Any' })
                         : t('priceValue', { defaultValue: '{{value}} €', value: formatEuro(priceMax) })}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setPriceMax(null)}
-                      className={`text-xs font-semibold px-2 py-1 rounded-full border transition ${
-                        isDark ? 'border-white/10 text-slate-200 hover:bg-white/10' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      {t('reset', { defaultValue: 'Reset' })}
-                    </button>
                   </div>
                 </div>
-                <input
-                  ref={priceSliderRef}
-                  type="range"
-                  min="0"
-                  max={maxSpotPrice}
-                  step="0.5"
-                  value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
-                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMax)}
-                  onChange={(e) => setPriceMax(parseFloat(e.target.value))}
-                  className="w-full accent-orange-500"
-                />
+	                <input
+	                  ref={priceSliderRef}
+	                  type="range"
+	                  min="0"
+	                  max={maxSpotPrice}
+	                  step="0.5"
+	                  value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+	                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
+	                  onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
+	                  className="w-full accent-orange-500"
+	                />
                 <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
                   <span>0 €</span>
                   <span>{formatEuro(maxSpotPrice)} €</span>
@@ -863,25 +914,26 @@ const SearchView = ({
         </div>
       )}
       {/* Header */}
-      {!selectedSpot && (
-        <div className="px-6 pt-5 pb-2 relative flex items-center justify-end z-0">
-          <button
-            type="button"
-            onClick={() => setShowRadiusPicker((s) => !s)}
-            className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
-              isDark
-                ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
-                : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
-            }`}
-          >
-            {t('filtersHeader', {
-              defaultValue: '{{radius}} km • {{price}}',
-              radius: radius.toFixed(1),
-              price: priceMax == null ? t('anyPrice', { defaultValue: 'Any' }) : `≤ ${formatEuro(priceMax)} €`,
-            })}
-          </button>
-        </div>
-      )}
+	      {!selectedSpot && (
+	        <div className="px-6 pt-5 pb-2 relative flex items-center justify-end z-0">
+	          <button
+	            type="button"
+	            ref={filtersButtonRef}
+	            onClick={() => setShowRadiusPicker((s) => !s)}
+	            className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
+	              isDark
+	                ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+	                : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
+	            }`}
+	          >
+	            {t('filtersHeader', {
+	              defaultValue: '{{radius}} • {{price}}',
+	              radius: radius == null ? anyLabel : `${radius.toFixed(1)} km`,
+	              price: priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`,
+	            })}
+	          </button>
+	        </div>
+	      )}
 
       {/* Stack de Cartes + Actions */}
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">

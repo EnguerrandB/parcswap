@@ -108,16 +108,10 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
 
   return (
     <div
-      className="h-full flex flex-col bg-white px-6 pt-20 overflow-y-auto relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
+      className="h-full flex flex-col bg-white px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
       style={{ touchAction: 'auto' }}
     >
-      <div className="flex items-center space-x-2 text-orange-500 uppercase tracking-[0.15em] text-[11px] font-semibold -mt-4 mb-2">
-        <div className="w-9 h-9 rounded-full bg-orange-50 border border-orange-100 shadow-sm flex items-center justify-center text-lg leading-none">
-          🚗
-        </div>
-        <span className="-translate-y-[1px]">{t('liveNearby', 'Live nearby')}</span>
-      </div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6 mt-1">{t('leavingTitle', 'Leaving my spot')}</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">{t('leavingTitle', 'Leaving my spot')}</h2>
 
       <div className="space-y-6">
         {/* Car */}

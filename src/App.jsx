@@ -308,6 +308,7 @@ export default function ParkSwapApp() {
     return fallbackLocation;
   };
   const [spots, setSpots] = useState([]);
+  const [searchDeckIndex, setSearchDeckIndex] = useState(0);
   const [myActiveSpot, setMyActiveSpot] = useState(null);
   const [bookedSpot, setBookedSpot] = useState(null);
   const [vehicles, setVehicles] = useState([]);
@@ -1194,6 +1195,7 @@ export default function ParkSwapApp() {
     // Immediately reset local state so UI returns to auth screen
     setUser(null);
     setActiveTab('search');
+    setSearchDeckIndex(0);
     setMyActiveSpot(null);
     setBookedSpot(null);
     setVehicles([]);
@@ -1257,6 +1259,8 @@ export default function ParkSwapApp() {
             leaderboard={leaderboard}
             userCoords={userCoords}
             currentUserId={user?.uid || null}
+            deckIndex={searchDeckIndex}
+            setDeckIndex={setSearchDeckIndex}
           />
         </div>
       );

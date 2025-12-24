@@ -482,7 +482,10 @@ const ProfileView = ({
   };
 
   return (
-    <div className="relative h-full bg-gray-50 overflow-y-auto no-scrollbar">
+    <div
+      className="relative h-full bg-gray-50 overflow-y-auto no-scrollbar"
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
       <div className="p-6 pb-6">
         <div id="recaptcha-container" className="hidden" />
         <div className="flex items-center justify-between mb-8 mt-4">
@@ -539,7 +542,9 @@ const ProfileView = ({
               setShowProfileModal(true);
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -558,7 +563,9 @@ const ProfileView = ({
               setShowModal(true);
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -604,7 +611,9 @@ const ProfileView = ({
               onInvite?.();
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -625,7 +634,9 @@ const ProfileView = ({
               openAchievementsModal();
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -646,7 +657,9 @@ const ProfileView = ({
               setShowHistory(true);
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -684,7 +697,9 @@ const ProfileView = ({
               toggleTheme();
             }}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'hover:bg-slate-800 text-slate-100' : 'hover:bg-gray-50 text-gray-900'
+              isDark
+                ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
+                : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -714,7 +729,9 @@ const ProfileView = ({
             type="button"
             onClick={() => setShowLegal((s) => !s)}
             className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'text-slate-100 hover:bg-slate-800' : 'text-gray-900 hover:bg-gray-50'
+              isDark
+                ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800'
+                : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
             }`}
           >
             <div className="flex items-center space-x-3">
@@ -798,8 +815,8 @@ const ProfileView = ({
           onClick={() => onLogout?.()}
           className={`w-full px-6 py-5 shadow-sm flex items-center space-x-3 border-t transition rounded-t-2xl rounded-b-none ${
             isDark
-              ? 'bg-slate-950/95 border-white/10 text-slate-100 hover:bg-slate-950'
-              : 'bg-white/95 border-gray-200 text-gray-900 hover:bg-gray-50'
+              ? 'bg-slate-950/95 border-white/10 text-slate-100 [@media(hover:hover)]:hover:bg-slate-950'
+              : 'bg-white/95 border-gray-200 text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
           }`}
           style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
         >

@@ -111,6 +111,40 @@ const getCreatedMs = (spot) => {
   return 0;
 };
 
+const hostKeyForSpot = (spot) => spot?.hostId || spot?.hostName || spot?.id;
+
+const uniqueSpotsByHost = (spots = []) => {
+  const byHost = new Map();
+
+  spots.forEach((spot) => {
+    const key = hostKeyForSpot(spot);
+    if (!key) return;
+
+    const prev = byHost.get(key);
+    if (!prev) {
+      byHost.set(key, spot);
+      return;
+    }
+
+    const prevCreated = getCreatedMs(prev);
+    const nextCreated = getCreatedMs(spot);
+    if (nextCreated > prevCreated) {
+      byHost.set(key, spot);
+      return;
+    }
+
+    if (nextCreated === prevCreated) {
+      const prevPrice = Number(prev?.price);
+      const nextPrice = Number(spot?.price);
+      if (Number.isFinite(prevPrice) && Number.isFinite(nextPrice) && nextPrice < prevPrice) {
+        byHost.set(key, spot);
+      }
+    }
+  });
+
+  return Array.from(byHost.values());
+};
+
 const formatDuration = (ms) => {
   if (ms == null) return null;
   const clamped = Math.max(0, ms);
@@ -206,8 +240,8 @@ const SwipeCard = forwardRef(({
 
   const handlePointerMove = (e) => {
     if (!isDragging || !active) return;
-    const deltaX = e.clientX - dragStart.x;
-    const deltaY = e.clientY - dragStart.y;
+    const deltaX = Math.round(e.clientX - dragStart.x);
+    const deltaY = Math.round(e.clientY - dragStart.y);
     setOffset({ x: deltaX, y: deltaY });
     if (onDrag) onDrag(deltaX);
   };
@@ -428,6 +462,8 @@ const SearchView = ({
   leaderboard = [],
   userCoords = null,
   currentUserId = null,
+  deckIndex = null,
+  setDeckIndex,
 }) => {
   const { t } = useTranslation('common');
   const isDark =
@@ -437,7 +473,9 @@ const SearchView = ({
   const visualAreaRef = useRef(null);
   const cardStackRef = useRef(null);
   const activeCardRef = useRef(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [localDeckIndex, setLocalDeckIndex] = useState(0);
+  const currentIndex = Number.isFinite(deckIndex) ? deckIndex : localDeckIndex;
+  const setCurrentIndex = setDeckIndex ?? setLocalDeckIndex;
   const actionRef = useRef(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [internalSelectedSpot, setInternalSelectedSpot] = useState(null);
@@ -683,13 +721,14 @@ const SearchView = ({
   }, [currentUserId, radius, priceMax]);
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
-  const availableSpots = sortedSpots.filter((spot) => {
+  const filteredSpots = sortedSpots.filter((spot) => {
     const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
     if (!withinRadius) return false;
     if (priceMax == null) return true;
     const p = Number(spot?.price ?? 0);
     return Number.isFinite(p) ? p <= priceMax : true;
   });
+  const availableSpots = uniqueSpotsByHost(filteredSpots).sort((a, b) => getCreatedMs(a) - getCreatedMs(b));
   const availableColors = colorsForOrderedSpots(availableSpots, colorSaltRef.current);
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
@@ -698,8 +737,11 @@ const SearchView = ({
   const isMapOpen = !!selectedSpot;
 
   useEffect(() => {
-    setCurrentIndex(0);
-  }, [spots]);
+    if (!Number.isFinite(currentIndex)) return;
+    const maxIndex = availableSpots.length;
+    if (currentIndex < 0) setCurrentIndex(0);
+    else if (currentIndex > maxIndex) setCurrentIndex(maxIndex);
+  }, [availableSpots.length, currentIndex, setCurrentIndex]);
 
   // Track cards leaving the visible stack to animate them out
   useEffect(() => {
@@ -1098,7 +1140,7 @@ const SearchView = ({
                     activeCardRef.current.triggerSwipe('left');
                   }
                 }}
-                className={`rounded-full flex items-center justify-center transition-all duration-75 border ${
+                className={`rounded-full flex items-center justify-center border ${
                   isDark
                     ? 'bg-slate-900 text-rose-400 border-orange-400/70 shadow-lg'
                     : 'bg-white text-rose-500 border-orange-400/70 shadow-lg'
@@ -1111,6 +1153,10 @@ const SearchView = ({
                     dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
                   }px)`,
                   opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0) : 1,
+                  transition: Math.abs(dragX) > 2
+                    ? 'opacity 80ms linear'
+                    : 'transform 220ms cubic-bezier(0.2,0.8,0.2,1), opacity 220ms ease',
+                  willChange: 'transform, opacity',
                 }}
               >
                 {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
@@ -1137,7 +1183,7 @@ const SearchView = ({
                     activeCardRef.current.triggerSwipe('right');
                   }
                 }}
-                className={`px-7 rounded-full flex items-center justify-center text-white transition-all duration-75 font-bold text-base ${
+                className={`px-7 rounded-full flex items-center justify-center text-white font-bold text-base ${
                   isDark
                     ? 'bg-gradient-to-r from-orange-500 to-amber-400'
                     : 'bg-gradient-to-r from-orange-500 to-amber-400'
@@ -1149,6 +1195,10 @@ const SearchView = ({
                     dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
                   }px)`,
                   opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0) : 1,
+                  transition: Math.abs(dragX) > 2
+  ? 'opacity 80ms linear'
+  : 'transform 220ms cubic-bezier(0.2,0.8,0.2,1), opacity 220ms ease',
+willChange: 'transform, opacity',
                 }}
               >
                 {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}

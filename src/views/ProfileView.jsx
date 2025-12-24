@@ -1,17 +1,28 @@
 // src/views/ProfileView.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
+  Calendar,
+  Camera,
   Car,
+  Check,
+  Compass,
   CreditCard,
+  Flame,
+  Gem,
+  Gift,
+  Handshake,
   History,
   LogOut,
+  MapPin,
   ArrowRight,
+  ChevronDown,
+  Search,
+  Sunrise,
   User,
   Trophy,
   Laptop,
   Smartphone,
   FileText,
-  ShieldCheck,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -52,6 +63,33 @@ const ProfileView = ({
     logout: '#f97316',
   };
   const iconStyle = (key) => ({ color: iconColors[key] || '#f97316' });
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const toDate = (value) => {
+    if (!value) return null;
+    if (typeof value?.toDate === 'function') return value.toDate();
+    if (typeof value === 'number') return new Date(value);
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      if (!Number.isNaN(parsed)) return new Date(parsed);
+    }
+    return null;
+  };
+  const dayKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  const parseDayKeyUtc = (key) => {
+    const [y, m, d] = String(key || '').split('-').map((v) => Number(v));
+    if (!y || !m || !d) return null;
+    return Date.UTC(y, m - 1, d);
+  };
+  const getTxAmount = (tx) => {
+    const raw = tx?.amount ?? tx?.price ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  };
   const rankLabel = (count = 0) => {
     const n = Number(count) || 0;
     if (n >= 20) return 'Loulou Ultimate';
@@ -68,6 +106,13 @@ const ProfileView = ({
     if (n >= 5) return '/ranks/rank2.png';
     return '/ranks/rank1.png';
   };
+  const rankTiers = [
+    { img: '/ranks/rank1.png', label: 'Explorer', minTransactions: 0 },
+    { img: '/ranks/rank2.png', label: 'Silver', minTransactions: 5 },
+    { img: '/ranks/rank3.png', label: 'Gold', minTransactions: 10 },
+    { img: '/ranks/rank4.png', label: 'Platinum', minTransactions: 15 },
+    { img: '/ranks/rank5.png', label: 'Ultimate', minTransactions: 20 },
+  ];
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let letters1 = '';
@@ -132,187 +177,269 @@ const ProfileView = ({
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showLegal, setShowLegal] = useState(false);
+  const achievementStats = useMemo(() => {
+    const txs = Array.isArray(transactions) ? transactions : [];
+    const v = Array.isArray(vehicles) ? vehicles : [];
+
+    const hostTxs = txs.filter((tx) => tx?.role === 'host');
+    const bookerTxs = txs.filter((tx) => tx?.role === 'booker');
+    const concludedTxs = txs.filter((tx) => tx?.status === 'concluded');
+    const concludedHostTxs = concludedTxs.filter((tx) => tx?.role === 'host');
+    const concludedBookerTxs = concludedTxs.filter((tx) => tx?.role === 'booker');
+
+    const freeHostConcludedCount = concludedHostTxs.filter((tx) => getTxAmount(tx) <= 0).length;
+    const highValueConcludedCount = concludedTxs.filter((tx) => getTxAmount(tx) >= 10).length;
+
+    const hostEarlyCount = hostTxs.filter((tx) => {
+      const date = toDate(tx?.createdAt) || toDate(tx?.updatedAt);
+      if (!date) return false;
+      return date.getHours() < 9;
+    }).length;
+
+    const weekendConcludedCount = concludedTxs.filter((tx) => {
+      const date = toDate(tx?.createdAt) || toDate(tx?.updatedAt);
+      if (!date) return false;
+      const dow = date.getDay(); // 0 = Sunday, 6 = Saturday
+      return dow === 0 || dow === 6;
+    }).length;
+
+    const activityDays = new Set();
+    txs.forEach((tx) => {
+      const created = toDate(tx?.createdAt);
+      const updated = toDate(tx?.updatedAt);
+      if (created) activityDays.add(dayKey(created));
+      if (updated) activityDays.add(dayKey(updated));
+    });
+    const sortedDays = Array.from(activityDays).sort();
+    let bestStreak = 0;
+    let currentStreak = 0;
+    let prevDayUtc = null;
+    sortedDays.forEach((key) => {
+      const dayUtc = parseDayKeyUtc(key);
+      if (dayUtc == null) return;
+      if (prevDayUtc != null && dayUtc - prevDayUtc === 86_400_000) {
+        currentStreak += 1;
+      } else {
+        currentStreak = 1;
+      }
+      bestStreak = Math.max(bestStreak, currentStreak);
+      prevDayUtc = dayUtc;
+    });
+
+    return {
+      vehiclesCount: v.length,
+      vehiclePhotoCount: v.filter((veh) => !!veh?.photo).length,
+      hostCount: hostTxs.length,
+      bookerCount: bookerTxs.length,
+      concludedCount: concludedTxs.length,
+      concludedHostCount: concludedHostTxs.length,
+      concludedBookerCount: concludedBookerTxs.length,
+      freeHostConcludedCount,
+      highValueConcludedCount,
+      hostEarlyCount,
+      weekendConcludedCount,
+      bestStreak,
+    };
+  }, [transactions, vehicles]);
+
   const achievementDefs = [
     {
-      id: 'achv-1',
+      id: 'achv-vehicle',
+      labelKey: 'achievementFirstVehicle',
+      labelDefault: 'First Wheels',
+      Icon: Car,
+      badgeClass: 'bg-gradient-to-br from-orange-500 to-amber-400',
+      challenges: [
+        {
+          key: 'achievementFirstVehicleChallenge1',
+          fallback: 'Add your first vehicle',
+          getProgress: (s) => ({ current: clamp(s.vehiclesCount, 0, 1), target: 1 }),
+        },
+      ],
+    },
+    {
+      id: 'achv-photo',
+      labelKey: 'achievementPhotoReady',
+      labelDefault: 'Photo Ready',
+      Icon: Camera,
+      badgeClass: 'bg-gradient-to-br from-sky-500 to-indigo-500',
+      challenges: [
+        {
+          key: 'achievementPhotoReadyChallenge1',
+          fallback: 'Add a photo to a vehicle',
+          getProgress: (s) => ({ current: clamp(s.vehiclePhotoCount, 0, 1), target: 1 }),
+        },
+      ],
+    },
+    {
+      id: 'achv-offer-1',
+      labelKey: 'achievementFirstOffer',
+      labelDefault: 'First Offer',
+      Icon: MapPin,
+      badgeClass: 'bg-gradient-to-br from-emerald-500 to-teal-500',
+      challenges: [
+        {
+          key: 'achievementFirstOfferChallenge1',
+          fallback: 'Publish your first spot',
+          getProgress: (s) => ({ current: clamp(s.hostCount, 0, 1), target: 1 }),
+        },
+      ],
+    },
+    {
+      id: 'achv-book-1',
+      labelKey: 'achievementFirstBooking',
+      labelDefault: 'First Booking',
+      Icon: Search,
+      badgeClass: 'bg-gradient-to-br from-violet-500 to-fuchsia-500',
+      challenges: [
+        {
+          key: 'achievementFirstBookingChallenge1',
+          fallback: 'Book your first spot',
+          getProgress: (s) => ({ current: clamp(s.bookerCount, 0, 1), target: 1 }),
+        },
+      ],
+    },
+    {
+      id: 'achv-swap-1',
       labelKey: 'achievementPioneer',
       labelDefault: 'Pioneer',
-      enabled: true,
-      icon: '/ranks/rank1.png',
-      challengeKeys: [{ key: 'achievementPioneerChallenge1', fallback: 'Complete your first transaction' }],
+      Icon: Handshake,
+      badgeClass: 'bg-gradient-to-br from-slate-800 to-slate-950',
+      challenges: [
+        {
+          key: 'achievementPioneerChallenge1',
+          fallback: 'Complete your first swap',
+          getProgress: (s) => ({ current: clamp(s.concludedCount, 0, 1), target: 1 }),
+        },
+      ],
     },
     {
-      id: 'achv-2',
+      id: 'achv-swap-5',
       labelKey: 'achievementTrusty',
       labelDefault: 'Trusty Trader',
-      enabled: false,
-      icon: '/ranks/rank2.png',
-      challengeKeys: [
-        { key: 'achievementTrustyChallenge1', fallback: 'Complete 10 transactions' },
-        { key: 'achievementTrustyChallenge2', fallback: 'Earn 3 positive reviews' },
+      Icon: Trophy,
+      badgeClass: 'bg-gradient-to-br from-amber-500 to-orange-500',
+      challenges: [
+        {
+          key: 'achievementTrustyChallenge1',
+          fallback: 'Complete 5 swaps',
+          getProgress: (s) => ({ current: clamp(s.concludedCount, 0, 5), target: 5 }),
+        },
       ],
     },
     {
-      id: 'achv-3',
-      labelKey: 'achievementSprinter',
-      labelDefault: 'Sprinter',
-      enabled: false,
-      icon: '/ranks/rank3.png',
-      challengeKeys: [
-        { key: 'achievementSprinterChallenge1', fallback: 'Reply in under 30s to a request' },
-        { key: 'achievementSprinterChallenge2', fallback: 'Complete 5 swaps within 24h' },
-      ],
-    },
-    {
-      id: 'achv-4',
-      labelKey: 'achievementNightOwl',
-      labelDefault: 'Night Owl',
-      enabled: false,
-      icon: '/ranks/rank4.png',
-      challengeKeys: [{ key: 'achievementNightOwlChallenge1', fallback: 'Make a swap between 1am and 5am' }],
-    },
-    {
-      id: 'achv-5',
-      labelKey: 'achievementCityExplorer',
-      labelDefault: 'City Explorer',
-      enabled: false,
-      icon: '/ranks/rank5.png',
-      challengeKeys: [{ key: 'achievementCityExplorerChallenge1', fallback: 'Offer a spot in 5 different districts' }],
-    },
-    {
-      id: 'achv-6',
-      labelKey: 'achievementGlobetrotter',
-      labelDefault: 'Globetrotter',
-      enabled: false,
-      icon: '/ranks/rank1.png',
-      challengeKeys: [{ key: 'achievementGlobetrotterChallenge1', fallback: 'Use the app in 3 different cities' }],
-    },
-    {
-      id: 'achv-7',
-      labelKey: 'achievementFlashDeal',
-      labelDefault: 'Flash Deal',
-      enabled: false,
-      icon: '/ranks/rank2.png',
-      challengeKeys: [{ key: 'achievementFlashDealChallenge1', fallback: 'Accept a spot in under 10s after a notification' }],
-    },
-    {
-      id: 'achv-8',
+      id: 'achv-free',
       labelKey: 'achievementGoodSamaritan',
       labelDefault: 'Good Samaritan',
-      enabled: false,
-      icon: '/ranks/rank3.png',
-      challengeKeys: [{ key: 'achievementGoodSamaritanChallenge1', fallback: 'Offer 3 free spots' }],
-    },
-    {
-      id: 'achv-9',
-      labelKey: 'achievementSocialBee',
-      labelDefault: 'Social Bee',
-      enabled: false,
-      icon: '/ranks/rank4.png',
-      challengeKeys: [
-        { key: 'achievementSocialBeeChallenge1', fallback: 'Share the app with 5 friends' },
-        { key: 'achievementSocialBeeChallenge2', fallback: 'Bring 2 new users thanks to your share' },
+      Icon: Gift,
+      badgeClass: 'bg-gradient-to-br from-yellow-500 to-amber-400',
+      challenges: [
+        {
+          key: 'achievementGoodSamaritanChallenge1',
+          fallback: 'Complete a free swap as host',
+          getProgress: (s) => ({ current: clamp(s.freeHostConcludedCount, 0, 1), target: 1 }),
+        },
       ],
     },
     {
-      id: 'achv-10',
-      labelKey: 'achievementConsistency',
-      labelDefault: 'Consistency',
-      enabled: false,
-      icon: '/ranks/rank5.png',
-      challengeKeys: [{ key: 'achievementConsistencyChallenge1', fallback: 'Do at least 1 swap per day for 7 days' }],
-    },
-    {
-      id: 'achv-11',
-      labelKey: 'achievementWeekendWarrior',
-      labelDefault: 'Weekend Warrior',
-      enabled: false,
-      icon: '/ranks/rank1.png',
-      challengeKeys: [{ key: 'achievementWeekendWarriorChallenge1', fallback: 'Complete 5 swaps over a weekend' }],
-    },
-    {
-      id: 'achv-12',
-      labelKey: 'achievementEarlyBird',
-      labelDefault: 'Early Bird',
-      enabled: false,
-      icon: '/ranks/rank2.png',
-      challengeKeys: [{ key: 'achievementEarlyBirdChallenge1', fallback: 'Offer a spot before 7am' }],
-    },
-    {
-      id: 'achv-13',
-      labelKey: 'achievementLightningBooker',
-      labelDefault: 'Lightning Booker',
-      enabled: false,
-      icon: '/ranks/rank3.png',
-      challengeKeys: [{ key: 'achievementLightningBookerChallenge1', fallback: 'Book a spot under 100 m away' }],
-    },
-    {
-      id: 'achv-14',
-      labelKey: 'achievementPrecisionDriver',
-      labelDefault: 'Precision Driver',
-      enabled: false,
-      icon: '/ranks/rank4.png',
-      challengeKeys: [{ key: 'achievementPrecisionDriverChallenge1', fallback: 'Arrive on time for 5 bookings in a row' }],
-    },
-    {
-      id: 'achv-15',
-      labelKey: 'achievementConnector',
-      labelDefault: 'Connector',
-      enabled: false,
-      icon: '/ranks/rank5.png',
-      challengeKeys: [{ key: 'achievementConnectorChallenge1', fallback: 'Invite a friend and complete a swap together' }],
-    },
-    {
-      id: 'achv-16',
-      labelKey: 'achievementFeedbackHero',
-      labelDefault: 'Feedback Hero',
-      enabled: false,
-      icon: '/ranks/rank1.png',
-      challengeKeys: [{ key: 'achievementFeedbackHeroChallenge1', fallback: 'Leave 5 helpful feedbacks' }],
-    },
-    {
-      id: 'achv-17',
+      id: 'achv-high-roller',
       labelKey: 'achievementHighRoller',
       labelDefault: 'High Roller',
-      enabled: false,
-      icon: '/ranks/rank2.png',
-      challengeKeys: [{ key: 'achievementHighRollerChallenge1', fallback: 'Pay or offer a spot above €10' }],
+      Icon: Gem,
+      badgeClass: 'bg-gradient-to-br from-rose-500 to-pink-500',
+      challenges: [
+        {
+          key: 'achievementHighRollerChallenge1',
+          fallback: 'Complete a swap above €10',
+          getProgress: (s) => ({ current: clamp(s.highValueConcludedCount, 0, 1), target: 1 }),
+        },
+      ],
     },
     {
-      id: 'achv-18',
-      labelKey: 'achievementStreakMaster',
-      labelDefault: 'Streak Master',
-      enabled: false,
-      icon: '/ranks/rank3.png',
-      challengeKeys: [{ key: 'achievementStreakMasterChallenge1', fallback: 'Keep a 15-day streak with at least one action' }],
+      id: 'achv-early',
+      labelKey: 'achievementEarlyBird',
+      labelDefault: 'Early Bird',
+      Icon: Sunrise,
+      badgeClass: 'bg-gradient-to-br from-orange-500 to-rose-500',
+      challenges: [
+        {
+          key: 'achievementEarlyBirdChallenge1',
+          fallback: 'Publish a spot before 9am',
+          getProgress: (s) => ({ current: clamp(s.hostEarlyCount, 0, 1), target: 1 }),
+        },
+      ],
     },
     {
-      id: 'achv-19',
-      labelKey: 'achievementCalmNavigator',
-      labelDefault: 'Calm Navigator',
-      enabled: false,
-      icon: '/ranks/rank4.png',
-      challengeKeys: [{ key: 'achievementCalmNavigatorChallenge1', fallback: 'Follow navigation without leaving the app for 3 trips' }],
+      id: 'achv-weekend',
+      labelKey: 'achievementWeekendWarrior',
+      labelDefault: 'Weekend Warrior',
+      Icon: Calendar,
+      badgeClass: 'bg-gradient-to-br from-blue-500 to-sky-500',
+      challenges: [
+        {
+          key: 'achievementWeekendWarriorChallenge1',
+          fallback: 'Complete 3 swaps on a weekend',
+          getProgress: (s) => ({ current: clamp(s.weekendConcludedCount, 0, 3), target: 3 }),
+        },
+      ],
     },
     {
-      id: 'achv-20',
-      labelKey: 'achievementCommunityStar',
-      labelDefault: 'Community Star',
-      enabled: false,
-      icon: '/ranks/rank5.png',
-      challengeKeys: [{ key: 'achievementCommunityStarChallenge1', fallback: 'Help 3 new users complete their first swap' }],
+      id: 'achv-dual',
+      labelKey: 'achievementDualRole',
+      labelDefault: 'Two‑Way Driver',
+      Icon: Compass,
+      badgeClass: 'bg-gradient-to-br from-teal-500 to-cyan-500',
+      challenges: [
+        {
+          key: 'achievementDualRoleChallenge1',
+          fallback: 'Complete swaps as host and as booker',
+          getProgress: (s) => ({
+            current: Number(s.concludedHostCount > 0) + Number(s.concludedBookerCount > 0),
+            target: 2,
+          }),
+        },
+      ],
+    },
+    {
+      id: 'achv-streak',
+      labelKey: 'achievementStreak3',
+      labelDefault: 'Streak x3',
+      Icon: Flame,
+      badgeClass: 'bg-gradient-to-br from-red-500 to-orange-500',
+      challenges: [
+        {
+          key: 'achievementStreak3Challenge1',
+          fallback: 'Keep a 3-day activity streak',
+          getProgress: (s) => ({ current: clamp(s.bestStreak, 0, 3), target: 3 }),
+        },
+      ],
     },
   ];
+
   const achievements = useMemo(
     () =>
-      achievementDefs.map((def) => ({
-        id: def.id,
-        icon: def.icon,
-        enabled: def.enabled,
-        label: t(def.labelKey, def.labelDefault),
-        challenges: def.challengeKeys.map((c) => t(c.key, c.fallback)),
-      })),
-    [t],
+      achievementDefs.map((def) => {
+        const challenges = (def.challenges || []).map((c) => {
+          const { current = 0, target = 1 } = c.getProgress?.(achievementStats) || {};
+          const done = Number(current) >= Number(target);
+          return {
+            text: t(c.key, c.fallback),
+            current: Number.isFinite(Number(current)) ? Number(current) : 0,
+            target: Number.isFinite(Number(target)) ? Number(target) : 1,
+            done,
+          };
+        });
+        const enabled = challenges.length ? challenges.every((c) => c.done) : false;
+        return {
+          id: def.id,
+          Icon: def.Icon,
+          badgeClass: def.badgeClass,
+          enabled,
+          label: t(def.labelKey, def.labelDefault),
+          challenges,
+        };
+      }),
+    [t, achievementDefs, achievementStats],
   );
   const [privacyCloseVisible, setPrivacyCloseVisible] = useState(true);
   const [termsCloseVisible, setTermsCloseVisible] = useState(true);
@@ -323,9 +450,13 @@ const ProfileView = ({
   const [closingHistory, setClosingHistory] = useState(false);
   const [closingLeaderboard, setClosingLeaderboard] = useState(false);
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
-  const [selectedAchievement, setSelectedAchievement] = useState(null);
+  const [selectedAchievementId, setSelectedAchievementId] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [closingProfile, setClosingProfile] = useState(false);
+  const selectedAchievement = useMemo(() => {
+    if (!achievements.length) return null;
+    return achievements.find((a) => a.id === selectedAchievementId) || achievements[0];
+  }, [achievements, selectedAchievementId]);
 
   useEffect(() => {
     if (showModal) setClosingModal(false);
@@ -369,13 +500,11 @@ const ProfileView = ({
     }, 260);
   };
   const openAchievement = (achv) => {
-    setSelectedAchievement(achv);
+    setSelectedAchievementId(achv?.id || null);
     setShowAchievementsModal(true);
   };
   const openAchievementsModal = () => {
-    if (!selectedAchievement && achievements.length > 0) {
-      setSelectedAchievement(achievements[0]);
-    }
+    if (!selectedAchievementId && achievements.length > 0) setSelectedAchievementId(achievements[0].id);
     setShowAchievementsModal(true);
   };
 
@@ -839,17 +968,11 @@ const ProfileView = ({
               closingProfile ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingProfile, setShowProfileModal)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <User size={20} style={iconStyle('profile')} />
-              </div>
+	          >
+	            <div className="flex items-center space-x-3 mb-4">
+	              <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                <User size={20} style={iconStyle('profile')} />
+	              </div>
               <span className="font-semibold text-lg">{t('profile')}</span>
             </div>
 
@@ -1023,16 +1146,10 @@ const ProfileView = ({
               closingModal ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingModal, setShowModal)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <h3 className="text-xl font-bold text-gray-900 mb-4">{t('manageVehiclesTitle', 'Manage my vehicles')}</h3>
+	          >
+	            <h3 className="text-xl font-bold text-gray-900 mb-4">{t('manageVehiclesTitle', 'Manage my vehicles')}</h3>
 
-            <div className="space-y-3 mb-4 max-h-64 overflow-y-auto pr-1">
+	            <div className="space-y-3 mb-4 max-h-64 overflow-y-auto pr-1">
               {vehicles.length === 0 && (
                 <p className="text-sm text-gray-400">{t('noVehiclesModal', 'No vehicles yet. Add one below.')}</p>
               )}
@@ -1128,63 +1245,85 @@ const ProfileView = ({
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 animate-[overlayFade_0.2s_ease]"
           onClick={() => setShowAchievementsModal(false)}
         >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative animate-[modalIn_0.28s_ease]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowAchievementsModal(false)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">
-              {t('achievements', 'Achievements')}
-            </p>
-            <div className="grid grid-cols-5 gap-3 mb-4">
-              {achievements.map((achv) => (
-                <button
-                  key={achv.id}
-                  type="button"
-                  onClick={() => setSelectedAchievement(achv)}
-                  className={`w-14 h-14 rounded-xl border transition flex items-center justify-center ${
-                    achv.id === selectedAchievement.id
-                      ? 'border-orange-400 bg-orange-50'
-                      : 'border-gray-200 bg-white hover:border-orange-200'
-                  }`}
-                >
-                  <img
-                    src={achv.icon || rankIcon(1)}
-                    alt={achv.label}
-                    className={`w-10 h-10 object-contain ${achv.enabled ? 'grayscale-0' : 'grayscale'} ${achv.enabled ? 'opacity-100' : 'opacity-60'}`}
-                  />
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center space-x-3 mb-3">
-              <img
-                src={selectedAchievement.icon || rankIcon(1)}
-                alt=""
-                className="w-12 h-12 rounded-full border border-gray-200 object-contain bg-white p-1"
-              />
-              <div>
-                <p className="text-xs uppercase tracking-wide text-gray-500">
-                  {t('challenge', 'Challenge')}
-                </p>
-                <p className="text-xl font-bold text-gray-900">{selectedAchievement.label}</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {(selectedAchievement.challenges || []).map((c, idx) => (
-                <div key={idx} className="flex items-start space-x-2">
-                  <span className="text-orange-500 leading-[1.4]">•</span>
-                  <p className="text-sm text-gray-700 leading-[1.4]">{c}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+	          <div
+	            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative animate-[modalIn_0.28s_ease]"
+	            onClick={(e) => e.stopPropagation()}
+	          >
+	            <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">
+	              {t('achievements', 'Achievements')}
+	            </p>
+	            <div className="grid grid-cols-5 gap-3 mb-4">
+	              {achievements.map((achv) => (
+	                <button
+	                  key={achv.id}
+	                  type="button"
+	                  onClick={() => setSelectedAchievementId(achv.id)}
+	                  className={`w-14 h-14 rounded-xl border transition flex items-center justify-center ${
+	                    achv.id === selectedAchievement.id
+	                      ? 'border-orange-400 bg-orange-50'
+	                      : 'border-gray-200 bg-white hover:border-orange-200'
+	                  }`}
+	                >
+	                  {(() => {
+	                    const Icon = achv.Icon || Trophy;
+	                    return (
+	                      <div
+	                        className={`relative w-11 h-11 rounded-xl flex items-center justify-center shadow-inner ${
+	                          achv.badgeClass || 'bg-gradient-to-br from-slate-700 to-slate-950'
+	                        } ${achv.enabled ? 'opacity-100' : 'opacity-60 grayscale'}`}
+	                      >
+	                        <Icon size={22} strokeWidth={2.5} className="text-white" />
+	                        {achv.enabled ? (
+	                          <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center">
+	                            <Check size={14} strokeWidth={3} className="text-emerald-600" />
+	                          </span>
+	                        ) : null}
+	                      </div>
+	                    );
+	                  })()}
+	                </button>
+	              ))}
+	            </div>
+	            <div className="flex items-center space-x-3 mb-3">
+	              {(() => {
+	                const Icon = selectedAchievement.Icon || Trophy;
+	                return (
+	                  <div
+	                    className={`w-12 h-12 rounded-full border border-white/40 shadow-inner flex items-center justify-center ${
+	                      selectedAchievement.badgeClass || 'bg-gradient-to-br from-slate-700 to-slate-950'
+	                    }`}
+	                  >
+	                    <Icon size={22} strokeWidth={2.5} className="text-white" />
+	                  </div>
+	                );
+	              })()}
+	              <div>
+	                <p className="text-xs uppercase tracking-wide text-gray-500">
+	                  {t('challenge', 'Challenge')}
+	                </p>
+	                <p className="text-xl font-bold text-gray-900">{selectedAchievement.label}</p>
+	              </div>
+	            </div>
+	            <div className="space-y-2">
+	              {(selectedAchievement.challenges || []).map((c, idx) => (
+	                <div key={idx} className="flex items-start justify-between gap-3">
+	                  <div className="flex items-start space-x-2">
+	                    {c.done ? (
+	                      <Check size={16} strokeWidth={3} className="text-emerald-600 mt-[2px]" />
+	                    ) : (
+	                      <span className="text-orange-500 leading-[1.4]">•</span>
+	                    )}
+	                    <p className="text-sm text-gray-700 leading-[1.4]">{c.text}</p>
+	                  </div>
+	                  <span className="text-[11px] font-semibold text-gray-400 tabular-nums">
+	                    {Math.min(c.current, c.target)}/{c.target}
+	                  </span>
+	                </div>
+	              ))}
+	            </div>
+	          </div>
+	        </div>
+	      )}
 
       {showLeaderboard && (
         <div
@@ -1198,45 +1337,36 @@ const ProfileView = ({
               closingLeaderboard ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingLeaderboard, setShowLeaderboard)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <Trophy size={20} style={iconStyle('leaderboard')} />
-              </div>
-          <h3 className="text-xl font-bold text-gray-900">{t('leaderboard', 'Leaderboard')}</h3>
-        </div>
-        <div className="mb-4 bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-sm text-orange-700 font-semibold flex items-center justify-between">
-          <span>{t('resetsIn', 'Resets in')}</span>
-          <div className="flex space-x-2 font-mono">
-                <span>{leaderboardCountdown.days}d</span>
-                <span>{leaderboardCountdown.hours}h</span>
-                <span>{leaderboardCountdown.minutes}m</span>
+	          >
+	            <div className="flex items-center space-x-2 mb-4">
+	              <div className="bg-gray-50 p-2 rounded-lg shadow-sm shadow-gray-200/60">
+	                <Trophy size={20} style={iconStyle('leaderboard')} />
+	              </div>
+	          <h3 className="text-xl font-bold text-gray-900">{t('leaderboard', 'Leaderboard')}</h3>
+	        </div>
+	        <div className="mb-4 bg-orange-50/70 rounded-xl px-3 py-2 text-sm text-orange-700 font-semibold flex items-center justify-between shadow-sm shadow-orange-100/80">
+	          <span>{t('resetsIn', 'Resets in')}</span>
+	          <div className="flex space-x-2 font-mono">
+	                <span>{leaderboardCountdown.days}d</span>
+	                <span>{leaderboardCountdown.hours}h</span>
+	                <span>{leaderboardCountdown.minutes}m</span>
                 <span>{leaderboardCountdown.seconds}s</span>
               </div>
             </div>
-            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            <div className="max-h-96 overflow-y-auto no-scrollbar rounded-2xl overflow-hidden bg-white shadow-sm shadow-gray-200/60 divide-y divide-gray-100/40">
               {leaderboard.length === 0 && (
-                <p className="text-sm text-gray-400">{t('noLeaderboard', 'No leaderboard data yet.')}</p>
+                <p className="text-sm text-gray-400 px-4 py-6">{t('noLeaderboard', 'No leaderboard data yet.')}</p>
               )}
-              {leaderboard.map((u, idx) => {
-                const txnCount = Number(u.transactions ?? u.transactionCount ?? u.historyCount ?? 0);
-                const isMe = u.id === user?.uid;
-                return (
-                  <div
-                    key={u.id || idx}
-                    className={`flex items-center justify-between border rounded-xl px-3 py-2 transition-all ${
-                      isMe
-                        ? 'border-orange-300 bg-orange-50 animate-pulse-[1.5s] shadow-md shadow-orange-100'
-                        : 'border-gray-100 bg-white'
-                    }`}
-                    style={isMe ? { animation: 'pulseFade 1.5s ease-in-out infinite' } : {}}
-                  >
+	              {leaderboard.map((u, idx) => {
+	                const txnCount = Number(u.transactions ?? u.transactionCount ?? u.historyCount ?? 0);
+	                const isMe = u.id === user?.uid;
+	                return (
+	                  <div
+	                    key={u.id || idx}
+	                    className={`flex items-center justify-between px-4 py-3 transition-colors active:bg-gray-50 ${
+	                      isMe ? 'bg-orange-50/60' : 'bg-white'
+	                    }`}
+	                  >
                     <div className="flex items-center space-x-3">
                       <div className="relative w-8 h-8 rounded-full bg-orange-50 text-orange-700 font-bold flex items-center justify-center">
                         {idx === 0 ? (
@@ -1246,16 +1376,16 @@ const ProfileView = ({
                         ) : null}
                         {idx + 1}
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <img
-                          src={rankIcon(txnCount)}
-                          alt="Rank"
-                          className="w-8 h-8 rounded-full border border-orange-100 object-contain bg-white p-1"
-                        />
-                        <div className="truncate max-w-[180px]">
-                          <p className="font-semibold text-gray-900 truncate">{u.displayName || t('unknown', 'Unknown')}</p>
-                          <p className="text-[11px] font-semibold text-orange-600 truncate">{rankLabel(txnCount)}</p>
-                        </div>
+	                      <div className="flex items-center space-x-2">
+	                        <img
+	                          src={rankIcon(txnCount)}
+	                          alt="Rank"
+	                          className="w-8 h-8 rounded-full object-contain bg-white p-1"
+	                        />
+	                        <div className="truncate max-w-[180px]">
+	                          <p className="font-semibold text-gray-900 truncate">{u.displayName || t('unknown', 'Unknown')}</p>
+	                          <p className="text-[11px] font-semibold text-orange-600 truncate">{rankLabel(txnCount)}</p>
+	                        </div>
                       </div>
                     </div>
                     <div className="text-right">
@@ -1271,23 +1401,17 @@ const ProfileView = ({
               })}
           </div>
 	          <div className="mt-4 grid grid-cols-5 gap-2 text-[11px] text-gray-600">
-	            {[
-	              { img: '/ranks/rank1.png', label: 'Explorer' },
-	              { img: '/ranks/rank2.png', label: 'Silver' },
-	              { img: '/ranks/rank3.png', label: 'Gold' },
-	              { img: '/ranks/rank4.png', label: 'Platinum' },
-	              { img: '/ranks/rank5.png', label: 'Ultimate' },
-	            ].map((tier) => (
-	              <button
-	                key={tier.label}
-	                type="button"
-	                onClick={() => setShowRankInfo({ label: tier.label })}
-	                className="flex flex-col items-center bg-orange-50 border border-orange-100 rounded-lg px-2 py-2 hover:bg-orange-100 transition"
-	              >
-	                <img src={tier.img} alt={tier.label} className="w-10 h-10 object-contain" />
-	                <span className="font-semibold text-orange-700">{tier.label}</span>
-	              </button>
-	            ))}
+	            {rankTiers.map((tier) => (
+		              <button
+		                key={tier.label}
+		                type="button"
+		                onClick={() => setShowRankInfo(tier)}
+		                className="flex flex-col items-center bg-orange-50 rounded-lg px-2 py-2 hover:bg-orange-100 transition shadow-sm shadow-orange-100/70"
+		              >
+		                <img src={tier.img} alt={tier.label} className="w-10 h-10 object-contain" />
+		                <span className="font-semibold text-orange-700">{tier.label}</span>
+		              </button>
+		            ))}
 	          </div>
         </div>
       </div>
@@ -1305,17 +1429,11 @@ const ProfileView = ({
               closingHistory ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <History size={20} style={iconStyle('history')} />
-              </div>
+	          >
+	            <div className="flex items-center space-x-2 mb-4">
+	              <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                <History size={20} style={iconStyle('history')} />
+	              </div>
               <h3 className="text-xl font-bold text-gray-900">{t('transactionHistory', 'Transaction History')}</h3>
             </div>
             <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
@@ -1385,19 +1503,25 @@ const ProfileView = ({
               closingRank ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingRank, setShowRankInfo)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-	            </button>
-	            <div className="text-center space-y-2">
-	              <p className="text-xl font-bold text-gray-900">{showRankInfo.label}</p>
-	            </div>
-	          </div>
-	        </div>
-	      )}
+	          >
+			            <div className="text-center space-y-2">
+			              <div className="mx-auto w-16 h-16 rounded-2xl bg-orange-50 shadow-sm shadow-orange-200/60 flex items-center justify-center">
+			                <img
+		                  src={showRankInfo.img}
+		                  alt={showRankInfo.label}
+		                  className="w-10 h-10 object-contain"
+		                />
+		              </div>
+		              <p className="text-xl font-bold text-gray-900">{showRankInfo.label}</p>
+		              <div className="inline-flex items-center bg-gray-50 rounded-full px-3 py-1 text-sm text-gray-800 font-semibold shadow-sm shadow-gray-200/60">
+		                <span className="tabular-nums">
+		                  + {showRankInfo.minTransactions} {t('transactionsLabel', 'Transactions').toLowerCase()}
+		                </span>
+		              </div>
+		            </div>
+		          </div>
+		        </div>
+		      )}
 
       {showPrivacy && (
         <div
@@ -1416,16 +1540,10 @@ const ProfileView = ({
               const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
               setPrivacyCloseVisible(!atBottom);
             }}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('privacy', 'Privacy Policy')}</h3>
-            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
-              {t(
+	          >
+	            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('privacy', 'Privacy Policy')}</h3>
+	            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
+	              {t(
                 'privacyBody',
                 `Privacy Policy
 
@@ -1512,12 +1630,12 @@ If you have any questions or suggestions about our Privacy Policy, do not hesita
                     ? 'animate-[slideUpFade_0.3s_ease]'
                     : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
                 } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
-              >
-                
-              </button>
-            </div>
-          </div>
-        </div>
+	              >
+	                <ChevronDown size={22} strokeWidth={3} />
+	              </button>
+	            </div>
+	          </div>
+	        </div>
       )}
 
       {showTerms && (
@@ -1537,16 +1655,10 @@ If you have any questions or suggestions about our Privacy Policy, do not hesita
               const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
               setTermsCloseVisible(!atBottom);
             }}
-          >
-            <button
-              onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-            >
-              ×
-            </button>
-            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('terms', 'Terms & Conditions')}</h3>
-            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
-              {t(
+	          >
+	            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('terms', 'Terms & Conditions')}</h3>
+	            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
+	              {t(
                 'termsBody',
                 `Terms and Conditions
 
@@ -1614,13 +1726,13 @@ The laws of France will apply to any disputes arising out of or relating to thes
                   termsCloseVisible
                     ? 'animate-[slideUpFade_0.3s_ease]'
                     : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
-                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        </div>
+	                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
+	              >
+	                <ChevronDown size={22} strokeWidth={3} />
+	              </button>
+	            </div>
+	          </div>
+	        </div>
       )}
     </div>
   );

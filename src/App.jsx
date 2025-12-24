@@ -127,6 +127,8 @@ const getRemainingMs = (spot) => {
   return createdMs + Number(spot.time) * 60_000 - Date.now();
 };
 
+const EXPIRED_PROPOSE_DISMISS_MS = 60_000;
+
 const BOTTOM_NAV_HEIGHT = 96; // fallback if we can't measure the nav
 const measureBottomSafeOffset = () => {
   if (typeof document === 'undefined') return BOTTOM_NAV_HEIGHT;
@@ -698,8 +700,15 @@ export default function ParkSwapApp() {
 	          }
 	        }
 
-	        const mySpot = fetchedSpots.find((s) => s.hostId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
-	        setMyActiveSpot(mySpot || null);
+		        const mySpot = fetchedSpots.find((s) => {
+		          if (s.hostId !== user.uid) return false;
+		          if (s.status === 'completed' || s.status === 'cancelled') return false;
+		          if (s.status === 'booked' || s.status === 'confirmed') return true;
+		          const remaining = getRemainingMs(s);
+		          if (!Number.isFinite(remaining)) return true;
+		          return remaining > -EXPIRED_PROPOSE_DISMISS_MS;
+		        });
+		        setMyActiveSpot(mySpot || null);
 
 	        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
 	        setBookedSpot(booked || null);
@@ -709,12 +718,41 @@ export default function ParkSwapApp() {
       },
     );
     return () => unsubscribe();
-  }, [user]);
+	  }, [user]);
 
-  // Restore selected spot (itinerary) from persisted state or current booking
-  useEffect(() => {
-    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
-    // First priority: persisted selection with a spotId
+	  // --- Auto-dismiss stale expired propose listings ---
+	  useEffect(() => {
+	    if (!myActiveSpot) return undefined;
+	    if (myActiveSpot.status === 'booked' || myActiveSpot.status === 'confirmed') return undefined;
+	    const remaining = getRemainingMs(myActiveSpot);
+	    if (!Number.isFinite(remaining)) return undefined;
+	    if (remaining > 0) return undefined;
+
+	    const expiredForMs = -remaining;
+	    if (expiredForMs > EXPIRED_PROPOSE_DISMISS_MS) {
+	      setMyActiveSpot(null);
+	      return undefined;
+	    }
+
+	    const msUntilDismiss = Math.max(0, EXPIRED_PROPOSE_DISMISS_MS - expiredForMs);
+	    const spotId = myActiveSpot.id;
+	    const timer = window.setTimeout(() => {
+	      setMyActiveSpot((current) => {
+	        if (!current || current.id !== spotId) return current;
+	        if (current.status === 'booked' || current.status === 'confirmed') return current;
+	        const nextRemaining = getRemainingMs(current);
+	        if (!Number.isFinite(nextRemaining)) return current;
+	        return nextRemaining <= -EXPIRED_PROPOSE_DISMISS_MS ? null : current;
+	      });
+	    }, msUntilDismiss + 25);
+
+	    return () => window.clearTimeout(timer);
+	  }, [myActiveSpot?.id, myActiveSpot?.status, myActiveSpot?.createdAt, myActiveSpot?.time]);
+
+	  // Restore selected spot (itinerary) from persisted state or current booking
+	  useEffect(() => {
+	    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
+	    // First priority: persisted selection with a spotId
     if (selectionSnapshot?.spotId) {
       const match = findSpotById(selectionSnapshot.spotId);
       if (match && (!selectedSearchSpot || selectedSearchSpot.id !== match.id)) {

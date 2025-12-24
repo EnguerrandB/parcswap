@@ -17,10 +17,16 @@ const CARD_COLORS = [
   '#af52de', // vivid purple
   '#0fb9b1', // vivid teal
 ]; // bright primary-inspired palette for each card
+const FREE_CARD_COLOR = '#d4af37'; // gold
 // Stable salt for color selection (module-level to avoid changes on remount/switch)
 const CARD_COLOR_SALT = Math.floor(Math.random() * 10_000);
 const CARD_EXIT_ROTATION = 90; // degrés d'arc pour l'animation de sortie
+const isFreeSpot = (spot) => {
+  const price = Number(spot?.price ?? 0);
+  return Number.isFinite(price) && price <= 0;
+};
 const colorForSpot = (spot, salt = 0) => {
+  if (isFreeSpot(spot)) return FREE_CARD_COLOR;
   if (!spot?.id) return CARD_COLORS[0];
   let hash = 0;
   for (let i = 0; i < spot.id.length; i += 1) {
@@ -33,6 +39,11 @@ const colorsForOrderedSpots = (spots, salt = 0) => {
   const assigned = [];
   let lastColor = null;
   spots.forEach((spot) => {
+    if (isFreeSpot(spot)) {
+      assigned.push(FREE_CARD_COLOR);
+      lastColor = FREE_CARD_COLOR;
+      return;
+    }
     let color = colorForSpot(spot, salt);
     if (color === lastColor) {
       const rotated = CARD_COLORS.slice(1).concat(CARD_COLORS[0]);
@@ -240,6 +251,7 @@ const SwipeCard = forwardRef(({
   const rotation = shouldRotate ? offset.x * 0.1 : baseRotation; // 0.1 pour accentuer l'effet
 
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
+  const isFree = isFreeSpot(spot);
   const cardColor = spot._overrideColor || colorForSpot(spot, colorSalt);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
   const remainingMs = getRemainingMs(spot, nowMs);
@@ -254,8 +266,19 @@ const SwipeCard = forwardRef(({
       ? '0 20px 60px -40px rgba(0,0,0,0.55), 0 10px 34px -30px rgba(0,0,0,0.35), 0 1px 0 0 rgba(255,255,255,0.04) inset'
       : '0 20px 60px -40px rgba(15,23,42,0.20), 0 10px 34px -30px rgba(15,23,42,0.12), 0 1px 0 0 rgba(255,255,255,0.55) inset';
   
-  const cardBackground = `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
-  const cardBorder = '1px solid rgba(255,255,255,0.08)';
+  const cardBackground = isFree
+    ? 'linear-gradient(145deg, #fff5cc 0%, #ffe08a 18%, #d4af37 48%, #b8860b 78%, #6b4f13 100%)'
+    : `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
+  const cardBorder = isFree ? '1px solid rgba(255, 236, 170, 0.55)' : '1px solid rgba(255,255,255,0.08)';
+  const premiumGlow = isFree
+    ? active
+      ? isDark
+        ? '0 36px 110px -55px rgba(212,175,55,0.7), 0 14px 40px -30px rgba(0,0,0,0.65)'
+        : '0 36px 110px -55px rgba(212,175,55,0.55), 0 14px 40px -30px rgba(15,23,42,0.18)'
+      : isDark
+        ? '0 24px 80px -55px rgba(212,175,55,0.45)'
+        : '0 24px 80px -55px rgba(212,175,55,0.32)'
+    : null;
   const leaderEntry = leaderboard.find((u) => u.id === spot?.hostId);
   const rank = leaderEntry?.rank ?? (spot?.rank || spot?.position || '—');
   const transactions = leaderEntry?.transactions ?? (Number(spot?.transactions) || 0);
@@ -280,18 +303,61 @@ const SwipeCard = forwardRef(({
         opacity,
         // La transition est active sauf si on drag manuellement
         transition: isDragging ? 'none' : 'transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s ease, opacity 0.35s ease',
-        boxShadow: appleShadow,
+        boxShadow: isFree ? `${appleShadow}, ${premiumGlow}, inset 0 0 0 1px rgba(255, 248, 220, 0.22)` : appleShadow,
         background: cardBackground,
         border: cardBorder,
         animation,
         touchAction: 'none',
         width: 'clamp(220px, 65vw, 300px)',
+        filter: isFree ? 'saturate(1.12) contrast(1.03)' : undefined,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
+      {isFree && (
+        <div
+          className="pointer-events-none absolute inset-0 rounded-[26px] overflow-hidden"
+          aria-hidden="true"
+          style={{ zIndex: -1 }}
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(circle at 18% 14%, rgba(255,255,255,0.70), rgba(255,255,255,0) 42%), radial-gradient(circle at 85% 6%, rgba(255,237,178,0.65), rgba(255,237,178,0) 52%), radial-gradient(circle at 30% 92%, rgba(255,255,255,0.22), rgba(255,255,255,0) 55%)',
+              mixBlendMode: 'overlay',
+              opacity: 0.9,
+            }}
+          />
+          <div
+            className="absolute inset-0 card-sheen"
+            style={{
+              background:
+                'linear-gradient(120deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.20) 35%, rgba(255,255,255,0.60) 50%, rgba(255,214,102,0.35) 58%, rgba(255,255,255,0.12) 66%, rgba(255,255,255,0) 75%)',
+              backgroundSize: '200% 200%',
+              mixBlendMode: 'screen',
+              opacity: 0.85,
+            }}
+          />
+          <div
+            className="absolute inset-0 opacity-20"
+            style={{
+              background:
+                'repeating-linear-gradient(115deg, rgba(255,255,255,0.00) 0px, rgba(255,255,255,0.00) 7px, rgba(255,255,255,0.09) 9px)',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              boxShadow:
+                'inset 0 0 0 1px rgba(255, 248, 220, 0.35), inset 0 0 18px rgba(255, 236, 170, 0.22), inset 0 -18px 30px rgba(107, 79, 19, 0.22)',
+            }}
+          />
+        </div>
+      )}
       {/* ... CONTENU DE LA CARTE (INCHANGÉ) ... */}
       <div className="flex flex-col items-center justify-center h-full space-y-6 text-center pointer-events-none">
         

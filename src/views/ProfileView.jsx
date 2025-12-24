@@ -49,7 +49,7 @@ const ProfileView = ({
     tierCar: '#f97316',
     tierLaptop: '#10b981',
     tierPhone: '#22c55e',
-    logout: '#ef4444',
+    logout: '#f97316',
   };
   const iconStyle = (key) => ({ color: iconColors[key] || '#f97316' });
   const rankLabel = (count = 0) => {
@@ -804,7 +804,7 @@ const ProfileView = ({
           style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
         >
           <LogOut size={20} style={iconStyle('logout')} />
-          <span className="font-medium text-red-600">{t('logout', 'Log Out')}</span>
+          <span className="font-medium">{t('logout', 'Log Out')}</span>
         </button>
       </div>
 

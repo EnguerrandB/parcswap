@@ -485,6 +485,7 @@ const ProfileView = ({
     <div
       className="relative h-full bg-gray-50 overflow-y-auto no-scrollbar"
       style={{ WebkitTapHighlightColor: 'transparent' }}
+      data-role="account-sheet-scroll"
     >
       <div className="p-6 pb-6">
         <div id="recaptcha-container" className="hidden" />

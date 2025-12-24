@@ -327,74 +327,124 @@ export default function ParkSwapApp() {
   const sheetStartY = useRef(0);
   const sheetOffsetRef = useRef(0);
 
-  const handleMenuClick = () => {
-    setSheetEntryAnim(true);
-    setShowAccountSheet(true);
-    setAccountSheetOffset(0);
-  };
+	  const handleMenuClick = () => {
+	    setSheetEntryAnim(true);
+	    setShowAccountSheet(true);
+	    setAccountSheetOffset(0);
+	  };
 
-  const handleAccountSheetPointerDown = (e) => {
-    // Empêcher la propagation pour ne pas bouger la map en dessous
-    e.stopPropagation(); 
-    setSheetEntryAnim(false);
-    
-    sheetDragRef.current = true;
-    
-    // Gérer aussi bien la souris que le tactile
-    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-    sheetStartY.current = clientY;
-    
-    setIsSheetDragging(true); // Désactive l'animation CSS pour un suivi 1:1 du doigt
+	  const handleAccountSheetPointerDown = (e) => {
+	    // Empêcher la propagation pour ne pas bouger la map en dessous
+	    e.stopPropagation();
 
-    const onMove = (ev) => {
-      if (!sheetDragRef.current) return;
-      const currentY = ev.clientY || (ev.touches && ev.touches[0].clientY);
-      const delta = currentY - sheetStartY.current;
-      
-      // On ne permet de descendre (delta positif). 
-      // Si on monte (négatif), on applique une résistance (divisé par 4)
-      const visibleOffset = delta > 0 ? delta : delta / 4;
-      
-      setAccountSheetOffset(visibleOffset);
-      sheetOffsetRef.current = visibleOffset;
-    };
+	    const scrollContainer = e.target?.closest?.('[data-role="account-sheet-scroll"]');
+	    const startedInScrollable = Boolean(scrollContainer);
 
-    const onEnd = () => {
-      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
-      sheetDragRef.current = false;
-      
-      const delta = sheetOffsetRef.current;
-      const screenHeight = window.innerHeight;
+	    // Si on touche dans le contenu scrollable et qu'il n'est pas en haut, on laisse scroller.
+	    if (startedInScrollable && scrollContainer.scrollTop > 0) return;
 
-      // Si on a glissé de plus de 150px vers le bas, on ferme
-      if (delta > 150) {
-        // 1. On pousse la feuille tout en bas (hors écran)
-        setAccountSheetOffset(screenHeight);
-        
-        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
-        setTimeout(() => {
-          setShowAccountSheet(false);
-          setAccountSheetOffset(0); // Reset pour la prochaine ouverture
-        }, 300);
-      } else {
-        // Sinon, on remonte (rebond)
-        setAccountSheetOffset(0);
-      }
+	    setSheetEntryAnim(false);
 
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onEnd);
-      window.removeEventListener('pointercancel', onEnd);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onEnd);
-    };
+	    // Gérer aussi bien la souris que le tactile
+	    const startY = e.clientY || (e.touches && e.touches[0].clientY);
+	    const startX = e.clientX || (e.touches && e.touches[0].clientX);
+	    if (startY == null) return;
 
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onEnd);
-    window.addEventListener('pointercancel', onEnd);
-    // Ajout des listeners tactiles spécifiques pour mobile
-    window.addEventListener('touchmove', onMove);
-    window.addEventListener('touchend', onEnd);
-  };
+	    sheetStartY.current = startY;
+	    sheetOffsetRef.current = 0;
+
+	    // Drag immédiat si on prend la "handle", sinon on attend un vrai pull-down (scroll top).
+	    sheetDragRef.current = !startedInScrollable;
+	    if (!startedInScrollable) {
+	      setIsSheetDragging(true); // Suivi 1:1 du doigt
+	    }
+
+	    const startXRef = startX ?? 0;
+
+	    const cleanup = () => {
+	      window.removeEventListener('pointermove', onMove);
+	      window.removeEventListener('pointerup', onEnd);
+	      window.removeEventListener('pointercancel', onEnd);
+	      window.removeEventListener('touchmove', onMove);
+	      window.removeEventListener('touchend', onEnd);
+	      window.removeEventListener('touchcancel', onEnd);
+	    };
+
+	    const onMove = (ev) => {
+	      const currentY = ev.clientY || (ev.touches && ev.touches[0].clientY);
+	      const currentX = ev.clientX || (ev.touches && ev.touches[0].clientX);
+	      if (currentY == null) return;
+
+	      const deltaY = currentY - sheetStartY.current;
+	      const deltaX = currentX != null ? currentX - startXRef : 0;
+
+	      if (startedInScrollable) {
+	        // Si le contenu commence à scroller, on annule le drag de sheet.
+	        if (scrollContainer && scrollContainer.scrollTop > 0) {
+	          cleanup();
+	          return;
+	        }
+
+	        // On n'active le drag que si l'utilisateur tire vers le bas.
+	        if (!sheetDragRef.current) {
+	          const absY = Math.abs(deltaY);
+	          const absX = Math.abs(deltaX);
+	          if (deltaY > 8 && absY > absX + 2) {
+	            sheetDragRef.current = true;
+	            setIsSheetDragging(true);
+	          } else if (deltaY < -8 && absY > absX + 2) {
+	            // Gesture vers le haut => scroll normal.
+	            cleanup();
+	            return;
+	          } else {
+	            return;
+	          }
+	        }
+	      } else if (!sheetDragRef.current) {
+	        return;
+	      }
+
+	      const visibleOffset = deltaY > 0 ? deltaY : 0;
+	      setAccountSheetOffset(visibleOffset);
+	      sheetOffsetRef.current = visibleOffset;
+	      if (visibleOffset > 0 && ev.cancelable) ev.preventDefault();
+	    };
+
+	    const onEnd = () => {
+	      cleanup();
+
+	      if (!sheetDragRef.current) return;
+
+	      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
+	      sheetDragRef.current = false;
+
+	      const delta = sheetOffsetRef.current;
+	      const screenHeight = window.innerHeight;
+
+	      // Si on a glissé de plus de 150px vers le bas, on ferme
+	      if (delta > 150) {
+	        // 1. On pousse la feuille tout en bas (hors écran)
+	        setAccountSheetOffset(screenHeight);
+
+	        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
+	        setTimeout(() => {
+	          setShowAccountSheet(false);
+	          setAccountSheetOffset(0); // Reset pour la prochaine ouverture
+	        }, 300);
+	      } else {
+	        // Sinon, on remonte (rebond)
+	        setAccountSheetOffset(0);
+	      }
+	    };
+
+	    window.addEventListener('pointermove', onMove);
+	    window.addEventListener('pointerup', onEnd);
+	    window.addEventListener('pointercancel', onEnd);
+	    // Ajout des listeners tactiles spécifiques pour mobile
+	    window.addEventListener('touchmove', onMove, { passive: false });
+	    window.addEventListener('touchend', onEnd);
+	    window.addEventListener('touchcancel', onEnd);
+	  };
   // Fetch current user location for cards/navigation
   useEffect(() => {
     let cancelled = false;

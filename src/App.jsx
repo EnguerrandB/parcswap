@@ -27,6 +27,7 @@ import {
 
 import { db, appId, auth } from './firebase';
 import BottomNav from './components/BottomNav';
+import TapDebugOverlay from './components/TapDebugOverlay';
 import SearchView from './views/SearchView';
 import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
@@ -1503,7 +1504,7 @@ export default function ParkSwapApp() {
             {renderTabContent(activeTab)}
           </div>
         </div>
-        <div className="transition-opacity duration-300 opacity-100 z-0" style={{ '--bottom-nav-height': 'auto' }}>
+        <div className="transition-opacity duration-300 opacity-100 z-[70]" style={{ '--bottom-nav-height': 'auto' }}>
           <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
         </div>
       </div>
@@ -1521,6 +1522,7 @@ export default function ParkSwapApp() {
           userCoords={userCoords}
         />
       )}
+      <TapDebugOverlay />
     </div>
   );
 }

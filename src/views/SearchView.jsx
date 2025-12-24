@@ -390,6 +390,7 @@ const SearchView = ({
   const [shareToast, setShareToast] = useState('');
   const [dragX, setDragX] = useState(0);
   const radiusSliderRef = useRef(null);
+  const priceSliderRef = useRef(null);
   const [isOnline, setIsOnline] = useState(true);
   const prefsHydratedRef = useRef(false);
   const prefsWriteTimerRef = useRef(null);
@@ -842,11 +843,13 @@ const SearchView = ({
                   </div>
                 </div>
                 <input
+                  ref={priceSliderRef}
                   type="range"
                   min="0"
                   max={maxSpotPrice}
                   step="0.5"
                   value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMax)}
                   onChange={(e) => setPriceMax(parseFloat(e.target.value))}
                   className="w-full accent-orange-500"
                 />

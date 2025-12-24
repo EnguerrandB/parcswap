@@ -888,43 +888,63 @@ export default function ParkSwapApp() {
   }, [spots]);
 
   // --- Handlers ---
-  const handleProposeSpot = async ({ car, time, price, length, vehiclePlate, vehicleId }) => {
-    if (!user) return;
-    const coords = await logCurrentLocation('propose_spot');
-    const arcLat = 48.8738;
-    const arcLng = 2.2950;
-    const vehicleToUse = car || selectedVehicle?.model || '';
-    const x = 50 + (Math.random() * 40 - 20);
-    const y = 50 + (Math.random() * 40 - 20);
-    try {
-      const spotRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'spots'), {
-        hostId: user.uid,
-        hostName: user.displayName || 'Anonymous',
-        carModel: vehicleToUse,
-        hostVehiclePlate: vehiclePlate || selectedVehicle?.plate || null,
-        hostVehicleId: vehicleId || selectedVehicle?.id || null,
-        time,
-        price,
-        length: length ?? null,
-        x,
-        y,
-        lat: arcLat,
-        lng: arcLng,
-        status: 'available',
-        createdAt: serverTimestamp(),
-        address: 'Arc de Triomphe, Paris',
-      });
-      await upsertTransaction({
-        spot: { id: spotRef.id, hostId: user.uid, hostName: user.displayName, price },
-        userId: user.uid,
-        status: 'started',
-        role: 'host',
-      });
-      setActiveTab('propose');
-    } catch (err) {
-      console.error('Error creating spot:', err);
-    }
-  };
+	  const handleProposeSpot = async ({ car, time, price, length, vehiclePlate, vehicleId }) => {
+	    if (!user) return;
+	    // Best-effort: keep location fresh, but don't block publishing on geolocation (iOS can take seconds).
+	    logCurrentLocation('propose_spot');
+	    const arcLat = 48.8738;
+	    const arcLng = 2.2950;
+	    const vehicleToUse = car || selectedVehicle?.model || '';
+	    const x = 50 + (Math.random() * 40 - 20);
+	    const y = 50 + (Math.random() * 40 - 20);
+	    try {
+	      if (myActiveSpot && myActiveSpot.status !== 'completed' && myActiveSpot.status !== 'cancelled') {
+	        const err = new Error('active_spot_exists');
+	        err.code = 'active_spot_exists';
+	        throw err;
+	      }
+
+	      const spotPayload = {
+	        hostId: user.uid,
+	        hostName: user.displayName || 'Anonymous',
+	        carModel: vehicleToUse,
+	        hostVehiclePlate: vehiclePlate || selectedVehicle?.plate || null,
+	        hostVehicleId: vehicleId || selectedVehicle?.id || null,
+	        time,
+	        price,
+	        length: length ?? null,
+	        x,
+	        y,
+	        lat: arcLat,
+	        lng: arcLng,
+	        status: 'available',
+	        createdAt: serverTimestamp(),
+	        address: 'Arc de Triomphe, Paris',
+	      };
+
+	      const spotRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'spots'), spotPayload);
+
+	      // Optimistic UI: show the waiting state immediately (snapshot will reconcile).
+	      setMyActiveSpot({
+	        id: spotRef.id,
+	        ...spotPayload,
+	        createdAt: Date.now(),
+	      });
+
+	      // Leaderboard/transactions are non-critical; don't block spot publishing on them.
+	      upsertTransaction({
+	        spot: { id: spotRef.id, hostId: user.uid, hostName: user.displayName, price },
+	        userId: user.uid,
+	        status: 'started',
+	        role: 'host',
+	      }).catch((err) => console.error('Error creating host transaction:', err));
+	      setActiveTab('propose');
+	      return { ok: true, spotId: spotRef.id };
+	    } catch (err) {
+	      console.error('Error creating spot:', err);
+	      throw err;
+	    }
+	  };
 
   const handleSelectionStep = async (step, spot) => {
     saveSelectionStep(step, spot);

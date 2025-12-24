@@ -1270,26 +1270,25 @@ const ProfileView = ({
                 );
               })}
           </div>
-          <div className="mt-4 grid grid-cols-5 gap-2 text-[11px] text-gray-600">
-            {[
-              { img: '/ranks/rank1.png', label: 'Explorer', range: '0-5' },
-              { img: '/ranks/rank2.png', label: 'Silver', range: '5-10' },
-              { img: '/ranks/rank3.png', label: 'Gold', range: '10-15' },
-              { img: '/ranks/rank4.png', label: 'Platinum', range: '15-20' },
-              { img: '/ranks/rank5.png', label: 'Ultimate', range: '20+' },
-            ].map((tier) => (
-              <button
-                key={tier.label}
-                type="button"
-                onClick={() => setShowRankInfo({ label: tier.label, range: tier.range })}
-                className="flex flex-col items-center bg-orange-50 border border-orange-100 rounded-lg px-2 py-2 hover:bg-orange-100 transition"
-              >
-                <img src={tier.img} alt={tier.label} className="w-10 h-10 object-contain" />
-                <span className="font-semibold text-orange-700">{tier.label}</span>
-                <span className="text-[10px] text-orange-500">{tier.range}</span>
-              </button>
-            ))}
-          </div>
+	          <div className="mt-4 grid grid-cols-5 gap-2 text-[11px] text-gray-600">
+	            {[
+	              { img: '/ranks/rank1.png', label: 'Explorer' },
+	              { img: '/ranks/rank2.png', label: 'Silver' },
+	              { img: '/ranks/rank3.png', label: 'Gold' },
+	              { img: '/ranks/rank4.png', label: 'Platinum' },
+	              { img: '/ranks/rank5.png', label: 'Ultimate' },
+	            ].map((tier) => (
+	              <button
+	                key={tier.label}
+	                type="button"
+	                onClick={() => setShowRankInfo({ label: tier.label })}
+	                className="flex flex-col items-center bg-orange-50 border border-orange-100 rounded-lg px-2 py-2 hover:bg-orange-100 transition"
+	              >
+	                <img src={tier.img} alt={tier.label} className="w-10 h-10 object-contain" />
+	                <span className="font-semibold text-orange-700">{tier.label}</span>
+	              </button>
+	            ))}
+	          </div>
         </div>
       </div>
       )}
@@ -1392,15 +1391,13 @@ const ProfileView = ({
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
             >
               ×
-            </button>
-            <div className="text-center space-y-2">
-              <p className="text-sm text-gray-500">{t('transactionsLabel', 'Transactions')} required</p>
-              <p className="text-xl font-bold text-gray-900">{showRankInfo.label}</p>
-              <p className="text-sm font-semibold text-orange-600">{showRankInfo.range}</p>
-            </div>
-          </div>
-        </div>
-      )}
+	            </button>
+	            <div className="text-center space-y-2">
+	              <p className="text-xl font-bold text-gray-900">{showRankInfo.label}</p>
+	            </div>
+	          </div>
+	        </div>
+	      )}
 
       {showPrivacy && (
         <div

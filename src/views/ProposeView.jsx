@@ -37,6 +37,8 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   });
   const [plateInput, setPlateInput] = useState('');
   const [remainingMs, setRemainingMs] = useState(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
   const timeSliderRef = useRef(null);
   const lengthSliderRef = useRef(null);
 
@@ -236,18 +238,52 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
       </div>
 
       <div className="mt-8 pb-8 pt-2">
-        <button
-          onClick={() => {
-            const selected = vehicles.find((v) => v.model === proposeForm.car) || vehicles.find((v) => v.isDefault) || vehicles[0] || null;
-            onProposeSpot({ ...proposeForm, vehiclePlate: selected?.plate || null, vehicleId: selected?.id || null });
-          }}
-          className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-4 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition text-lg flex items-center justify-center space-x-2"
-        >
-          <span>{t('publishSpot', 'Publish Spot')}</span>
-        </button>
-      </div>
-    </div>
-  );
+	        <button
+	          type="button"
+	          disabled={publishing}
+	          onClick={async () => {
+	            if (publishing) return;
+	            setPublishError('');
+	            setPublishing(true);
+	            const selected =
+	              vehicles.find((v) => v.model === proposeForm.car) ||
+	              vehicles.find((v) => v.isDefault) ||
+	              vehicles[0] ||
+	              null;
+	            try {
+	              await onProposeSpot?.({
+	                ...proposeForm,
+	                vehiclePlate: selected?.plate || null,
+	                vehicleId: selected?.id || null,
+	              });
+	            } catch (err) {
+	              const code = err?.code || err?.message;
+	              if (code === 'active_spot_exists') {
+	                setPublishError(
+	                  t(
+	                    'publishBlockedActiveSpot',
+	                    'Tu as déjà une place publiée. Annule-la ou renouvelle-la avant d’en publier une autre.',
+	                  ),
+	                );
+	              } else {
+	                setPublishError(t('publishFailed', "Impossible de publier la place. Réessaie."));
+	              }
+	            } finally {
+	              setPublishing(false);
+	            }
+	          }}
+	          className={`w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-4 rounded-xl font-bold shadow-lg transition text-lg flex items-center justify-center space-x-2 ${
+	            publishing ? 'opacity-80 cursor-not-allowed' : 'hover:scale-[1.01]'
+	          }`}
+	        >
+	          <span>{publishing ? t('publishing', 'Publishing...') : t('publishSpot', 'Publish Spot')}</span>
+	        </button>
+	        {publishError ? (
+	          <p className="mt-3 text-sm font-semibold text-rose-600 text-center">{publishError}</p>
+	        ) : null}
+	      </div>
+	    </div>
+	  );
 };
 
 export default ProposeView;

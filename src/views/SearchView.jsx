@@ -5,6 +5,7 @@ import { X, MapPin, Bell, WifiOff, Wifi } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import useConnectionQuality from '../hooks/useConnectionQuality';
+import { newId } from '../utils/ids';
 
 // --- UTILITAIRES ---
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
@@ -889,9 +890,11 @@ const SearchView = ({
         setTimeout(() => setShareToast(''), 2200);
         return;
       }
-      onSelectionStep?.('selected', spot);
-      onBookSpot?.(spot);
-      setSelectedSpot(spot);
+      const bookingSessionId = newId();
+      const spotWithSession = { ...spot, bookingSessionId };
+      onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
+      onBookSpot?.(spot, { bookingSessionId, opId: bookingSessionId });
+      setSelectedSpot(spotWithSession);
       setCurrentIndex((prev) => prev + 1);
     } else {
       setCurrentIndex((prev) => prev + 1);

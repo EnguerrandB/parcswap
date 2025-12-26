@@ -8,6 +8,7 @@ import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc
 import { db, appId } from '../firebase';
 import i18n from '../i18n/i18n';
 import PremiumParksDeltaToast from './PremiumParksDeltaToast';
+import { newId } from '../utils/ids';
 import carMarker from '../assets/car-marker.png';
 import userCar1 from '../assets/user-car-1.png';
 import userCar2 from '../assets/user-car-2.png';
@@ -384,12 +385,13 @@ const MapInner = ({
     if (!isFullPlate(formatted)) return;
     setPlateConfirmSubmitting(true);
     setPlateConfirmError(null);
-    try {
-      const res = await onConfirmHostPlate?.(spot.id, formatted);
-      if (res && res.ok === false) {
-        setPlateConfirmError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
-        return;
-      }
+	    try {
+	      const bookingSessionId = typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
+	      const res = await onConfirmHostPlate?.(spot.id, formatted, { bookingSessionId });
+	      if (res && res.ok === false) {
+	        setPlateConfirmError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
+	        return;
+	      }
       closePlateNotice();
     } finally {
       setPlateConfirmSubmitting(false);
@@ -781,7 +783,8 @@ useEffect(() => {
     if (acceptingNav) return;
     setAcceptingNav(true);
 
-    const res = await onSelectionStep?.('nav_started', spot);
+    const bookingSessionId = typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
+    const res = await onSelectionStep?.('nav_started', spot, { bookingSessionId, opId: newId() });
     if (res && res.ok === false) {
       if (res.code === 'no_premium_parks') {
         showTapToast(t('premiumParksEmpty', 'No Premium Parks left.'));
@@ -1853,14 +1856,16 @@ if (!routeAnimRef.current) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (onCancelBooking && spot) {
-                      onCancelBooking(spot.id);
-                    }
-                    setConfirming(false);
-                    onSelectionStep?.('cleared', null);
-                    onClose?.();
-                  }}
+	                  onClick={() => {
+	                    if (onCancelBooking && spot) {
+	                      const bookingSessionId =
+	                        typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
+	                      onCancelBooking(spot.id, { bookingSessionId, opId: newId() });
+	                    }
+	                    setConfirming(false);
+	                    onSelectionStep?.('cleared', null);
+	                    onClose?.();
+	                  }}
                   className="flex-1 py-2.5 rounded-xl font-semibold bg-orange-600 text-white hover:bg-orange-700"
                 >
                   {t('end', 'Exit')}

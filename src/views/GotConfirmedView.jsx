@@ -209,12 +209,13 @@ const GotConfirmedView = ({
     if (!isFullPlate(formatted)) return;
     setPlateSubmitting(true);
     setPlateError(null);
-    try {
-      const res = await onConfirmPlate?.(spot.id, formatted);
-      if (res && res.ok === false) {
-        setPlateError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
-        return;
-      }
+	    try {
+	      const bookingSessionId = typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
+	      const res = await onConfirmPlate?.(spot.id, formatted, { bookingSessionId });
+	      if (res && res.ok === false) {
+	        setPlateError(res.message || t('plateInvalid', { defaultValue: 'Invalid plate.' }));
+	        return;
+	      }
       closePlateModal();
     } catch (err) {
       setPlateError(t('plateConfirmError', { defaultValue: 'Error confirming. Please try again.' }));

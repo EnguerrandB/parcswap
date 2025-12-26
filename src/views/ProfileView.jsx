@@ -11,6 +11,7 @@ import {
   Gem,
   Gift,
   Handshake,
+  Heart,
   History,
   LogOut,
   MapPin,
@@ -28,7 +29,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { RecaptchaVerifier, linkWithPhoneNumber } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, appId, db } from '../firebase';
 
 const ProfileView = ({
   user,
@@ -47,17 +49,18 @@ const ProfileView = ({
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
-  const iconColors = {
-    rank: '#f97316',
-    profile: '#ec4899',
-    vehicle: '#8b5cf6',
-    stripe: '#0ea5e9',
-    invite: '#22c55e',
-    appearance: '#f59e0b',
-    history: '#6366f1',
-    legal: '#ef4444',
-    leaderboard: '#06b6d4',
-    tierCar: '#f97316',
+	  const iconColors = {
+	    rank: '#f97316',
+	    profile: '#ec4899',
+	    vehicle: '#8b5cf6',
+	    stripe: '#0ea5e9',
+	    invite: '#22c55e',
+	    premiumParks: '#f43f5e',
+	    appearance: '#f59e0b',
+	    history: '#6366f1',
+	    legal: '#ef4444',
+	    leaderboard: '#06b6d4',
+	    tierCar: '#f97316',
     tierLaptop: '#10b981',
     tierPhone: '#22c55e',
     logout: '#f97316',
@@ -453,6 +456,11 @@ const ProfileView = ({
   const [selectedAchievementId, setSelectedAchievementId] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [closingProfile, setClosingProfile] = useState(false);
+  const [showPremiumParksInfo, setShowPremiumParksInfo] = useState(false);
+  const [closingPremiumParksInfo, setClosingPremiumParksInfo] = useState(false);
+  const [buyingPremiumParks, setBuyingPremiumParks] = useState(false);
+  const [premiumParksPurchaseMsg, setPremiumParksPurchaseMsg] = useState('');
+  const [premiumParksPurchaseError, setPremiumParksPurchaseError] = useState('');
   const selectedAchievement = useMemo(() => {
     if (!achievements.length) return null;
     return achievements.find((a) => a.id === selectedAchievementId) || achievements[0];
@@ -479,22 +487,27 @@ const ProfileView = ({
   useEffect(() => {
     if (showProfileModal) setClosingProfile(false);
   }, [showProfileModal]);
+  useEffect(() => {
+    if (showPremiumParksInfo) setClosingPremiumParksInfo(false);
+  }, [showPremiumParksInfo]);
 
   const phoneChanged = profileForm.phone !== (user?.phone || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
   const selfLeaderboardEntry = leaderboard.find((u) => u.id === user?.uid);
-  const userTransactionCount = Number(
-    selfLeaderboardEntry?.transactions ??
-      user?.transactions ??
-      (Array.isArray(transactions) ? transactions.length : 0),
-  );
-  const userRank = selfLeaderboardEntry?.rank ?? null;
-  const toggleTheme = () => onChangeTheme?.(theme === 'dark' ? 'light' : 'dark');
-  const collapseLegal = () => setShowLegal(false);
-  const closeWithAnim = (setClosing, setShow) => {
-    setClosing(true);
-    setTimeout(() => {
+	  const userTransactionCount = Number(
+	    selfLeaderboardEntry?.transactions ??
+	      user?.transactions ??
+	      (Array.isArray(transactions) ? transactions.length : 0),
+	  );
+	  const userRank = selfLeaderboardEntry?.rank ?? null;
+	  const premiumParksCountRaw = Number(user?.premiumParks);
+	  const premiumParksCount = clamp(Number.isFinite(premiumParksCountRaw) ? premiumParksCountRaw : 0, 0, 5);
+	  const toggleTheme = () => onChangeTheme?.(theme === 'dark' ? 'light' : 'dark');
+	  const collapseLegal = () => setShowLegal(false);
+	  const closeWithAnim = (setClosing, setShow) => {
+	    setClosing(true);
+	    setTimeout(() => {
       setShow(false);
       setClosing(false);
     }, 260);
@@ -506,6 +519,44 @@ const ProfileView = ({
   const openAchievementsModal = () => {
     if (!selectedAchievementId && achievements.length > 0) setSelectedAchievementId(achievements[0].id);
     setShowAchievementsModal(true);
+  };
+  const openPremiumParksModal = () => {
+    setPremiumParksPurchaseMsg('');
+    setPremiumParksPurchaseError('');
+    setShowPremiumParksInfo(true);
+  };
+
+  const handleBuyPremiumParks = async () => {
+    if (!user?.uid) return;
+    if (buyingPremiumParks) return;
+
+    setPremiumParksPurchaseMsg('');
+    setPremiumParksPurchaseError('');
+
+    if (premiumParksCount >= 5) {
+      setPremiumParksPurchaseMsg(t('premiumParksAlreadyFull', { defaultValue: 'You already have 5 hearts.' }));
+      return;
+    }
+
+    setBuyingPremiumParks(true);
+    try {
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+      await setDoc(
+        userRef,
+        {
+          premiumParks: 5,
+          premiumParksInitialized: true,
+          premiumParksPurchasedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      setPremiumParksPurchaseMsg(t('premiumParksRecharged', { defaultValue: 'Recharged to 5 hearts.' }));
+    } catch (err) {
+      console.error('Error topping up Premium Parks:', err);
+      setPremiumParksPurchaseError(t('premiumParksPurchaseError', { defaultValue: 'Purchase unavailable right now.' }));
+    } finally {
+      setBuyingPremiumParks(false);
+    }
   };
 
   useEffect(() => {
@@ -707,21 +758,64 @@ const ProfileView = ({
             <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
           </button>
 
-          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
-            <div className="flex items-center space-x-3">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <CreditCard size={20} style={iconStyle('stripe')} />
+	          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
+	            <div className="flex items-center space-x-3">
+	              <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                <CreditCard size={20} style={iconStyle('stripe')} />
+	              </div>
+	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+	                {t('stripeConnection', 'Stripe Connection')}
+	              </span>
+	            </div>
+	            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
+	              {t('stripeActive', 'Active')}
+	            </span>
+	          </div>
+
+	          <button
+              type="button"
+              onClick={openPremiumParksModal}
+              className={`w-full p-4 flex items-center justify-between text-left transition ${
+                isDark
+                  ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800'
+                  : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
+              }`}
+            >
+	            <div className="flex items-center space-x-3">
+	              <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                <Heart size={20} style={iconStyle('premiumParks')} />
+	              </div>
+	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+	                {t('premiumParks', 'Premium Parks')}
+	              </span>
+	            </div>
+	            <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+	                {Array.from({ length: 5 }).map((_, idx) => {
+	                  const filled = idx < premiumParksCount;
+	                  return (
+	                    <Heart
+	                      key={idx}
+	                      size={18}
+	                      strokeWidth={2.25}
+	                      className={
+	                        filled
+	                          ? isDark
+	                            ? 'text-rose-400'
+	                            : 'text-rose-500'
+	                          : isDark
+	                            ? 'text-slate-700'
+	                            : 'text-gray-300'
+	                      }
+	                      fill={filled ? 'currentColor' : 'none'}
+	                    />
+	                  );
+	                })}
+	              </div>
               </div>
-              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-                {t('stripeConnection', 'Stripe Connection')}
-              </span>
-            </div>
-            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
-              {t('stripeActive', 'Active')}
-            </span>
-          </div>
-        </div>
-      </div>
+	          </button>
+	        </div>
+	      </div>
 
       <div className="mt-8">
         <h3 className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-400' : 'text-gray-400'}`}>
@@ -954,6 +1048,110 @@ const ProfileView = ({
           <span className="font-medium">{t('logout', 'Log Out')}</span>
         </button>
       </div>
+
+      {/* Premium Parks info */}
+      {showPremiumParksInfo && (
+        <div
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingPremiumParksInfo ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingPremiumParksInfo, setShowPremiumParksInfo)}
+        >
+          <div
+            className={`rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
+              isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-gray-900'
+            } ${closingPremiumParksInfo ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ backdropFilter: 'blur(16px) saturate(180%)', WebkitBackdropFilter: 'blur(16px) saturate(180%)' }}
+          >
+            <div className="flex items-center space-x-3 mb-4">
+              <div
+                className={`p-2 rounded-lg border ${
+                  isDark ? 'bg-white/10 border-white/10' : 'bg-white border-gray-100'
+                }`}
+              >
+                <Heart size={20} style={iconStyle('premiumParks')} />
+              </div>
+              <div className="flex-1">
+                <div className="font-semibold text-lg leading-tight">{t('premiumParks', 'Premium Parks')}</div>
+                <div className={`text-xs ${isDark ? 'text-slate-300' : 'text-gray-500'}`}>
+                  {t('premiumParksInfoSubtitle', { defaultValue: 'Hearts for free spots' })}
+                </div>
+              </div>
+              <div className={`text-sm font-bold ${isDark ? 'text-rose-300' : 'text-rose-500'}`}>
+                {premiumParksCount}/5
+              </div>
+            </div>
+
+            <div
+              className={`rounded-2xl border overflow-hidden divide-y ${
+                isDark ? 'border-white/10 divide-white/10 bg-white/5' : 'border-gray-100 divide-gray-100 bg-gray-50'
+              }`}
+            >
+              <div className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${isDark ? 'bg-white/10' : 'bg-white'}`}>
+                    <Gift size={16} className={isDark ? 'text-emerald-300' : 'text-emerald-600'} />
+                  </div>
+                  <div className={`text-sm ${isDark ? 'text-slate-100' : 'text-gray-800'}`}>
+                    {t('premiumParksInfoGain', { defaultValue: 'Gain +1 when someone accepts a free spot you proposed.' })}
+                  </div>
+                </div>
+                <div className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-full">
+                  +1
+                </div>
+              </div>
+              <div className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${isDark ? 'bg-white/10' : 'bg-white'}`}>
+                    <Handshake size={16} className={isDark ? 'text-rose-300' : 'text-rose-500'} />
+                  </div>
+                  <div className={`text-sm ${isDark ? 'text-slate-100' : 'text-gray-800'}`}>
+                    {t('premiumParksInfoLose', { defaultValue: 'Lose -1 when you accept a free spot.' })}
+                  </div>
+                </div>
+                <div className="text-xs font-bold text-rose-500 bg-rose-500/10 px-2 py-1 rounded-full">
+                  -1
+                </div>
+              </div>
+            </div>
+
+            <div className={`mt-4 text-sm ${isDark ? 'text-slate-300' : 'text-gray-600'}`}>
+              {t('premiumParksInfoRule', { defaultValue: "You can't accept a free spot with 0 hearts." })}
+            </div>
+
+            {premiumParksPurchaseError ? (
+              <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-2">
+                {premiumParksPurchaseError}
+              </div>
+            ) : null}
+            {premiumParksPurchaseMsg ? (
+              <div className={`mt-3 text-sm rounded-xl px-4 py-2 border ${
+                isDark
+                  ? 'text-emerald-200 bg-emerald-500/10 border-emerald-400/10'
+                  : 'text-emerald-800 bg-emerald-50 border-emerald-100'
+              }`}
+              >
+                {premiumParksPurchaseMsg}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleBuyPremiumParks}
+              disabled={buyingPremiumParks}
+              className="w-full mt-4 h-12 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)] hover:brightness-110 transition active:scale-[0.99] disabled:opacity-60"
+            >
+              {buyingPremiumParks
+                ? t('pleaseWait', 'Please wait...')
+                : t('premiumParksBuyCta', { defaultValue: 'Refill to 5 hearts • 10€' })}
+            </button>
+            <div className={`mt-2 text-xs ${isDark ? 'text-slate-400' : 'text-gray-400'} text-center`}>
+              {t('premiumParksBuyNote', { defaultValue: 'Refills your hearts back to 5.' })}
+            </div>
+          </div>
+        </div>
+      )}
 
 {/* Modale Profil */}
       {showProfileModal && (

@@ -7,6 +7,7 @@ import { Check, X as XIcon } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import i18n from '../i18n/i18n';
+import PremiumParksDeltaToast from './PremiumParksDeltaToast';
 import carMarker from '../assets/car-marker.png';
 import userCar1 from '../assets/user-car-1.png';
 import userCar2 from '../assets/user-car-2.png';
@@ -245,6 +246,9 @@ const MapInner = ({
   const [plateConfirmError, setPlateConfirmError] = useState(null);
   const [plateConfirmSubmitting, setPlateConfirmSubmitting] = useState(false);
   const plateNoticeSeenRef = useRef(new Set());
+  const [acceptingNav, setAcceptingNav] = useState(false);
+  const [actionToast, setActionToast] = useState('');
+  const [premiumParksToast, setPremiumParksToast] = useState(null);
   const [showRoute, setShowRoute] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [navReady, setNavReady] = useState(false);
@@ -532,9 +536,6 @@ useEffect(() => {
       setConfirming(false);
       return undefined;
     }
-    // Ensure the host is notified as soon as navigation starts
-    console.log('[Map] showRoute true -> markBookerAccepted fallback');
-    markBookerAccepted();
     const timer = setTimeout(() => setShowSteps(true), 0);
     return () => clearTimeout(timer);
   }, [showRoute, spot?.id]);
@@ -769,24 +770,42 @@ useEffect(() => {
     }
   };
 
-  const markBookerAccepted = async () => {
-    if (!spot?.id || !currentUserId) return;
-    console.log('[Map] markBookerAccepted called', {
-      spotId: spot.id,
-      bookerId: spot.bookerId || currentUserId,
-      bookerName: spot.bookerName || currentUserName,
-    });
-    try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id), {
-        bookerAccepted: true,
-        bookerAcceptedAt: serverTimestamp(),
-        bookerId: spot.bookerId || currentUserId,
-        bookerName: spot.bookerName || currentUserName || 'Seeker',
-      });
-      console.log('[Map] markBookerAccepted success', spot.id);
-    } catch (err) {
-      console.error('Error marking booker accepted navigation', err);
+  const showTapToast = (message) => {
+    if (!message) return;
+    setActionToast(message);
+    window.setTimeout(() => setActionToast(''), 2200);
+  };
+
+  const handleAcceptNav = async () => {
+    if (!spot) return;
+    if (acceptingNav) return;
+    setAcceptingNav(true);
+
+    const res = await onSelectionStep?.('nav_started', spot);
+    if (res && res.ok === false) {
+      if (res.code === 'no_premium_parks') {
+        showTapToast(t('premiumParksEmpty', 'No Premium Parks left.'));
+      } else if (res.code === 'spot_not_booked') {
+        showTapToast(t('spotNotReady', { defaultValue: 'Just a sec…' }));
+      } else {
+        showTapToast(t('somethingWentWrong', { defaultValue: 'Something went wrong.' }));
+      }
+      setAcceptingNav(false);
+      return;
     }
+
+    if (
+      res?.premiumParksDeltaApplied &&
+      Number.isFinite(Number(res.bookerBefore)) &&
+      Number.isFinite(Number(res.bookerAfter))
+    ) {
+      setPremiumParksToast({ from: Number(res.bookerBefore), to: Number(res.bookerAfter) });
+    }
+
+    setShowRoute(true);
+    setShowSteps(true);
+    console.log('[Map] Accept clicked -> nav_started');
+    setAcceptingNav(false);
   };
 
   const persistUserLocation = async (coords) => {
@@ -1629,6 +1648,22 @@ if (!routeAnimRef.current) {
            <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">Missing Mapbox Token</div>
         )}
 
+        {premiumParksToast ? (
+          <PremiumParksDeltaToast
+            fromCount={premiumParksToast.from}
+            toCount={premiumParksToast.to}
+            onDone={() => setPremiumParksToast(null)}
+          />
+        ) : null}
+
+        {actionToast ? (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+            <div className="bg-black/75 text-white px-4 py-2 rounded-full text-sm shadow-lg backdrop-blur-md">
+              {actionToast}
+            </div>
+          </div>
+        ) : null}
+
         {/* --- STEP 1: PREVIEW --- */}
         {!showSteps && (
           <div
@@ -1695,16 +1730,12 @@ if (!routeAnimRef.current) {
                     </button>
 
                     <button
-                      onClick={() => {
-                        markBookerAccepted();
-                        setShowRoute(true);
-                        setShowSteps(true);
-                        console.log('[Map] Accept clicked -> nav_started');
-                        onSelectionStep?.('nav_started', spot);
-                      }}
+                      onClick={handleAcceptNav}
+                      disabled={acceptingNav}
                       className="
                         flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full
                         text-white transition-colors duration-300 active:scale-95
+                        disabled:opacity-60
                       "
                     >
                       <Check

@@ -1,12 +1,14 @@
 // src/views/ProposeView.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, Clock } from 'lucide-react';
+import { Car, Clock, WifiOff, Wifi } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MOCK_CARS, formatPrice } from '../constants';
 import WaitingView from './WaitingView';
+import useConnectionQuality from '../hooks/useConnectionQuality';
 
 const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot, onRenewSpot, vehicles = [] }) => {
   const { t } = useTranslation('common');
+  const { isOnline, isPoorConnection } = useConnectionQuality();
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let letters1 = '';
@@ -114,6 +116,14 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
       style={{ touchAction: 'auto' }}
     >
       <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">{t('leavingTitle', 'Leaving my spot')}</h2>
+      {isOnline && isPoorConnection ? (
+        <div className="mb-4">
+          <div className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-sm backdrop-blur">
+            <Wifi size={16} className="text-amber-700" />
+            {t('poorConnectionWarning', { defaultValue: 'Slow connection. Some actions may take longer.' })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="space-y-6">
         {/* Car */}
@@ -240,9 +250,9 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
       <div className="mt-8 pb-8 pt-2">
 	        <button
 	          type="button"
-	          disabled={publishing}
+	          disabled={publishing || !isOnline}
 	          onClick={async () => {
-	            if (publishing) return;
+	            if (publishing || !isOnline) return;
 	            setPublishError('');
 	            setPublishing(true);
 	            const selected =
@@ -272,11 +282,22 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
 	              setPublishing(false);
 	            }
 	          }}
-	          className={`w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-4 rounded-xl font-bold shadow-lg transition text-lg flex items-center justify-center space-x-2 ${
-	            publishing ? 'opacity-80 cursor-not-allowed' : 'hover:scale-[1.01]'
+	          className={`w-full py-4 rounded-xl font-bold shadow-lg transition text-lg flex items-center justify-center space-x-2 ${
+	            publishing || !isOnline ? 'opacity-80 cursor-not-allowed' : 'hover:scale-[1.01]'
+	          } ${
+	            !isOnline
+	              ? 'bg-gray-200 text-gray-500'
+	              : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
 	          }`}
 	        >
-	          <span>{publishing ? t('publishing', 'Publishing...') : t('publishSpot', 'Publish Spot')}</span>
+	          {!isOnline ? <WifiOff size={18} className="text-gray-500" /> : null}
+	          <span>
+	            {publishing
+	              ? t('publishing', 'Publishing...')
+	              : !isOnline
+	                ? t('offlineTitle', { defaultValue: 'No connection' })
+	                : t('publishSpot', 'Publish Spot')}
+	          </span>
 	        </button>
 	        {publishError ? (
 	          <p className="mt-3 text-sm font-semibold text-rose-600 text-center">{publishError}</p>

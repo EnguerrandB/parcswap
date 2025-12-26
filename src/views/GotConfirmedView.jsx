@@ -7,6 +7,7 @@ import { Car, X, MapPin } from 'lucide-react';
 import { createPortal } from "react-dom";
 import { doc, onSnapshot } from 'firebase/firestore';
 import { appId, db } from '../firebase';
+import PremiumParksDeltaToast from '../components/PremiumParksDeltaToast';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
@@ -51,6 +52,8 @@ const GotConfirmedView = ({
   const [plateSubmitting, setPlateSubmitting] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState(null);
+  const [premiumParksToast, setPremiumParksToast] = useState(null);
+  const premiumParksToastKeyRef = useRef(null);
   const autoPromptedRef = useRef(false);
   const isDark =
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
@@ -66,6 +69,20 @@ const GotConfirmedView = ({
     name: fallbackBookerName,
     transactions: spot?.bookerTransactions ?? spot?.bookerTx ?? null,
   }));
+
+  useEffect(() => {
+    const hostDelta = Number(spot?.premiumParksHostDelta);
+    const hostAfterRaw = Number(spot?.premiumParksHostAfter);
+    if (hostDelta !== 1 || !Number.isFinite(hostAfterRaw)) return;
+
+    const appliedAt = spot?.premiumParksAppliedAt;
+    const appliedAtKey = appliedAt?.toMillis ? String(appliedAt.toMillis()) : appliedAt ? String(appliedAt) : '';
+    const key = spot?.id ? `${spot.id}:${appliedAtKey}` : null;
+    if (!key) return;
+    if (premiumParksToastKeyRef.current === key) return;
+    premiumParksToastKeyRef.current = key;
+    setPremiumParksToast({ from: hostAfterRaw - 1, to: hostAfterRaw });
+  }, [spot?.id, spot?.premiumParksAppliedAt, spot?.premiumParksHostDelta, spot?.premiumParksHostAfter]);
 
   const ensureBookerPopupContentElement = useCallback(() => {
     if (bookerPopupContentElRef.current) return bookerPopupContentElRef.current;
@@ -553,6 +570,13 @@ const GotConfirmedView = ({
           border-left-color: rgba(255, 255, 255, 0.82);
         }
       `}</style>
+      {premiumParksToast ? (
+        <PremiumParksDeltaToast
+          fromCount={premiumParksToast.from}
+          toCount={premiumParksToast.to}
+          onDone={() => setPremiumParksToast(null)}
+        />
+      ) : null}
       <div ref={setMiniMapNode} className="absolute inset-0 z-0 w-full h-full bg-gray-100" />
       {!mapboxToken && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 text-white">

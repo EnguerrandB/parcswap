@@ -17,6 +17,7 @@ import {
 	  setDoc,
   limit,
   increment,
+  runTransaction,
 } from 'firebase/firestore';
 import {
   onAuthStateChanged,
@@ -128,6 +129,11 @@ const getRemainingMs = (spot) => {
 };
 
 const EXPIRED_PROPOSE_DISMISS_MS = 60_000;
+const PREMIUM_PARKS_MAX = 5;
+const isFreeSpot = (spot) => {
+  const price = Number(spot?.price ?? 0);
+  return Number.isFinite(price) && price <= 0;
+};
 
 const BOTTOM_NAV_HEIGHT = 96; // fallback if we can't measure the nav
 const measureBottomSafeOffset = () => {
@@ -556,17 +562,18 @@ export default function ParkSwapApp() {
   useEffect(() => {
   const unsub = onAuthStateChanged(auth, (fbUser) => {
 
-    if (fbUser) {
-      const nextUser = {
-        uid: fbUser.uid,
-        displayName: fbUser.displayName || 'User',
-        email: fbUser.email || '',
-        phone: fbUser.phoneNumber || '',
-        transactions: 0,
-        language: 'en',
-      };
-      setUser(nextUser);
-    }
+	    if (fbUser) {
+	      const nextUser = {
+	        uid: fbUser.uid,
+	        displayName: fbUser.displayName || 'User',
+	        email: fbUser.email || '',
+	        phone: fbUser.phoneNumber || '',
+	        transactions: 0,
+	        premiumParks: PREMIUM_PARKS_MAX,
+	        language: 'en',
+	      };
+	      setUser(nextUser);
+	    }
 
     // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
     setInitializing(false);
@@ -582,14 +589,15 @@ export default function ParkSwapApp() {
     const fbUser = auth.currentUser;
     if (!fbUser) return;
 
-    const nextUser = {
-      uid: fbUser.uid,
-      displayName: fbUser.displayName || 'User',
-      email: fbUser.email || '',
-      phone: fbUser.phoneNumber || '',
-      transactions: 0,
-      language: 'en',
-    };
+	    const nextUser = {
+	      uid: fbUser.uid,
+	      displayName: fbUser.displayName || 'User',
+	      email: fbUser.email || '',
+	      phone: fbUser.phoneNumber || '',
+	      transactions: 0,
+	      premiumParks: PREMIUM_PARKS_MAX,
+	      language: 'en',
+	    };
 
     setUser((prev) => prev || nextUser);
     i18n.changeLanguage(nextUser.language || 'en');
@@ -844,42 +852,84 @@ export default function ParkSwapApp() {
   }, [user]);
 
   // --- Ensure user profile doc exists / hydrate (live subscription) ---
-  useEffect(() => {
-    if (!user?.uid) return;
-    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+	  useEffect(() => {
+	    if (!user?.uid) return;
+	    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
 
-    // Ensure the profile doc exists with basic defaults
-    // Ensure doc exists without resetting transaction count
-    setDoc(
-      userRef,
-      {
-        displayName: user.displayName,
-        email: user.email,
-        phone: user.phone,
-        language: user.language || i18n.language || 'en',
-        // increment(0) preserves existing transactions and initializes to 0 if missing
-        transactions: increment(0),
-        createdAt: serverTimestamp(),
-      },
-      { merge: true },
-    ).catch((err) => console.error('Error creating user profile:', err));
+	    // Seed Premium Parks once per account (start with 5 hearts).
+	    runTransaction(db, async (tx) => {
+	      const snap = await tx.get(userRef);
+	      const data = snap.exists() ? snap.data() : null;
+	      const initialized = data?.premiumParksInitialized === true;
+	      const current = Number(data?.premiumParks);
+	      const hasValue = Number.isFinite(current);
+
+	      if (!snap.exists()) {
+	        tx.set(
+	          userRef,
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { merge: true },
+	        );
+	        return;
+	      }
+
+	      if (!initialized) {
+	        tx.set(
+	          userRef,
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { merge: true },
+	        );
+	        return;
+	      }
+
+	      if (!hasValue) {
+	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX }, { merge: true });
+	      }
+	    }).catch((err) => console.error('Error initializing Premium Parks:', err));
+
+	    // Ensure the profile doc exists with basic defaults
+	    // Ensure doc exists without resetting transaction count
+		    setDoc(
+		      userRef,
+		      {
+		        displayName: user.displayName,
+		        email: user.email,
+		        phone: user.phone,
+		        language: user.language || i18n.language || 'en',
+		        // increment(0) preserves existing transactions and initializes to 0 if missing
+		        transactions: increment(0),
+		        createdAt: serverTimestamp(),
+		      },
+		      { merge: true },
+		    ).catch((err) => console.error('Error creating user profile:', err));
 
     const unsub = onSnapshot(
       userRef,
-      (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        setUser((prev) => ({
-          ...prev,
-          displayName: data.displayName || prev?.displayName,
-          email: data.email || prev?.email,
-          phone: data.phone ?? prev?.phone,
-          language: data.language || prev?.language || 'en',
-          transactions: data.transactions ?? prev?.transactions ?? 0,
-        }));
-      },
-      (err) => console.error('Error subscribing to user profile:', err),
-    );
+	      (snap) => {
+	        if (!snap.exists()) return;
+	        const data = snap.data();
+		        setUser((prev) => {
+		          const premiumInitialized = data.premiumParksInitialized === true;
+		          const premiumValue = Number(data.premiumParks);
+		          const nextPremium =
+		            premiumInitialized
+		              ? Number.isFinite(premiumValue)
+		                ? premiumValue
+		                : prev?.premiumParks ?? PREMIUM_PARKS_MAX
+		              : PREMIUM_PARKS_MAX;
+		          return {
+		            ...prev,
+		            displayName: data.displayName || prev?.displayName,
+		            email: data.email || prev?.email,
+		            phone: data.phone ?? prev?.phone,
+		            language: data.language || prev?.language || 'en',
+		            transactions: data.transactions ?? prev?.transactions ?? 0,
+		            premiumParks: nextPremium,
+		          };
+		        });
+	      },
+	      (err) => console.error('Error subscribing to user profile:', err),
+	    );
     return () => unsub();
   }, [user?.uid]);
 
@@ -985,61 +1035,209 @@ export default function ParkSwapApp() {
 	  };
 
   const handleSelectionStep = async (step, spot) => {
-    saveSelectionStep(step, spot);
-    if (step === 'nav_started' && user && spot?.id) {
-      try {
-        const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+    if (step !== 'nav_started') {
+      saveSelectionStep(step, spot);
+      return { ok: true };
+    }
+
+    if (!user || !spot?.id) return { ok: false, code: 'missing_input' };
+
+    const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+    const bookerRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+
+    try {
+      const result = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(spotRef);
+        if (!snap.exists()) {
+          const err = new Error('spot_missing');
+          err.code = 'spot_missing';
+          throw err;
+        }
+
+        const liveSpot = { id: spot.id, ...snap.data() };
+        const status = liveSpot.status;
+        if (status === 'available') {
+          const err = new Error('spot_not_booked');
+          err.code = 'spot_not_booked';
+          throw err;
+        }
+        if (liveSpot.bookerId && liveSpot.bookerId !== user.uid) {
+          const err = new Error('not_booker');
+          err.code = 'not_booker';
+          throw err;
+        }
+        const free = isFreeSpot(liveSpot);
+        const resolvedHostId = liveSpot.hostId || spot.hostId || null;
+        const hostRef = resolvedHostId
+          ? doc(db, 'artifacts', appId, 'public', 'data', 'users', resolvedHostId)
+          : null;
+
+        const alreadyApplied = !!liveSpot.premiumParksAppliedAt;
+        let premiumParksDeltaApplied = false;
+        let bookerBefore = null;
+        let bookerAfter = null;
+        let hostAfter = null;
+        let hostDelta = 0;
+
+        if (free && !alreadyApplied) {
+          const bookerSnap = await tx.get(bookerRef);
+          const hostSnap =
+            hostRef && resolvedHostId !== user.uid ? await tx.get(hostRef) : null;
+
+          const bookerData = bookerSnap.exists() ? bookerSnap.data() : {};
+          const currentHeartsRaw = Number(bookerData?.premiumParks);
+          const currentHearts = Number.isFinite(currentHeartsRaw) ? currentHeartsRaw : PREMIUM_PARKS_MAX;
+          if (currentHearts <= 0) {
+            const err = new Error('no_premium_parks');
+            err.code = 'no_premium_parks';
+            throw err;
+          }
+
+          bookerBefore = currentHearts;
+          bookerAfter = Math.max(0, Math.min(PREMIUM_PARKS_MAX, currentHearts - 1));
+
+          if (hostSnap) {
+            const hostData = hostSnap.exists() ? hostSnap.data() : {};
+            const hostHeartsRaw = Number(hostData?.premiumParks);
+            const hostHearts = Number.isFinite(hostHeartsRaw) ? hostHeartsRaw : PREMIUM_PARKS_MAX;
+            hostAfter = Math.max(0, Math.min(PREMIUM_PARKS_MAX, hostHearts + 1));
+            hostDelta = hostAfter - hostHearts;
+          }
+
+          tx.set(
+            bookerRef,
+            { premiumParks: bookerAfter, premiumParksInitialized: true },
+            { merge: true },
+          );
+
+          if (hostSnap) {
+            tx.set(
+              hostRef,
+              { premiumParks: hostAfter, premiumParksInitialized: true },
+              { merge: true },
+            );
+          }
+
+          premiumParksDeltaApplied = true;
+        }
+
         console.log('[SelectionStep] nav_started -> mark bookerAccepted for host view', {
           spotId: spot.id,
           bookerId: user.uid,
           bookerName: user.displayName,
+          premiumParksDeltaApplied,
         });
-        await updateDoc(spotRef, {
+
+        const acceptancePayload = {
           bookerAccepted: true,
           bookerAcceptedAt: serverTimestamp(),
           bookerId: user.uid,
           bookerName: user.displayName || 'Seeker',
           bookerVehiclePlate: selectedVehicle?.plate || null,
           bookerVehicleId: selectedVehicle?.id || null,
-        });
-      } catch (err) {
-        console.error('Error marking nav started on spot', err);
-      }
+        };
+
+        if (premiumParksDeltaApplied) {
+          acceptancePayload.premiumParksAppliedAt = serverTimestamp();
+          acceptancePayload.premiumParksAppliedBy = user.uid;
+          acceptancePayload.premiumParksBookerDelta = -1;
+          acceptancePayload.premiumParksBookerAfter = bookerAfter;
+          acceptancePayload.premiumParksHostDelta = hostDelta;
+          acceptancePayload.premiumParksHostAfter = hostAfter;
+        }
+
+        tx.update(spotRef, acceptancePayload);
+
+        return {
+          ok: true,
+          isFree: free,
+          premiumParksDeltaApplied,
+          bookerBefore,
+          bookerAfter,
+          hostAfter,
+          hostDelta,
+        };
+      });
+
+      saveSelectionStep(step, spot);
+      return result;
+    } catch (err) {
+      console.error('Error marking nav started on spot', err);
+      return { ok: false, code: err?.code || err?.message || 'unknown_error' };
     }
   };
 
-  const handleBookSpot = async (spot) => {
-    if (!spot || !user) return;
-    logCurrentLocation('book_spot');
-    try {
-      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
-      await updateDoc(spotRef, {
-        status: 'booked',
-        bookerId: user.uid,
-        bookerName: user.displayName || 'Seeker',
-        bookerAccepted: false,
-        bookerAcceptedAt: null,
-        bookerVehiclePlate: selectedVehicle?.plate || null,
-        bookerVehicleId: selectedVehicle?.id || null,
-      });
-      await upsertTransaction({
-        spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
-        userId: user.uid,
-        status: 'accepted',
-        role: 'booker',
-      });
-      await upsertTransaction({
-        spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
-        userId: spot.hostId,
-        status: 'accepted',
-        role: 'host',
-      });
-      setActiveTab('search');
-      saveSelectionStep('booked', spot);
-    } catch (err) {
-      console.error('Error booking spot:', err);
-    }
-  };
+	  const handleBookSpot = async (spot) => {
+	    if (!spot || !user) return { ok: false, code: 'missing_input' };
+	    logCurrentLocation('book_spot');
+	    try {
+	      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+	      const bookerRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+
+	      const { isFree, hostId } = await runTransaction(db, async (tx) => {
+	        const snap = await tx.get(spotRef);
+	        if (!snap.exists()) {
+	          const err = new Error('spot_missing');
+	          err.code = 'spot_missing';
+	          throw err;
+	        }
+
+	        const liveSpot = { id: spot.id, ...snap.data() };
+	        const status = liveSpot.status;
+	        if (status && status !== 'available') {
+	          const err = new Error('spot_not_available');
+	          err.code = 'spot_not_available';
+	          throw err;
+	        }
+
+	        const free = isFreeSpot(liveSpot);
+	        const resolvedHostId = liveSpot.hostId || spot.hostId || null;
+	        if (free) {
+	          const bookerSnap = await tx.get(bookerRef);
+	          const bookerData = bookerSnap.exists() ? bookerSnap.data() : {};
+	          const currentHeartsRaw = Number(bookerData?.premiumParks);
+	          const currentHearts = Number.isFinite(currentHeartsRaw) ? currentHeartsRaw : PREMIUM_PARKS_MAX;
+	          if (currentHearts <= 0) {
+	            const err = new Error('no_premium_parks');
+	            err.code = 'no_premium_parks';
+	            throw err;
+	          }
+	        }
+
+	        tx.update(spotRef, {
+	          status: 'booked',
+	          bookerId: user.uid,
+	          bookerName: user.displayName || 'Seeker',
+	          bookerAccepted: false,
+	          bookerAcceptedAt: null,
+	          bookerVehiclePlate: selectedVehicle?.plate || null,
+	          bookerVehicleId: selectedVehicle?.id || null,
+	        });
+
+	        return { isFree: free, hostId: resolvedHostId };
+	      });
+	      await upsertTransaction({
+	        spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
+	        userId: user.uid,
+	        status: 'accepted',
+	        role: 'booker',
+	      });
+	      if (hostId && hostId !== user.uid) {
+	        await upsertTransaction({
+	          spot: { ...spot, bookerId: user.uid, bookerName: user.displayName },
+	          userId: hostId,
+	          status: 'accepted',
+	          role: 'host',
+	        });
+	      }
+	      setActiveTab('search');
+	      saveSelectionStep('booked', spot);
+	      return { ok: true, isFree };
+	    } catch (err) {
+	      console.error('Error booking spot:', err);
+	      return { ok: false, code: err?.code || err?.message || 'unknown_error' };
+	    }
+	  };
 
   const handleConfirmPlate = async (spotId, plate) => {
     try {
@@ -1147,6 +1345,12 @@ export default function ParkSwapApp() {
           bookerName: null,
           bookerAccepted: false,
           bookerAcceptedAt: null,
+          premiumParksAppliedAt: null,
+          premiumParksAppliedBy: null,
+          premiumParksBookerDelta: null,
+          premiumParksBookerAfter: null,
+          premiumParksHostDelta: null,
+          premiumParksHostAfter: null,
         });
       } else {
         await deleteDoc(spotRef);
@@ -1169,6 +1373,12 @@ export default function ParkSwapApp() {
         bookerName: null,
         bookerAccepted: false,
         bookerAcceptedAt: null,
+        premiumParksAppliedAt: null,
+        premiumParksAppliedBy: null,
+        premiumParksBookerDelta: null,
+        premiumParksBookerAfter: null,
+        premiumParksHostDelta: null,
+        premiumParksHostAfter: null,
       });
     } catch (err) {
       console.error('Error renewing spot:', err);
@@ -1184,6 +1394,12 @@ export default function ParkSwapApp() {
         bookerName: null,
         bookerAccepted: false,
         bookerAcceptedAt: null,
+        premiumParksAppliedAt: null,
+        premiumParksAppliedBy: null,
+        premiumParksBookerDelta: null,
+        premiumParksBookerAfter: null,
+        premiumParksHostDelta: null,
+        premiumParksHostAfter: null,
       });
       setBookedSpot(null);
       saveSelectionStep('cleared', null);
@@ -1364,12 +1580,13 @@ export default function ParkSwapApp() {
             selectedSpot={selectedSearchSpot}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
-            leaderboard={leaderboard}
-            userCoords={userCoords}
-            currentUserId={user?.uid || null}
-            deckIndex={searchDeckIndex}
-            setDeckIndex={setSearchDeckIndex}
-          />
+	            leaderboard={leaderboard}
+	            userCoords={userCoords}
+	            currentUserId={user?.uid || null}
+	            premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
+	            deckIndex={searchDeckIndex}
+	            setDeckIndex={setSearchDeckIndex}
+	          />
         </div>
       );
     }

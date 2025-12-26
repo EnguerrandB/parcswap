@@ -1,9 +1,10 @@
 // src/views/SearchView.jsx
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, MapPin, Bell } from 'lucide-react';
+import { X, MapPin, Bell, WifiOff, Wifi } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
+import useConnectionQuality from '../hooks/useConnectionQuality';
 
 // --- UTILITAIRES ---
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
@@ -186,6 +187,8 @@ const SwipeCard = forwardRef(({
   colorSalt = 0,
   onVerticalSwipe,
   onDrag,
+  canSwipeRight,
+  onBlockedSwipe,
 }, ref) => { // 'ref' est maintenant reçu ici via forwardRef
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -202,6 +205,16 @@ const SwipeCard = forwardRef(({
     
     // La fonction magique pour l'arc de cercle
     triggerSwipe: (direction) => {
+      if (direction === 'right') {
+        const allowed =
+          typeof canSwipeRight === 'function' ? canSwipeRight() : canSwipeRight == null ? true : Boolean(canSwipeRight);
+        if (!allowed) {
+          setOffset({ x: 0, y: 0 });
+          if (onDrag) onDrag(0);
+          onBlockedSwipe?.();
+          return;
+        }
+      }
       const isRight = direction === 'right';
       const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 400;
       
@@ -257,6 +270,14 @@ const SwipeCard = forwardRef(({
     const absY = Math.abs(offset.y);
 
     if (offset.x > threshold) {
+      const allowed =
+        typeof canSwipeRight === 'function' ? canSwipeRight() : canSwipeRight == null ? true : Boolean(canSwipeRight);
+      if (!allowed) {
+        setOffset({ x: 0, y: 0 });
+        if (onDrag) onDrag(0);
+        onBlockedSwipe?.();
+        return;
+      }
       setOffset({ x: 500, y: offset.y });
       setTimeout(() => { onSwipe('right'); if (onDrag) onDrag(0); }, 200);
     } else if (offset.x < -threshold) {
@@ -454,6 +475,7 @@ SwipeCard.displayName = 'SwipeCard';
 // --- VUE PRINCIPALE ---
 const SearchView = ({
   spots = [],
+  premiumParks = 0,
   onBookSpot,
   onCancelBooking,
   selectedSpot: controlledSelectedSpot,
@@ -497,7 +519,7 @@ const SearchView = ({
   const [dragX, setDragX] = useState(0);
   const radiusSliderRef = useRef(null);
   const priceSliderRef = useRef(null);
-  const [isOnline, setIsOnline] = useState(true);
+  const { isOnline, isPoorConnection } = useConnectionQuality();
   const prefsHydratedRef = useRef(false);
   const prefsWriteTimerRef = useRef(null);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
@@ -632,19 +654,6 @@ const SearchView = ({
     }
   }, []);
 
-  // Suivi de connexion réseau basique
-  useEffect(() => {
-    if (typeof navigator === 'undefined') return;
-    const update = () => setIsOnline(navigator.onLine !== false);
-    update();
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
-
   // Restore + persist user preferences (radius + price filter)
   useEffect(() => {
     if (!currentUserId) return undefined;
@@ -733,8 +742,14 @@ const SearchView = ({
   const outOfCards = currentIndex >= availableSpots.length;
   const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableSpots.length === 0;
-  const showEmpty = (noSpots || outOfCards) && !selectedSpot;
+  const showOffline = !isOnline && !selectedSpot;
+  const showEmpty = (noSpots || outOfCards) && !selectedSpot && isOnline;
   const isMapOpen = !!selectedSpot;
+  const activeSpot = visibleSpots?.[0] || null;
+  const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
+  const canAcceptFreeSpot = premiumParksCount > 0;
+  const isActiveFreeSpot = isFreeSpot(activeSpot);
+  const blockActiveFreeBooking = isActiveFreeSpot && !canAcceptFreeSpot;
 
   useEffect(() => {
     if (!Number.isFinite(currentIndex)) return;
@@ -868,6 +883,12 @@ const SearchView = ({
     if (!spot) return;
 
     if (direction === 'right') {
+      if (isFreeSpot(spot) && !canAcceptFreeSpot) {
+        const msg = t('premiumParksEmpty', 'No Premium Parks left.');
+        setShareToast(msg);
+        setTimeout(() => setShareToast(''), 2200);
+        return;
+      }
       onSelectionStep?.('selected', spot);
       onBookSpot?.(spot);
       setSelectedSpot(spot);
@@ -898,6 +919,12 @@ const SearchView = ({
     }
   };
 
+  const notifyNoPremiumParks = () => {
+    const msg = t('premiumParksEmpty', 'No Premium Parks left.');
+    setShareToast(msg);
+    setTimeout(() => setShareToast(''), 2200);
+  };
+
   const handleEnableNotifications = async () => {
     if (notificationsEnabled) {
       setNotificationsEnabled(false);
@@ -926,8 +953,16 @@ const SearchView = ({
         paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
       }}
     >
-      {!isOnline && (
-        <div className="absolute top-3 left-4 right-4 z-50">
+      {isOnline && isPoorConnection && (
+        <div className="absolute top-3 left-4 right-4 z-50 pointer-events-none">
+          <div className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
+            <Wifi size={16} className="text-amber-700" />
+            {t('poorConnectionWarning', { defaultValue: 'Slow connection. Some actions may take longer.' })}
+          </div>
+        </div>
+      )}
+      {!isOnline && selectedSpot && (
+        <div className="absolute top-3 left-4 right-4 z-50 pointer-events-none">
           <div className="flex items-center justify-center px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
             {t('offlineWarning', 'Limited connection. Enable cellular data or Wi‑Fi.')}
           </div>
@@ -1050,7 +1085,25 @@ const SearchView = ({
           className="flex-1 flex flex-col items-center justify-center"
           style={{ gap: 'clamp(10px, 4vh, 20px)' }}
         >
-          {showEmpty ? (
+          {showOffline ? (
+            <div className="text-center space-y-4 max-w-sm empty-state">
+              <div
+                className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center border shadow-xl ${
+                  isDark ? 'bg-slate-900 border-white/10 shadow-black/40 animate-[pulseLocation_2.0s_ease-in-out_infinite]' : 'bg-white border-white animate-[pulseLocation_2.0s_ease-in-out_infinite]'
+                }`}
+              >
+                <WifiOff size={42} className={isDark ? 'text-amber-300' : 'text-orange-500'} />
+              </div>
+              <div>
+                <h3 className={`text-2xl font-bold mb-1 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                  {t('offlineTitle', { defaultValue: 'No connection' })}
+                </h3>
+                <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} text-sm`}>
+                  {t('offlineSubtitle', { defaultValue: 'Turn on Wi‑Fi or cellular data to see spots.' })}
+                </p>
+              </div>
+            </div>
+          ) : showEmpty ? (
             <div className="text-center space-y-4 max-w-sm empty-state">
               <div
                 className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center border shadow-xl ${
@@ -1094,15 +1147,17 @@ const SearchView = ({
                       }))].map(({ spot, index, exiting }) => {
                       const entering = enteringIds.includes(spot.id);
                       return (
-                      <SwipeCard
-                        key={spot._exitKey || spot.id}
-                        onDrag={setDragX}
-                        spot={spot}
-                        index={index}
-                        active={!exiting && index === 0}
-                        nowMs={nowMs}
-                        ref={(!exiting && index === 0) ? activeCardRef : null}
-                        onSwipe={(dir) => handleSwipe(dir, spot)}
+	                      <SwipeCard
+	                        key={spot._exitKey || spot.id}
+	                        onDrag={setDragX}
+	                        spot={spot}
+	                        canSwipeRight={() => !isFreeSpot(spot) || canAcceptFreeSpot}
+	                        onBlockedSwipe={notifyNoPremiumParks}
+	                        index={index}
+	                        active={!exiting && index === 0}
+	                        nowMs={nowMs}
+	                        ref={(!exiting && index === 0) ? activeCardRef : null}
+	                        onSwipe={(dir) => handleSwipe(dir, spot)}
                         onVerticalSwipe={() => handleVerticalShare(spot)}
                         isDark={isDark}
                         userCoords={userCoords}
@@ -1177,22 +1232,27 @@ const SearchView = ({
               </button>
 
               {/* BOUTON DROIT (Réserver / Book) */}
-              <button
-                onClick={() => {
-                  if (activeCardRef.current) {
-                    activeCardRef.current.triggerSwipe('right');
-                  }
-                }}
-                className={`px-7 rounded-full flex items-center justify-center text-white font-bold text-base ${
-                  isDark
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-400'
-                    : 'bg-gradient-to-r from-orange-500 to-amber-400'
-                }`}
-                style={{
-                  height: 'clamp(52px, 14vw, 72px)',
-                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
-                  transform: `translateX(${
-                    dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
+	              <button
+	                disabled={blockActiveFreeBooking}
+	                onClick={() => {
+	                  if (blockActiveFreeBooking) {
+	                    notifyNoPremiumParks();
+	                    return;
+	                  }
+	                  if (activeCardRef.current) {
+	                    activeCardRef.current.triggerSwipe('right');
+	                  }
+	                }}
+	                className={`px-7 rounded-full flex items-center justify-center text-white font-bold text-base ${
+	                  isDark
+	                    ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+	                    : 'bg-gradient-to-r from-orange-500 to-amber-400'
+	                } ${blockActiveFreeBooking ? 'opacity-50 cursor-not-allowed' : ''}`}
+	                style={{
+	                  height: 'clamp(52px, 14vw, 72px)',
+	                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
+	                  transform: `translateX(${
+	                    dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
                   }px)`,
                   opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0) : 1,
                   transition: Math.abs(dragX) > 2

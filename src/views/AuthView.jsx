@@ -14,7 +14,8 @@ import {
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { appId, auth, db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 
 // --- CSS IN-JS pour l'animation de fond subtile (Mesh Gradient) ---
@@ -73,12 +74,20 @@ const AuthView = ({ noticeMessage = '' }) => {
 
   // --- Logique Persistence & Redirect ---
   const pendingKey = 'parkswap_oauth_pending';
+  const lastAuthNameKey = 'parkswap_last_auth_name';
   const setPendingAuth = (providerId) => {
     try {
       window.sessionStorage?.setItem(
         pendingKey,
         JSON.stringify({ providerId: String(providerId || ''), at: Date.now() }),
       );
+    } catch (_) {}
+  };
+  const setLastAuthName = (name) => {
+    try {
+      const n = String(name || '').trim();
+      if (!n) return;
+      window.sessionStorage?.setItem(lastAuthNameKey, n);
     } catch (_) {}
   };
   const consumePendingAuth = () => {
@@ -178,7 +187,24 @@ const AuthView = ({ noticeMessage = '' }) => {
           return;
         }
         const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
-        await updateProfile(cred.user, { displayName: form.name });
+        const displayName = String(form.name || '').trim();
+        await updateProfile(cred.user, { displayName });
+        setLastAuthName(displayName);
+        try {
+          const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', cred.user.uid);
+          await setDoc(
+            userRef,
+            {
+              displayName,
+              username: displayName,
+              email: cred.user.email || form.email || '',
+              createdAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        } catch (e) {
+          console.error('Error saving profile name:', e);
+        }
         await sendEmailVerification(cred.user);
         setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
         onAuthSuccess(cred.user);

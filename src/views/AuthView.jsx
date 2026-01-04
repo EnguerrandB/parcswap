@@ -1,11 +1,12 @@
 // src/views/AuthView.jsx
 import React, { useEffect, useState, useRef } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import {
-	  createUserWithEmailAndPassword,
-	  signInWithEmailAndPassword,
-	  updateProfile,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
   GoogleAuthProvider,
-  OAuthProvider,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
@@ -18,61 +19,175 @@ import {
 import { auth } from '../firebase';
 import { useTranslation } from 'react-i18next';
 
+// --- CSS IN-JS pour l'animation de fond subtile (Mesh Gradient) ---
+const styles = `
+  @keyframes gradient-move {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .animate-mesh {
+    background-size: 200% 200%;
+    animation: gradient-move 15s ease infinite;
+  }
+  /* Cacher la scrollbar si besoin */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+`;
+
 const AuthView = ({ noticeMessage = '' }) => {
   const { t } = useTranslation('common');
+  const isDark =
+    (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
+    (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
+  const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+  const bgMapElRef = useRef(null);
+  const bgMapRef = useRef(null);
+  const bgMapTimerRef = useRef(null);
+  const bgMapCycleRef = useRef(0);
 
-  // État du formulaire
+  // --- État du formulaire ---
   const [form, setForm] = useState({ email: '', password: '', name: '' });
   const [phoneForm, setPhoneForm] = useState({ phone: '', code: '' });
-  
-  // État de l'interface
-  const [mode, setMode] = useState('login'); // 'login' | 'register'
-  const [method, setMethod] = useState('email'); // 'email' | 'phone'
+
+  // --- État de l'interface ---
+  const [mode, setMode] = useState('login');
+  const [method, setMethod] = useState('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(noticeMessage || '');
 
-  // État spécifique Téléphone
+  // --- État spécifique Téléphone ---
   const [confirmationResult, setConfirmationResult] = useState(null);
   const recaptchaVerifierRef = useRef(null);
 
   const googleProvider = new GoogleAuthProvider();
-  const appleProvider = new OAuthProvider('apple.com');
 
-  // --- Gestion du cycle de vie & Persistence ---
+  // --- Logique Persistence & Redirect ---
+  const pendingKey = 'parkswap_oauth_pending';
+  const setPendingAuth = (providerId) => {
+    try {
+      window.sessionStorage?.setItem(
+        pendingKey,
+        JSON.stringify({ providerId: String(providerId || ''), at: Date.now() }),
+      );
+    } catch (_) {}
+  };
+  const consumePendingAuth = () => {
+    try {
+      const raw = window.sessionStorage?.getItem(pendingKey);
+      if (!raw) return null;
+      window.sessionStorage?.removeItem(pendingKey);
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  };
 
   useEffect(() => {
-    // S'assurer que la session persiste (important pour mobile redirect)
     setPersistence(auth, browserLocalPersistence).catch((e) => console.error(e));
-
-    // Nettoyage au démontage
-    return () => {
-      clearRecaptcha();
-    };
+    return () => clearRecaptcha();
   }, []);
 
+  // Background map behind the auth card (monochrome, non-interactive)
   useEffect(() => {
-    // Gestion du retour de redirection (OAuth sur mobile)
+    if (typeof window === 'undefined') return undefined;
+    if (!mapboxToken) return undefined;
+    if (!bgMapElRef.current) return undefined;
+    if (bgMapRef.current) return undefined;
+
+    mapboxgl.accessToken = mapboxToken;
+    const center0 = [2.295, 48.8738]; // Arc de Triomphe
+    const map = new mapboxgl.Map({
+      container: bgMapElRef.current,
+      style: 'mapbox://styles/mapbox/light-v11',
+      center: center0,
+      zoom: 13.3,
+      bearing: -12,
+      pitch: 0,
+      interactive: false,
+      attributionControl: false,
+      preserveDrawingBuffer: false,
+    });
+
+    bgMapRef.current = map;
+
+    const cycle = () => {
+      if (!bgMapRef.current) return;
+      bgMapCycleRef.current = (bgMapCycleRef.current + 1) % 4;
+      const i = bgMapCycleRef.current;
+      const targets = [
+        { center: [2.295, 48.8738], zoom: 13.4, bearing: -18 },
+        { center: [2.3008, 48.8726], zoom: 13.7, bearing: -28 },
+        { center: [2.2932, 48.8762], zoom: 13.6, bearing: -8 },
+        { center: [2.2888, 48.8748], zoom: 13.8, bearing: 6 },
+      ];
+      const target = targets[i];
+      try {
+        map.easeTo({
+          center: target.center,
+          zoom: target.zoom,
+          bearing: target.bearing,
+          duration: 9000,
+          easing: (t0) => 1 - Math.pow(1 - t0, 3),
+        });
+      } catch (_) {
+        // ignore if map isn't ready
+      }
+    };
+
+    const start = () => {
+      cycle();
+      bgMapTimerRef.current = window.setInterval(cycle, 9500);
+    };
+
+    map.once('load', start);
+
+    return () => {
+      if (bgMapTimerRef.current) {
+        window.clearInterval(bgMapTimerRef.current);
+        bgMapTimerRef.current = null;
+      }
+      bgMapRef.current = null;
+      try {
+        map.remove();
+      } catch (_) {
+        // ignore cleanup errors
+      }
+    };
+  }, [mapboxToken]);
+
+  useEffect(() => {
     const handleRedirect = async () => {
       try {
         const result = await getRedirectResult(auth);
         if (result?.user) {
+          consumePendingAuth();
           onAuthSuccess(result.user);
+          return;
+        }
+        const pending = consumePendingAuth();
+        const pendingProvider = pending?.providerId;
+        const pendingAt = Number(pending?.at);
+        const stillRecent = Number.isFinite(pendingAt) && Date.now() - pendingAt < 2 * 60_000;
+        if (pendingProvider === 'apple.com' && stillRecent) {
+          setError(t('appleAuthNotCompleted', "Apple sign-in incomplete."));
         }
       } catch (err) {
         console.error(err);
-        setError(t('providerSignInFailed', 'Authentication failed. Please try again.'));
+        setError(t('providerSignInFailed', 'Authentication failed.'));
       }
     };
     handleRedirect();
-  }, []);
+  }, []); // eslint-disable-line
 
   // --- Helpers ---
-
   const onAuthSuccess = (user) => {
     setError('');
-    setInfo(t('loginSuccess', 'Connexion réussie !'));
-    // L'app n'utilise pas react-router: App.jsx bascule l'UI via onAuthStateChanged().
+    setInfo('');
     void user;
   };
 
@@ -83,84 +198,64 @@ const AuthView = ({ noticeMessage = '' }) => {
     }
   };
 
-  // Registration is email-only (phone is for login only)
   useEffect(() => {
     if (mode !== 'register') return;
     if (method !== 'email') setMethod('email');
     setConfirmationResult(null);
     setPhoneForm((prev) => ({ ...prev, phone: '', code: '' }));
     clearRecaptcha();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   const setupRecaptcha = () => {
-    clearRecaptcha(); // Nettoyer l'ancien si existe
+    clearRecaptcha();
     const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
       size: 'invisible',
-      callback: () => {
-        // Recaptcha résolu automatiquement
-      }
+      callback: () => {},
     });
     recaptchaVerifierRef.current = verifier;
     return verifier;
   };
 
-  // --- Handlers ---
-
+  // --- Submit Handlers ---
   const handleGlobalSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setInfo('');
-
-    if (method === 'email') {
-      await handleEmailAuth();
-    } else {
-      await handlePhoneAuth();
-    }
+    if (method === 'email') await handleEmailAuth();
+    else await handlePhoneAuth();
   };
 
   const handleEmailAuth = async () => {
     if (!form.email || !form.password) {
-      setError(t('authFillEmailPassword', 'Please fill email and password'));
+      setError(t('authFillEmailPassword', 'Remplissez email et mot de passe'));
       return;
     }
-
     setLoading(true);
     try {
       if (mode === 'register') {
-        // --- INSCRIPTION ---
         if (!form.name.trim()) {
-          setError(t('nameRequired', 'Please enter your name.'));
+          setError(t('nameRequired', 'Votre nom est requis.'));
           setLoading(false);
           return;
         }
-        
         const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
         await updateProfile(cred.user, { displayName: form.name });
-        
-        // Envoi email de vérification
         await sendEmailVerification(cred.user);
-        setInfo(t('verificationEmailSent', 'Compte créé ! Vérifiez votre email.'));
-        
-        // On connecte l'utilisateur directement sans le déconnecter
+        setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
         onAuthSuccess(cred.user);
-
       } else {
-        // --- CONNEXION ---
         const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-        
         if (!cred.user.emailVerified) {
-          // Optionnel : avertir mais laisser entrer
-          setInfo(t('verifyEmailWarning', 'Pensez à vérifier votre email pour accéder à tout.'));
+          setInfo(t('verifyEmailWarning', 'Email non vérifié.'));
         }
         onAuthSuccess(cred.user);
       }
     } catch (err) {
       let msg = err.message;
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        msg = t('invalidCreds', "Email ou mot de passe incorrect.");
+      if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(err.code)) {
+        msg = t('invalidCreds', 'Identifiants incorrects.');
       } else if (err.code === 'auth/email-already-in-use') {
-        msg = t('emailInUse', "Cet email est déjà utilisé.");
+        msg = t('emailInUse', 'Email déjà utilisé.');
       }
       setError(msg);
     } finally {
@@ -169,11 +264,10 @@ const AuthView = ({ noticeMessage = '' }) => {
   };
 
   const handlePhoneAuth = async () => {
-    // Cas 1 : Validation du code SMS
     if (confirmationResult) {
       const code = String(phoneForm.code || '').replace(/\D/g, '').slice(0, 6);
       if (code.length < 6) {
-        setError(t('enterCode', 'Enter the verification code.'));
+        setError(t('enterCode', 'Code incomplet.'));
         return;
       }
       setLoading(true);
@@ -181,30 +275,22 @@ const AuthView = ({ noticeMessage = '' }) => {
         const result = await confirmationResult.confirm(code);
         onAuthSuccess(result.user);
       } catch (err) {
-        setError(t('invalidCode', "Code invalide ou expiré."));
+        setError(t('invalidCode', 'Code invalide.'));
       } finally {
         setLoading(false);
       }
       return;
     }
 
-    // Cas 2 : Envoi du SMS
     let phoneInput = phoneForm.phone.replace(/\s+/g, '');
-    
-    // Ajout simple du préfixe FR si aucun préfixe (+) n'est présent
     if (!phoneInput.startsWith('+')) {
-      if (phoneInput.startsWith('0')) {
-        phoneInput = phoneInput.replace(/^0/, '+33');
-      } else {
-         // Si l'utilisateur tape "61234..." sans 0 ni +, on suppose FR, 
-         // mais c'est risqué. Mieux vaut demander le format international.
-         phoneInput = '+33' + phoneInput;
-      }
+      if (phoneInput.startsWith('0')) phoneInput = phoneInput.replace(/^0/, '+33');
+      else phoneInput = '+33' + phoneInput;
     }
 
     if (phoneInput.length < 8) {
-        setError(t('phoneFormatError', "Numéro invalide."));
-        return;
+      setError(t('phoneFormatError', 'Numéro incorrect.'));
+      return;
     }
 
     setLoading(true);
@@ -212,304 +298,352 @@ const AuthView = ({ noticeMessage = '' }) => {
       const verifier = setupRecaptcha();
       const confirmation = await signInWithPhoneNumber(auth, phoneInput, verifier);
       setConfirmationResult(confirmation);
-      setInfo(t('phoneCodeSent', 'Code envoyé par SMS.'));
+      setInfo(t('phoneCodeSent', 'Code SMS envoyé.'));
     } catch (err) {
-      console.error(err);
-      setError(err.message || t('errorSendingSMS', "Erreur d'envoi SMS."));
-      clearRecaptcha(); // Reset recaptcha en cas d'erreur
+      setError(t('errorSendingSMS', "Erreur d'envoi."));
+      clearRecaptcha();
     } finally {
       setLoading(false);
     }
   };
 
-  // Auto-submit phone code when 6 digits are entered
   useEffect(() => {
     if (method !== 'phone') return;
     if (!confirmationResult) return;
     if (loading) return;
     const code = String(phoneForm.code || '').replace(/\D/g, '').slice(0, 6);
-    if (code.length !== 6) return;
-    handlePhoneAuth();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (code.length === 6) handlePhoneAuth();
+    // eslint-disable-next-line
   }, [method, confirmationResult, phoneForm.code]);
 
   const handlePopupSignIn = async (provider) => {
     setError('');
     setLoading(true);
     try {
+      const providerId = provider?.providerId || '';
+      setPendingAuth(providerId);
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       
       if (isMobile) {
         await signInWithRedirect(auth, provider);
-        // Le code s'arrête ici, la page va recharger
         return;
       }
-
       const result = await signInWithPopup(auth, provider);
+      consumePendingAuth();
       onAuthSuccess(result.user);
     } catch (err) {
       if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
-        // Fallback desktop si popup bloquée
-        try {
-          await signInWithRedirect(auth, provider);
-        } catch (redirErr) {
-          setError(redirErr.message);
-        }
+        try { await signInWithRedirect(auth, provider); } catch (redirErr) { setError(redirErr.message); }
       } else {
-        setError(err.message || t('providerSignInFailed', 'Erreur de connexion sociale.'));
+        setError(t('providerSignInFailed', 'Erreur de connexion.'));
       }
     } finally {
-      setLoading(false); // Seulement utile si pas de redirect
+      setLoading(false);
     }
   };
 
-  // --- Reset lors du changement de méthode ---
   const switchMethod = (newMethod) => {
     if (mode === 'register' && newMethod === 'phone') return;
     setMethod(newMethod);
     setError('');
     setInfo('');
-    setConfirmationResult(null); // Reset état téléphone
+    setConfirmationResult(null);
     clearRecaptcha();
   };
 
+  // --- RENDER ---
   return (
-    <div className="h-full min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center px-6 overflow-hidden">
-      <div className="w-full max-w-md bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/80 p-8 space-y-6">
-        
-        {/* Header */}
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">{t('authWelcome', 'Welcome to ParkSwap')}</h1>
-          <p className="text-sm text-gray-500">
-            {method === 'email'
-              ? mode === 'login'
-                ? t('authLoginSubtitle', 'Log in to continue')
-                : t('authRegisterSubtitle', 'Create an account')
-              : t('authPhoneSubtitle', 'Sign in with your phone')}
-          </p>
+    <>
+      <style>{styles}</style>
+      <div
+        className={`relative overflow-hidden min-h-screen w-full flex items-center justify-center p-4 sm:p-6 animate-mesh font-sans ${
+          isDark
+            ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-black text-slate-50 selection:bg-orange-500/20 selection:text-orange-100'
+            : 'bg-gradient-to-br from-gray-50 via-[#fdfbf7] to-orange-50 text-gray-900 selection:bg-orange-100 selection:text-orange-900'
+        }`}
+      >
+        {/* Background map (non interactive) */}
+        <div className="pointer-events-none absolute inset-0">
+          <div
+            ref={bgMapElRef}
+            className="absolute inset-0"
+            style={{
+              filter: isDark
+                ? 'grayscale(1) invert(1) contrast(1.06) brightness(0.92)'
+                : 'grayscale(1) contrast(1.08) brightness(1.02)',
+              opacity: isDark ? 0.58 : 0.5,
+              transform: 'scale(1.06)',
+              transformOrigin: '50% 50%',
+            }}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background: isDark
+                ? 'radial-gradient(70% 60% at 50% 40%, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.48) 78%, rgba(0,0,0,0.62) 100%)'
+                : 'radial-gradient(70% 60% at 50% 40%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.46) 80%, rgba(255,255,255,0.62) 100%)',
+              WebkitBackdropFilter: 'blur(1.5px)',
+              backdropFilter: 'blur(1.5px)',
+            }}
+            aria-hidden="true"
+          />
         </div>
-
-        {/* Notifications */}
-        {(info) && (
-          <div className="text-sm text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-center animate-pulse">
-            {info}
-          </div>
-        )}
-        {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-center">
-            {error}
-          </div>
-        )}
-
-        {/* Onglets Méthode (login seulement) */}
-        {mode === 'login' && (
-          <div className="flex justify-center space-x-2 bg-gray-100 p-1 rounded-full w-fit mx-auto">
-            <button
-              type="button"
-              onClick={() => switchMethod('email')}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                method === 'email' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t('useEmail', 'Email')}
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMethod('phone')}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                method === 'phone' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t('usePhone', 'Téléphone')}
-            </button>
-          </div>
-        )}
-
-        {/* Formulaire Principal */}
-        <form className="space-y-4" onSubmit={handleGlobalSubmit}>
+        
+        {/* Main Card Container */}
+        <div
+          className={`w-full max-w-[400px] rounded-[32px] border p-8 sm:p-10 relative z-10 overflow-hidden transition-all duration-500 ${
+            isDark
+              ? 'bg-slate-900/55 border-white/10 shadow-[0_18px_60px_rgba(0,0,0,0.55)]'
+              : 'bg-white border-white/50 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] backdrop-blur-sm'
+          }`}
+          style={{
+            WebkitBackdropFilter: isDark ? 'blur(20px) saturate(180%)' : undefined,
+            backdropFilter: isDark ? 'blur(20px) saturate(180%)' : undefined,
+          }}
+        >
           
-          {/* --- CHAMPS EMAIL --- */}
-          {method === 'email' && (
-            <>
-              {mode === 'register' && (
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-gray-600">{t('name', 'Nom')}</label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="John Doe"
-                  />
-                </div>
-              )}
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-600">{t('email', 'Email')}</label>
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-600">{t('password', 'Mot de passe')}</label>
-                <input
-                  type="password"
-                  required
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="••••••••"
-                />
-              </div>
-            </>
+          {/* Header Minimaliste */}
+          <div className="flex flex-col items-center mb-8 space-y-2">
+            <div
+              className={`w-12 h-12 bg-gradient-to-tr from-orange-400 to-amber-300 rounded-xl flex items-center justify-center mb-2 ${
+                isDark ? 'shadow-[0_18px_46px_rgba(249,115,22,0.22)]' : 'shadow-lg shadow-orange-200'
+              }`}
+            >
+               {/* Icone simple (Logo placeholder) */}
+               <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+               </svg>
+            </div>
+            <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>ParkSwap</h1>
+            <p className={`text-sm font-medium ${isDark ? 'text-slate-300/80' : 'text-gray-500'}`}>
+              {method === 'email' 
+                ? (mode === 'login' ? 'Content de vous revoir' : 'Créer votre espace')
+                : 'Connexion rapide'}
+            </p>
+          </div>
+
+          {/* Alertes (Discrètes) */}
+          {(error || info) && (
+            <div className={`mb-6 text-xs font-medium px-4 py-3 rounded-2xl text-center leading-relaxed ${
+              error
+                ? isDark
+                  ? 'bg-red-500/10 text-red-200 border border-red-500/20'
+                  : 'bg-red-50 text-red-600'
+                : isDark
+                  ? 'bg-sky-500/10 text-sky-200 border border-sky-500/20'
+                  : 'bg-blue-50 text-blue-600'
+            }`}>
+              {error || info}
+            </div>
           )}
 
-          {/* --- CHAMPS TÉLÉPHONE --- */}
-	          {method === 'phone' && (
-	            <div className="space-y-4">
-	              {!confirmationResult ? (
-                // Étape 1 : Numéro
-                <div className="space-y-1">
-                  <label className="text-sm font-semibold text-gray-600">{t('phone', 'Numéro de mobile')}</label>
+          {/* Switcher Login/Phone (Style iOS Segmented) */}
+          {mode === 'login' && (
+            <div
+              className={`p-1 rounded-2xl flex mb-6 relative ${
+                isDark ? 'bg-white/10 border border-white/10' : 'bg-gray-100/80'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => switchMethod('email')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-300 z-10 ${
+                  method === 'email'
+                    ? isDark
+                      ? 'text-slate-50 bg-white/10'
+                      : 'text-gray-900 shadow-sm bg-white'
+                    : isDark
+                      ? 'text-slate-300 hover:text-slate-100'
+                      : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMethod('phone')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-300 z-10 ${
+                  method === 'phone'
+                    ? isDark
+                      ? 'text-slate-50 bg-white/10'
+                      : 'text-gray-900 shadow-sm bg-white'
+                    : isDark
+                      ? 'text-slate-300 hover:text-slate-100'
+                      : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                SMS
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleGlobalSubmit} className="space-y-4">
+            
+            {/* EMAIL FIELDS */}
+            {method === 'email' && (
+              <div className="space-y-3">
+                {mode === 'register' && (
+                  <div className="group">
+                    <input
+                      type="text"
+                      className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400"
+                      placeholder={t('name', 'Nom complet')}
+                      value={form.name}
+                      onChange={(e) => setForm({...form, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                )}
+                <div className="group">
                   <input
-                    type="tel"
+                    type="email"
+                    className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400"
+                    placeholder="nom@exemple.com"
+                    value={form.email}
+                    onChange={(e) => setForm({...form, email: e.target.value})}
                     required
-                    autoComplete="tel"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={phoneForm.phone}
-                    onChange={(e) => setPhoneForm({ ...phoneForm, phone: e.target.value })}
-                    placeholder="06 12 34 56 78"
                   />
                 </div>
-              ) : (
-                // Étape 2 : Code SMS
-	                <div className="space-y-2 animate-fadeIn">
-	                  <div className="flex justify-between items-center">
-	                    <label className="text-sm font-semibold text-gray-600">{t('enterCode', 'Code SMS')}</label>
-	                    <button 
-	                      type="button" 
-	                      onClick={() => setConfirmationResult(null)}
-	                      className="text-xs text-orange-500 hover:underline"
-	                    >
-	                      {t('changeNumber', 'Changer de numéro')}
-	                    </button>
-	                  </div>
-	                  <input
-	                    type="tel"
-	                    inputMode="numeric"
-	                    autoComplete="one-time-code"
-	                    pattern="[0-9]*"
-	                    maxLength={6}
-	                    required
-	                    value={phoneForm.code}
-	                    onChange={(e) => {
-	                      const next = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
-	                      setPhoneForm({ ...phoneForm, code: next });
-	                      setError('');
-	                    }}
-	                    placeholder="123456"
-	                    className="w-full border border-orange-300 bg-orange-50 rounded-xl px-3 py-2 text-center text-xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
-	                  />
-	                  <p className="text-xs text-gray-500">
-	                    {loading
-	                      ? t('verifying', { defaultValue: 'Vérification…' })
-	                      : t('autoVerifyHint', { defaultValue: 'Le code est vérifié automatiquement.' })}
-	                  </p>
-	                </div>
-	              )}
-	            </div>
-	          )}
-
-          {/* BOUTON D'ACTION PRINCIPAL */}
-	          {(method !== 'phone' || !confirmationResult) && (
-	            <button
-	              type="submit"
-	              disabled={loading}
-	              className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60 disabled:scale-100 flex justify-center items-center"
-	            >
-	              {loading && (
-	                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-	                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-	                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-	                </svg>
-	              )}
-	              {method === 'phone'
-	                ? t('sendCode', 'Envoyer le code')
-	                : mode === 'login'
-	                  ? t('login', 'Se connecter')
-	                  : t('register', "S'inscrire")}
-	            </button>
-	          )}
-	        </form>
-
-        {/* Séparateur */}
-        <div className="flex items-center space-x-3">
-          <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400">ou continuer avec</span>
-          <div className="flex-1 h-px bg-gray-200" />
-        </div>
-
-        {/* Boutons Sociaux */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => handlePopupSignIn(googleProvider)}
-            className="flex items-center justify-center bg-white border border-gray-200 rounded-xl py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
-          >
-             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" />
-                <path fill="#EA4335" d="M12 4.36c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-            Google
-          </button>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => handlePopupSignIn(appleProvider)}
-            className="flex items-center justify-center bg-black text-white rounded-xl py-2.5 text-sm font-semibold hover:opacity-90 transition"
-          >
-            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.74 1.18 0 2.21-.93 3.69-.93.95 0 1.95.29 2.58.74-.69.35-2.29 1.5-2.29 3.63 0 3.61 3.2 4.33 3.2 4.33l-.03.1c-.43 1.35-1.53 3.14-2.23 4.29zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.18 2.32-2.47 4.07-3.74 4.25z" />
-            </svg>
-            Apple
-          </button>
-        </div>
-
-        {/* Toggle Login/Register (Uniquement pour Email) */}
-        {method === 'email' && (
-          <div className="text-center text-sm text-gray-600 pt-2">
-            {mode === 'login' ? (
-              <p>
-                {t('needAccount', 'Pas de compte ?')} {' '}
-                <button className="font-bold text-orange-600 hover:underline" onClick={() => setMode('register')}>
-                  {t('registerLink', "S'inscrire")}
-                </button>
-              </p>
-            ) : (
-              <p>
-                {t('haveAccount', 'Déjà un compte ?')} {' '}
-                <button className="font-bold text-orange-600 hover:underline" onClick={() => setMode('login')}>
-                  {t('loginLink', "Se connecter")}
-                </button>
-              </p>
+                <div className="group">
+                  <input
+                    type="password"
+                    className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400"
+                    placeholder="Mot de passe"
+                    value={form.password}
+                    onChange={(e) => setForm({...form, password: e.target.value})}
+                    required
+                  />
+                </div>
+              </div>
             )}
+
+            {/* PHONE FIELDS */}
+            {method === 'phone' && (
+              <div className="space-y-4 pt-2">
+                {!confirmationResult ? (
+                  <input
+                    type="tel"
+                    className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400 text-center tracking-widest"
+                    placeholder="06 12 34 56 78"
+                    value={phoneForm.phone}
+                    onChange={(e) => setPhoneForm({...phoneForm, phone: e.target.value})}
+                    required
+                  />
+                ) : (
+                  <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                     <div className="flex justify-between items-center px-1">
+                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Code de validation</span>
+                      <button type="button" onClick={() => setConfirmationResult(null)} className="text-xs text-orange-600 font-bold hover:underline">Modifier</button>
+                    </div>
+                    <input
+                      type="tel"
+                      maxLength={6}
+                      className={`w-full h-14 rounded-2xl text-center text-2xl font-mono tracking-[0.5em] outline-none transition-all ${
+                        isDark
+                          ? 'bg-white/5 border border-white/10 text-slate-50 focus:border-orange-400 focus:ring-4 focus:ring-orange-500/10'
+                          : 'bg-white border border-gray-200 text-gray-900 focus:border-orange-500 focus:ring-4 focus:ring-orange-50 shadow-sm'
+                      }`}
+                      placeholder="••••••"
+                      value={phoneForm.code}
+                      onChange={(e) => {
+                         const val = e.target.value.replace(/\D/g,'');
+                         setPhoneForm({...phoneForm, code: val});
+                         setError('');
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Main Action Button */}
+            {(method !== 'phone' || !confirmationResult) && (
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full h-12 mt-4 text-white font-bold rounded-2xl transform active:scale-[0.98] transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-not-allowed ${
+                  isDark
+                    ? 'bg-white/10 hover:bg-white/15 border border-white/10 shadow-[0_18px_50px_rgba(0,0,0,0.55)]'
+                    : 'bg-gray-900 hover:bg-gray-800 shadow-lg shadow-gray-200 hover:shadow-gray-300'
+                }`}
+              >
+                {loading ? (
+                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <span>
+                    {method === 'phone' 
+                     ? 'Recevoir le code' 
+                     : (mode === 'login' ? 'Se connecter' : "S'inscrire")}
+                  </span>
+                )}
+              </button>
+            )}
+          </form>
+
+          {/* Divider */}
+          <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className={`w-full border-t ${isDark ? 'border-white/10' : 'border-gray-100'}`} />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span
+                className={`px-2 font-medium tracking-wide ${
+                  isDark ? 'bg-slate-900/40 text-slate-300/80' : 'bg-white text-gray-400'
+                }`}
+              >
+                Ou continuer avec
+              </span>
+            </div>
           </div>
-        )}
+
+	          {/* Social Buttons */}
+	          <div className="grid grid-cols-2 gap-3">
+	             <button
+	               type="button"
+	               onClick={() => handlePopupSignIn(googleProvider)}
+	               disabled={loading}
+	               className={`h-12 flex items-center justify-center rounded-2xl transition-all duration-200 ${
+	                 isDark
+	                   ? 'bg-white/8 border border-white/10 hover:bg-white/12 shadow-[0_14px_40px_rgba(0,0,0,0.45)]'
+	                   : 'bg-white border border-gray-100 hover:border-gray-200 hover:bg-gray-50 shadow-sm'
+	               }`}
+	             >
+                <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" /><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" /><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" /><path fill="#EA4335" d="M12 4.36c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" /></svg>
+             </button>
+	             <button
+	               type="button"
+	               disabled
+	               className={`h-12 flex items-center justify-center rounded-2xl cursor-not-allowed opacity-50 ${
+	                 isDark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-transparent'
+	               }`}
+	             >
+	                <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.74 1.18 0 2.21-.93 3.69-.93.95 0 1.95.29 2.58.74-.69.35-2.29 1.5-2.29 3.63 0 3.61 3.2 4.33 3.2 4.33l-.03.1c-.43 1.35-1.53 3.14-2.23 4.29zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.18 2.32-2.47 4.07-3.74 4.25z" /></svg>
+	             </button>
+	          </div>
+
+          {/* Footer Link */}
+	          {method === 'email' && (
+	            <p className={`mt-8 text-center text-xs ${isDark ? 'text-slate-300/70' : 'text-gray-500'}`}>
+	              {mode === 'login' ? "Pas encore de compte ?" : "Déjà membre ?"}
+	              <button
+	                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+	                className={`ml-1 font-bold transition-colors ${
+	                  isDark ? 'text-slate-50 hover:text-orange-300' : 'text-gray-900 hover:text-orange-600'
+	                }`}
+	              >
+	                {mode === 'login' ? "Créer un compte" : "Se connecter"}
+	              </button>
+	            </p>
+	          )}
+
+        </div>
+
+        {/* Recaptcha Container (Hidden) */}
+        <div id="recaptcha-container"></div>
       </div>
-      
-      {/* Container Recaptcha (ne pas supprimer) */}
-      <div id="recaptcha-container"></div>
-    </div>
+    </>
   );
 };
 

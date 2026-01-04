@@ -1,10 +1,9 @@
 // src/views/AuthView.jsx
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom'; // 👈 Ajout pour la redirection
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
+	  createUserWithEmailAndPassword,
+	  signInWithEmailAndPassword,
+	  updateProfile,
   GoogleAuthProvider,
   OAuthProvider,
   signInWithPopup,
@@ -21,7 +20,6 @@ import { useTranslation } from 'react-i18next';
 
 const AuthView = ({ noticeMessage = '' }) => {
   const { t } = useTranslation('common');
-  const navigate = useNavigate(); // 👈 Hook de navigation
 
   // État du formulaire
   const [form, setForm] = useState({ email: '', password: '', name: '' });
@@ -74,8 +72,8 @@ const AuthView = ({ noticeMessage = '' }) => {
   const onAuthSuccess = (user) => {
     setError('');
     setInfo(t('loginSuccess', 'Connexion réussie !'));
-    // 👉 ICI : Redirection vers ta page principale (ex: dashboard ou home)
-    navigate('/'); 
+    // L'app n'utilise pas react-router: App.jsx bascule l'UI via onAuthStateChanged().
+    void user;
   };
 
   const clearRecaptcha = () => {

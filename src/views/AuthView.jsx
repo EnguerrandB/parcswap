@@ -331,20 +331,7 @@ useEffect(() => {
                   placeholder="+33123456789"
                 />
                 {phoneConfirmation ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-gray-500">{t('weSentCode', 'We sent a code to your phone.')}</p>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="tel"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={phoneForm.code}
-                        onChange={(e) => setPhoneForm((prev) => ({ ...prev, code: e.target.value }))}
-                        placeholder="123456"
-                        className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm tracking-[0.25em] font-mono text-center"
-                      />
-                    </div>
-                  </div>
+                  <p className="text-xs text-gray-500">{t('weSentCode', 'We sent a code to your phone.')}</p>
                 ) : null}
               </div>
             </>

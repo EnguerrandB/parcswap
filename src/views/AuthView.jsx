@@ -1,7 +1,5 @@
 // src/views/AuthView.jsx
 import React, { useEffect, useState, useRef } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -30,6 +28,19 @@ const styles = `
     background-size: 200% 200%;
     animation: gradient-move 15s ease infinite;
   }
+
+  @keyframes auth-photo-drift {
+    0% { transform: scale(1.08) translate3d(0%, 0%, 0); }
+    50% { transform: scale(1.16) translate3d(-2.8%, -1.6%, 0); }
+    100% { transform: scale(1.08) translate3d(0%, 0%, 0); }
+  }
+  .auth-photo-bg {
+    will-change: transform;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-position: 50% 50%;
+    animation: auth-photo-drift 26s ease-in-out infinite;
+  }
   /* Cacher la scrollbar si besoin */
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -41,11 +52,7 @@ const AuthView = ({ noticeMessage = '' }) => {
   const isDark =
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
     (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
-  const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
-  const bgMapElRef = useRef(null);
-  const bgMapRef = useRef(null);
-  const bgMapTimerRef = useRef(null);
-  const bgMapCycleRef = useRef(0);
+  const authBgUrl = import.meta.env.VITE_AUTH_BG_URL || '/auth-bg.png';
 
   // --- État du formulaire ---
   const [form, setForm] = useState({ email: '', password: '', name: '' });
@@ -91,74 +98,6 @@ const AuthView = ({ noticeMessage = '' }) => {
     setPersistence(auth, browserLocalPersistence).catch((e) => console.error(e));
     return () => clearRecaptcha();
   }, []);
-
-  // Background map behind the auth card (monochrome, non-interactive)
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    if (!mapboxToken) return undefined;
-    if (!bgMapElRef.current) return undefined;
-    if (bgMapRef.current) return undefined;
-
-    mapboxgl.accessToken = mapboxToken;
-    const center0 = [2.295, 48.8738]; // Arc de Triomphe
-    const map = new mapboxgl.Map({
-      container: bgMapElRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
-      center: center0,
-      zoom: 13.3,
-      bearing: -12,
-      pitch: 0,
-      interactive: false,
-      attributionControl: false,
-      preserveDrawingBuffer: false,
-    });
-
-    bgMapRef.current = map;
-
-    const cycle = () => {
-      if (!bgMapRef.current) return;
-      bgMapCycleRef.current = (bgMapCycleRef.current + 1) % 4;
-      const i = bgMapCycleRef.current;
-      const targets = [
-        { center: [2.295, 48.8738], zoom: 13.4, bearing: -18 },
-        { center: [2.3008, 48.8726], zoom: 13.7, bearing: -28 },
-        { center: [2.2932, 48.8762], zoom: 13.6, bearing: -8 },
-        { center: [2.2888, 48.8748], zoom: 13.8, bearing: 6 },
-      ];
-      const target = targets[i];
-      try {
-        map.easeTo({
-          center: target.center,
-          zoom: target.zoom,
-          bearing: target.bearing,
-          duration: 9000,
-          easing: (t0) => 1 - Math.pow(1 - t0, 3),
-        });
-      } catch (_) {
-        // ignore if map isn't ready
-      }
-    };
-
-    const start = () => {
-      cycle();
-      bgMapTimerRef.current = window.setInterval(cycle, 9500);
-    };
-
-    map.once('load', start);
-
-    return () => {
-      if (bgMapTimerRef.current) {
-        window.clearInterval(bgMapTimerRef.current);
-        bgMapTimerRef.current = null;
-      }
-      bgMapRef.current = null;
-      try {
-        map.remove();
-      } catch (_) {
-        // ignore cleanup errors
-      }
-    };
-  }, [mapboxToken]);
 
   useEffect(() => {
     const handleRedirect = async () => {
@@ -362,18 +301,18 @@ const AuthView = ({ noticeMessage = '' }) => {
             : 'bg-gradient-to-br from-gray-50 via-[#fdfbf7] to-orange-50 text-gray-900 selection:bg-orange-100 selection:text-orange-900'
         }`}
       >
-        {/* Background map (non interactive) */}
+        {/* Background photo (non interactive) */}
         <div className="pointer-events-none absolute inset-0">
           <div
-            ref={bgMapElRef}
-            className="absolute inset-0"
+            className="absolute inset-0 auth-photo-bg"
             style={{
+              backgroundImage: isDark
+                ? `radial-gradient(65% 55% at 50% 40%, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.44) 78%, rgba(0,0,0,0.62) 100%), url("${authBgUrl}")`
+                : `radial-gradient(65% 55% at 50% 40%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.46) 80%, rgba(255,255,255,0.62) 100%), url("${authBgUrl}")`,
               filter: isDark
-                ? 'grayscale(1) invert(1) contrast(1.06) brightness(0.92)'
-                : 'grayscale(1) contrast(1.08) brightness(1.02)',
-              opacity: isDark ? 0.58 : 0.5,
-              transform: 'scale(1.06)',
-              transformOrigin: '50% 50%',
+                ? 'grayscale(1) contrast(1.08) brightness(0.72)'
+                : 'grayscale(1) contrast(1.06) brightness(1.02)',
+              opacity: isDark ? 0.62 : 0.5,
             }}
             aria-hidden="true"
           />
@@ -381,10 +320,10 @@ const AuthView = ({ noticeMessage = '' }) => {
             className="absolute inset-0"
             style={{
               background: isDark
-                ? 'radial-gradient(70% 60% at 50% 40%, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.48) 78%, rgba(0,0,0,0.62) 100%)'
-                : 'radial-gradient(70% 60% at 50% 40%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.46) 80%, rgba(255,255,255,0.62) 100%)',
-              WebkitBackdropFilter: 'blur(1.5px)',
-              backdropFilter: 'blur(1.5px)',
+                ? 'linear-gradient(180deg, rgba(2,6,23,0.10) 0%, rgba(2,6,23,0.30) 55%, rgba(0,0,0,0.46) 100%)'
+                : 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.26) 55%, rgba(255,255,255,0.42) 100%)',
+              WebkitBackdropFilter: 'blur(2px)',
+              backdropFilter: 'blur(2px)',
             }}
             aria-hidden="true"
           />
@@ -626,10 +565,10 @@ const AuthView = ({ noticeMessage = '' }) => {
           {/* Footer Link */}
 	          {method === 'email' && (
 	            <p className={`mt-8 text-center text-xs ${isDark ? 'text-slate-300/70' : 'text-gray-500'}`}>
-	              {mode === 'login' ? "Pas encore de compte ?" : "Déjà membre ?"}
+	              <span className="block">{mode === 'login' ? "Pas encore de compte ?" : "Déjà membre ?"}</span>
 	              <button
 	                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-	                className={`ml-1 font-bold transition-colors ${
+	                className={`mt-2 font-bold transition-colors ${
 	                  isDark ? 'text-slate-50 hover:text-orange-300' : 'text-gray-900 hover:text-orange-600'
 	                }`}
 	              >

@@ -107,7 +107,7 @@ const ConfettiOverlay = ({ seedKey }) => {
   );
 };
 
-const LogoutOverlay = ({ theme = 'light' }) => (
+const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '' }) => (
   <div className="fixed inset-0 z-[10000] flex items-center justify-center">
     <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
     <div
@@ -121,12 +121,39 @@ const LogoutOverlay = ({ theme = 'light' }) => (
       aria-live="polite"
     >
       <div className="flex items-center gap-3">
-        <div className="h-5 w-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
-        <div className="text-sm font-semibold">{i18n.t('loggingOut', 'Déconnexion…')}</div>
+        {mode === 'out' ? (
+          <div className="h-5 w-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+        ) : (
+          <div className="h-5 w-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 shadow-[0_10px_24px_rgba(249,115,22,0.35)] flex items-center justify-center">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M20 6L9 17l-5-5"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">
+            {mode === 'out' ? i18n.t('loggingOut', 'Déconnexion…') : i18n.t('connected', 'Connecté')}
+          </div>
+          {mode === 'in' && (
+            <div className="mt-0.5 text-xs opacity-70 truncate">
+              {name
+                ? i18n.t('welcomeBackName', { defaultValue: 'Welcome back, {{name}}', name })
+                : i18n.t('welcomeBack', 'Welcome back')}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   </div>
 );
+
+const LogoutOverlay = ({ theme = 'light' }) => <AuthTransitionOverlay theme={theme} mode="out" />;
 
 const userSelectionRef = (uid) =>
   doc(db, 'artifacts', appId, 'public', 'data', 'userSelections', uid);
@@ -183,14 +210,22 @@ export default function ParkSwapApp() {
 		  const [celebration, setCelebration] = useState(null);
 		  const celebrationSeenRef = useRef(new Set());
 		  const [loggingOut, setLoggingOut] = useState(false);
+		  const [loggingIn, setLoggingIn] = useState(false);
 		  const lastKnownLocationRef = useRef(null);
 		  const selectionWriteInFlight = useRef(false);
 		  const selectionQueueRef = useRef(null);
 		  const heartbeatIntervalRef = useRef(null);
-	  const heartbeatInFlightRef = useRef(false);
+		  const heartbeatInFlightRef = useRef(false);
+		  const userUidRef = useRef(null);
+		  const initializingRef = useRef(true);
+		  const loginOverlayTimerRef = useRef(null);
 
-  // Try to lock orientation to portrait (best-effort; may fail on some browsers)
-  useEffect(() => {
+	  useEffect(() => {
+	    userUidRef.current = user?.uid || null;
+	  }, [user?.uid]);
+
+	  // Try to lock orientation to portrait (best-effort; may fail on some browsers)
+	  useEffect(() => {
     const lockOrientation = async () => {
       try {
         if (screen?.orientation?.lock) {
@@ -618,29 +653,38 @@ export default function ParkSwapApp() {
     };
   }, []);
 
-  // --- Auth subscription ---
-  useEffect(() => {
-  const unsub = onAuthStateChanged(auth, (fbUser) => {
+	  // --- Auth subscription ---
+	  useEffect(() => {
+	  const unsub = onAuthStateChanged(auth, (fbUser) => {
 
-	    if (fbUser) {
-	      const nextUser = {
-	        uid: fbUser.uid,
-	        displayName: fbUser.displayName || 'User',
-	        email: fbUser.email || '',
-	        phone: fbUser.phoneNumber || '',
-	        transactions: 0,
-	        premiumParks: PREMIUM_PARKS_MAX,
-	        language: 'en',
-	      };
-	      setUser(nextUser);
-	    }
+		    if (fbUser) {
+		      const nextUser = {
+		        uid: fbUser.uid,
+		        displayName: fbUser.displayName || 'User',
+		        email: fbUser.email || '',
+		        phone: fbUser.phoneNumber || '',
+		        transactions: 0,
+		        premiumParks: PREMIUM_PARKS_MAX,
+		        language: 'en',
+		      };
+		      const wasLoggedOut = !userUidRef.current && !initializingRef.current;
+		      setUser(nextUser);
+		      if (wasLoggedOut) {
+		        if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
+		        setLoggingIn(true);
+		        loginOverlayTimerRef.current = window.setTimeout(() => setLoggingIn(false), 1200);
+		      }
+		    } else if (!loggingOut) {
+		      setUser(null);
+		    }
 
-    // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
-    setInitializing(false);
-  });
+	    // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
+	    setInitializing(false);
+	    initializingRef.current = false;
+	  });
 
-  return () => unsub();
-}, []);
+	  return () => unsub();
+	}, []);
 
   // Fallback: hydrate user immediately if auth already has a currentUser (e.g., after redirect)
  useEffect(() => {
@@ -2013,7 +2057,8 @@ export default function ParkSwapApp() {
     return (
       <div className="relative h-screen w-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-amber-50">
        <AuthView />
-       {loggingOut && <LogoutOverlay theme={theme} />}
+       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name="" />}
+       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       </div>
     );
   }
@@ -2029,7 +2074,8 @@ export default function ParkSwapApp() {
     <div
       className="relative h-screen w-full bg-gradient-to-br from-orange-50 via-white to-amber-50 font-sans overflow-hidden"
     >
-      {loggingOut && <LogoutOverlay theme={theme} />}
+      {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
+      {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
      <div
         className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
           hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'

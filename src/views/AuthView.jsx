@@ -301,18 +301,18 @@ const AuthView = ({ noticeMessage = '' }) => {
           </div>
         )}
 
-        {/* Onglets Méthode */}
-        <div className="flex justify-center space-x-2 bg-gray-100 p-1 rounded-full w-fit mx-auto">
-          <button
-            type="button"
-            onClick={() => switchMethod('email')}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-              method === 'email' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t('useEmail', 'Email')}
-          </button>
-          {mode === 'login' && (
+        {/* Onglets Méthode (login seulement) */}
+        {mode === 'login' && (
+          <div className="flex justify-center space-x-2 bg-gray-100 p-1 rounded-full w-fit mx-auto">
+            <button
+              type="button"
+              onClick={() => switchMethod('email')}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                method === 'email' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t('useEmail', 'Email')}
+            </button>
             <button
               type="button"
               onClick={() => switchMethod('phone')}
@@ -322,8 +322,8 @@ const AuthView = ({ noticeMessage = '' }) => {
             >
               {t('usePhone', 'Téléphone')}
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Formulaire Principal */}
         <form className="space-y-4" onSubmit={handleGlobalSubmit}>

@@ -83,6 +83,16 @@ const AuthView = ({ noticeMessage = '' }) => {
     }
   };
 
+  // Registration is email-only (phone is for login only)
+  useEffect(() => {
+    if (mode !== 'register') return;
+    if (method !== 'email') setMethod('email');
+    setConfirmationResult(null);
+    setPhoneForm((prev) => ({ ...prev, phone: '', code: '' }));
+    clearRecaptcha();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   const setupRecaptcha = () => {
     clearRecaptcha(); // Nettoyer l'ancien si existe
     const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
@@ -161,13 +171,14 @@ const AuthView = ({ noticeMessage = '' }) => {
   const handlePhoneAuth = async () => {
     // Cas 1 : Validation du code SMS
     if (confirmationResult) {
-      if (!phoneForm.code.trim()) {
+      const code = String(phoneForm.code || '').replace(/\D/g, '').slice(0, 6);
+      if (code.length < 6) {
         setError(t('enterCode', 'Enter the verification code.'));
         return;
       }
       setLoading(true);
       try {
-        const result = await confirmationResult.confirm(phoneForm.code);
+        const result = await confirmationResult.confirm(code);
         onAuthSuccess(result.user);
       } catch (err) {
         setError(t('invalidCode', "Code invalide ou expiré."));
@@ -211,6 +222,17 @@ const AuthView = ({ noticeMessage = '' }) => {
     }
   };
 
+  // Auto-submit phone code when 6 digits are entered
+  useEffect(() => {
+    if (method !== 'phone') return;
+    if (!confirmationResult) return;
+    if (loading) return;
+    const code = String(phoneForm.code || '').replace(/\D/g, '').slice(0, 6);
+    if (code.length !== 6) return;
+    handlePhoneAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, confirmationResult, phoneForm.code]);
+
   const handlePopupSignIn = async (provider) => {
     setError('');
     setLoading(true);
@@ -243,6 +265,7 @@ const AuthView = ({ noticeMessage = '' }) => {
 
   // --- Reset lors du changement de méthode ---
   const switchMethod = (newMethod) => {
+    if (mode === 'register' && newMethod === 'phone') return;
     setMethod(newMethod);
     setError('');
     setInfo('');
@@ -289,15 +312,17 @@ const AuthView = ({ noticeMessage = '' }) => {
           >
             {t('useEmail', 'Email')}
           </button>
-          <button
-            type="button"
-            onClick={() => switchMethod('phone')}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-              method === 'phone' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t('usePhone', 'Téléphone')}
-          </button>
+          {mode === 'login' && (
+            <button
+              type="button"
+              onClick={() => switchMethod('phone')}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                method === 'phone' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t('usePhone', 'Téléphone')}
+            </button>
+          )}
         </div>
 
         {/* Formulaire Principal */}
@@ -347,9 +372,9 @@ const AuthView = ({ noticeMessage = '' }) => {
           )}
 
           {/* --- CHAMPS TÉLÉPHONE --- */}
-          {method === 'phone' && (
-            <div className="space-y-4">
-              {!confirmationResult ? (
+	          {method === 'phone' && (
+	            <div className="space-y-4">
+	              {!confirmationResult ? (
                 // Étape 1 : Numéro
                 <div className="space-y-1">
                   <label className="text-sm font-semibold text-gray-600">{t('phone', 'Numéro de mobile')}</label>
@@ -365,52 +390,64 @@ const AuthView = ({ noticeMessage = '' }) => {
                 </div>
               ) : (
                 // Étape 2 : Code SMS
-                <div className="space-y-2 animate-fadeIn">
-                  <div className="flex justify-between items-center">
-                    <label className="text-sm font-semibold text-gray-600">{t('enterCode', 'Code SMS')}</label>
-                    <button 
-                      type="button" 
-                      onClick={() => setConfirmationResult(null)}
-                      className="text-xs text-orange-500 hover:underline"
-                    >
-                      {t('changeNumber', 'Changer de numéro')}
-                    </button>
-                  </div>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    required
-                    value={phoneForm.code}
-                    onChange={(e) => setPhoneForm({ ...phoneForm, code: e.target.value })}
-                    placeholder="123456"
-                    className="w-full border border-orange-300 bg-orange-50 rounded-xl px-3 py-2 text-center text-xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  />
-                </div>
-              )}
-            </div>
-          )}
+	                <div className="space-y-2 animate-fadeIn">
+	                  <div className="flex justify-between items-center">
+	                    <label className="text-sm font-semibold text-gray-600">{t('enterCode', 'Code SMS')}</label>
+	                    <button 
+	                      type="button" 
+	                      onClick={() => setConfirmationResult(null)}
+	                      className="text-xs text-orange-500 hover:underline"
+	                    >
+	                      {t('changeNumber', 'Changer de numéro')}
+	                    </button>
+	                  </div>
+	                  <input
+	                    type="tel"
+	                    inputMode="numeric"
+	                    autoComplete="one-time-code"
+	                    pattern="[0-9]*"
+	                    maxLength={6}
+	                    required
+	                    value={phoneForm.code}
+	                    onChange={(e) => {
+	                      const next = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+	                      setPhoneForm({ ...phoneForm, code: next });
+	                      setError('');
+	                    }}
+	                    placeholder="123456"
+	                    className="w-full border border-orange-300 bg-orange-50 rounded-xl px-3 py-2 text-center text-xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+	                  />
+	                  <p className="text-xs text-gray-500">
+	                    {loading
+	                      ? t('verifying', { defaultValue: 'Vérification…' })
+	                      : t('autoVerifyHint', { defaultValue: 'Le code est vérifié automatiquement.' })}
+	                  </p>
+	                </div>
+	              )}
+	            </div>
+	          )}
 
           {/* BOUTON D'ACTION PRINCIPAL */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60 disabled:scale-100 flex justify-center items-center"
-          >
-             {loading && (
-               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-               </svg>
-             )}
-             {method === 'phone' 
-                ? (confirmationResult ? t('verify', 'Vérifier') : t('sendCode', 'Envoyer le code'))
-                : (mode === 'login' ? t('login', 'Se connecter') : t('register', "S'inscrire"))
-             }
-          </button>
-        </form>
+	          {(method !== 'phone' || !confirmationResult) && (
+	            <button
+	              type="submit"
+	              disabled={loading}
+	              className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60 disabled:scale-100 flex justify-center items-center"
+	            >
+	              {loading && (
+	                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+	                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+	                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+	                </svg>
+	              )}
+	              {method === 'phone'
+	                ? t('sendCode', 'Envoyer le code')
+	                : mode === 'login'
+	                  ? t('login', 'Se connecter')
+	                  : t('register', "S'inscrire")}
+	            </button>
+	          )}
+	        </form>
 
         {/* Séparateur */}
         <div className="flex items-center space-x-3">

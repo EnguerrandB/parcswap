@@ -1,5 +1,6 @@
 // src/views/AuthView.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom'; // 👈 Ajout pour la redirection
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -12,418 +13,467 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   sendEmailVerification,
-  signOut,
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useTranslation } from 'react-i18next';
 
-const AuthView = ({noticeMessage = '' }) => {
+const AuthView = ({ noticeMessage = '' }) => {
   const { t } = useTranslation('common');
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-    name: '',
-  });
-  const [mode, setMode] = useState('login'); // login or register
-  const [method, setMethod] = useState('email'); // email or phone
+  const navigate = useNavigate(); // 👈 Hook de navigation
+
+  // État du formulaire
+  const [form, setForm] = useState({ email: '', password: '', name: '' });
+  const [phoneForm, setPhoneForm] = useState({ phone: '', code: '' });
+  
+  // État de l'interface
+  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [method, setMethod] = useState('email'); // 'email' | 'phone'
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(noticeMessage || '');
-  const [loading, setLoading] = useState(false);
-  const [phoneForm, setPhoneForm] = useState({ phone: '', code: '' });
-  const [phoneConfirmation, setPhoneConfirmation] = useState(null);
-  const [autoVerifying, setAutoVerifying] = useState(false);
+
+  // État spécifique Téléphone
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const recaptchaVerifierRef = useRef(null);
+
   const googleProvider = new GoogleAuthProvider();
   const appleProvider = new OAuthProvider('apple.com');
-  const hostOrigin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
-  const actionCodeSettings = { url: hostOrigin, handleCodeInApp: false };
 
-  const getRecaptcha = () => {
-    if (window.recaptchaVerifier) return window.recaptchaVerifier;
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-    return window.recaptchaVerifier;
+  // --- Gestion du cycle de vie & Persistence ---
+
+  useEffect(() => {
+    // S'assurer que la session persiste (important pour mobile redirect)
+    setPersistence(auth, browserLocalPersistence).catch((e) => console.error(e));
+
+    // Nettoyage au démontage
+    return () => {
+      clearRecaptcha();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Gestion du retour de redirection (OAuth sur mobile)
+    const handleRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          onAuthSuccess(result.user);
+        }
+      } catch (err) {
+        console.error(err);
+        setError(t('providerSignInFailed', 'Authentication failed. Please try again.'));
+      }
+    };
+    handleRedirect();
+  }, []);
+
+  // --- Helpers ---
+
+  const onAuthSuccess = (user) => {
+    setError('');
+    setInfo(t('loginSuccess', 'Connexion réussie !'));
+    // 👉 ICI : Redirection vers ta page principale (ex: dashboard ou home)
+    navigate('/'); 
   };
 
-  const handleSubmit = async (e) => {
+  const clearRecaptcha = () => {
+    if (recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current.clear();
+      recaptchaVerifierRef.current = null;
+    }
+  };
+
+  const setupRecaptcha = () => {
+    clearRecaptcha(); // Nettoyer l'ancien si existe
+    const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {
+        // Recaptcha résolu automatiquement
+      }
+    });
+    recaptchaVerifierRef.current = verifier;
+    return verifier;
+  };
+
+  // --- Handlers ---
+
+  const handleGlobalSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setInfo('');
-    if (method === 'phone') {
-      return;
-    }
 
+    if (method === 'email') {
+      await handleEmailAuth();
+    } else {
+      await handlePhoneAuth();
+    }
+  };
+
+  const handleEmailAuth = async () => {
     if (!form.email || !form.password) {
       setError(t('authFillEmailPassword', 'Please fill email and password'));
       return;
     }
+
+    setLoading(true);
     try {
-      setLoading(true);
       if (mode === 'register') {
+        // --- INSCRIPTION ---
         if (!form.name.trim()) {
           setError(t('nameRequired', 'Please enter your name.'));
           setLoading(false);
           return;
         }
-        const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
-        if (form.name) {
-          await updateProfile(cred.user, { displayName: form.name });
-        }
-        try {
-          await sendEmailVerification(cred.user, actionCodeSettings);
-          setInfo(t('verificationEmailSent', 'Verification email sent. Confirm it to finalize your email update.'));
-        } catch (verifyErr) {
-          const msg =
-            verifyErr?.message || t('verifyEmailFirst', 'Please verify your email before signing in. We sent you a link.');
-          setError(msg);
-        }
-        await signOut(auth);
-        return;
-      } else {
-        const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-        if (!cred.user.emailVerified) {
-          try {
-            await sendEmailVerification(cred.user, actionCodeSettings);
-            setError(t('verifyEmailFirst', 'Please verify your email before signing in. We sent you a link.'));
-          } catch (verifyErr) {
-            setError(verifyErr.message || t('verifyEmailFirst', 'Please verify your email before signing in. We sent you a link.'));
-          }
-          await signOut(auth);
-          return;
-        }
         
+        const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        await updateProfile(cred.user, { displayName: form.name });
+        
+        // Envoi email de vérification
+        await sendEmailVerification(cred.user);
+        setInfo(t('verificationEmailSent', 'Compte créé ! Vérifiez votre email.'));
+        
+        // On connecte l'utilisateur directement sans le déconnecter
+        onAuthSuccess(cred.user);
+
+      } else {
+        // --- CONNEXION ---
+        const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
+        
+        if (!cred.user.emailVerified) {
+          // Optionnel : avertir mais laisser entrer
+          setInfo(t('verifyEmailWarning', 'Pensez à vérifier votre email pour accéder à tout.'));
+        }
+        onAuthSuccess(cred.user);
       }
     } catch (err) {
-      const funny = t('invalidCredsFunny', "That combo doesn't look right. Did a cat type it?");
-      const msg = err?.code === 'auth/invalid-credential' ? funny : err.message || funny;
+      let msg = err.message;
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        msg = t('invalidCreds', "Email ou mot de passe incorrect.");
+      } else if (err.code === 'auth/email-already-in-use') {
+        msg = t('emailInUse', "Cet email est déjà utilisé.");
+      }
       setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-const handlePopupSignIn = async (provider) => {
-  setError('');
-  try {
-    setLoading(true);
-    await setPersistence(auth, browserLocalPersistence);
-
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      // 👉 Sur mobile : flow redirect (popup bloquée sinon)
-      await signInWithRedirect(auth, provider);
-      return;
-    }
-
-    // 👉 Desktop : popup
-    const cred = await signInWithPopup(auth, provider);
-    if (!cred.user) throw new Error('No user returned from provider');
-    
-  } catch (err) {
-    // Si une popup est quand même bloquée sur desktop → fallback redirect
-    if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/popup-closed-by-user') {
-      try {
-        await signInWithRedirect(auth, provider);
-        return;
-      } catch (redirectErr) {
-        setError(
-          redirectErr?.message ||
-            t('providerSignInFailed', 'Authentication failed. Please try again.')
-        );
+  const handlePhoneAuth = async () => {
+    // Cas 1 : Validation du code SMS
+    if (confirmationResult) {
+      if (!phoneForm.code.trim()) {
+        setError(t('enterCode', 'Enter the verification code.'));
         return;
       }
-    }
-
-    setError(
-      err?.message ||
-        t('providerSignInFailed', 'Authentication failed. Please try again.')
-    );
-  } finally {
-    setLoading(false);
-  }
-};
-
-useEffect(() => {
-  // Ensure session persists across redirects (mobile browsers)
-  setPersistence(auth, browserLocalPersistence).catch(() => {});
-
-  return () => {
-    // Cleanup reCAPTCHA si présent
-    if (window.recaptchaVerifier?.clear) {
-      window.recaptchaVerifier.clear();
-      window.recaptchaVerifier = null;
-    }
-  };
-}, []); // ⬅︎ plus de onLogin ici
-
-  useEffect(() => {
-    let mounted = true;
-    const finalizeRedirect = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-        const result = await getRedirectResult(auth);
-        if (!mounted) return;
-        if (result?.user) {
-          setError('');
-          setInfo(t('redirectLoginSuccess', 'Signed in successfully.'));
-        }
+        const result = await confirmationResult.confirm(phoneForm.code);
+        onAuthSuccess(result.user);
       } catch (err) {
-        if (!mounted) return;
-        setError(err?.message || t('providerSignInFailed', 'Authentication failed. Please try again.'));
+        setError(t('invalidCode', "Code invalide ou expiré."));
       } finally {
-        if (mounted) setLoading(false);
+        setLoading(false);
       }
-    };
-    finalizeRedirect();
-    return () => {
-      mounted = false;
-    };
-  }, [t]);
+      return;
+    }
 
-  const confirmPhoneCode = async () => {
-    if (!phoneConfirmation) {
-      setError(t('sendCodeFirst', 'Please send the code to your phone first.'));
-      return;
+    // Cas 2 : Envoi du SMS
+    let phoneInput = phoneForm.phone.replace(/\s+/g, '');
+    
+    // Ajout simple du préfixe FR si aucun préfixe (+) n'est présent
+    if (!phoneInput.startsWith('+')) {
+      if (phoneInput.startsWith('0')) {
+        phoneInput = phoneInput.replace(/^0/, '+33');
+      } else {
+         // Si l'utilisateur tape "61234..." sans 0 ni +, on suppose FR, 
+         // mais c'est risqué. Mieux vaut demander le format international.
+         phoneInput = '+33' + phoneInput;
+      }
     }
-    if (!phoneForm.code.trim()) {
-      setError(t('enterCode', 'Enter the verification code.'));
-      return;
+
+    if (phoneInput.length < 8) {
+        setError(t('phoneFormatError', "Numéro invalide."));
+        return;
     }
-    setAutoVerifying(true);
+
+    setLoading(true);
     try {
-      const cred = await phoneConfirmation.confirm(phoneForm.code.trim());
-      setShowCodePrompt(false);
+      const verifier = setupRecaptcha();
+      const confirmation = await signInWithPhoneNumber(auth, phoneInput, verifier);
+      setConfirmationResult(confirmation);
+      setInfo(t('phoneCodeSent', 'Code envoyé par SMS.'));
     } catch (err) {
-      setError(err.message || 'Phone verification failed');
+      console.error(err);
+      setError(err.message || t('errorSendingSMS', "Erreur d'envoi SMS."));
+      clearRecaptcha(); // Reset recaptcha en cas d'erreur
     } finally {
-      setAutoVerifying(false);
       setLoading(false);
     }
   };
 
-  const sendPhoneCode = async () => {
+  const handlePopupSignIn = async (provider) => {
+    setError('');
+    setLoading(true);
+    try {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        await signInWithRedirect(auth, provider);
+        // Le code s'arrête ici, la page va recharger
+        return;
+      }
+
+      const result = await signInWithPopup(auth, provider);
+      onAuthSuccess(result.user);
+    } catch (err) {
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+        // Fallback desktop si popup bloquée
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (redirErr) {
+          setError(redirErr.message);
+        }
+      } else {
+        setError(err.message || t('providerSignInFailed', 'Erreur de connexion sociale.'));
+      }
+    } finally {
+      setLoading(false); // Seulement utile si pas de redirect
+    }
+  };
+
+  // --- Reset lors du changement de méthode ---
+  const switchMethod = (newMethod) => {
+    setMethod(newMethod);
     setError('');
     setInfo('');
-    const normalized = phoneForm.phone.replace(/\s+/g, '').replace(/^0/, '+33');
-    if (!normalized) {
-      setError(t('phoneFormatError', 'Use international format, e.g. +33123456789.'));
-      return;
-    }
-    try {
-      setLoading(true);
-      const verifier = getRecaptcha();
-      await verifier.render();
-      const confirmation = await signInWithPhoneNumber(auth, normalized, verifier);
-      setPhoneConfirmation(confirmation);
-      setPhoneForm((prev) => ({ ...prev, code: '' }));
-      setInfo(t('phoneCodeSent', 'Verification code sent to your phone.'));
-    } catch (err) {
-      const friendly =
-        err?.code === 'auth/invalid-app-credential'
-          ? t('invalidAppCredential', 'Phone auth needs proper setup (authorized domain & billing). Try again or use email.')
-          : err.message || t('sendCodeFirst', 'Please send the code to your phone first.');
-      setError(friendly);
-      setPhoneConfirmation(null);
-      if (window.recaptchaVerifier?.clear) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-      }
-    } finally {
-      setLoading(false);
-    }
+    setConfirmationResult(null); // Reset état téléphone
+    clearRecaptcha();
   };
 
   return (
-    <div className="h-full bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center px-6 overflow-hidden">
-      <div className="w-full max-w-md bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/80 p-8 space-y-6 overflow-hidden">
+    <div className="h-full min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center px-6 overflow-hidden">
+      <div className="w-full max-w-md bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/80 p-8 space-y-6">
+        
+        {/* Header */}
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">{t('authWelcome', 'Welcome to ParkSwap')}</h1>
           <p className="text-sm text-gray-500">
             {method === 'email'
               ? mode === 'login'
                 ? t('authLoginSubtitle', 'Log in to continue')
-                : t('authRegisterSubtitle', 'Create an account to get started')
-              : t('authPhoneSubtitle', 'Use your phone to sign in')}
+                : t('authRegisterSubtitle', 'Create an account')
+              : t('authPhoneSubtitle', 'Sign in with your phone')}
           </p>
         </div>
-        {(info || noticeMessage) && (
-          <div className="text-sm text-orange-600 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 text-center">
-            {info || noticeMessage}
+
+        {/* Notifications */}
+        {(info) && (
+          <div className="text-sm text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-center animate-pulse">
+            {info}
           </div>
         )}
-        {info && <div className="text-sm text-orange-600 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">{info}</div>}
-        <div className="flex justify-center space-x-2">
+        {error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-center">
+            {error}
+          </div>
+        )}
+
+        {/* Onglets Méthode */}
+        <div className="flex justify-center space-x-2 bg-gray-100 p-1 rounded-full w-fit mx-auto">
           <button
             type="button"
-            onClick={() => setMethod('email')}
-            onFocus={() => { setError(''); setInfo(''); }}
-            className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-              method === 'email' ? 'border-orange-200 text-orange-600 bg-orange-50' : 'border-gray-200 text-gray-500'
+            onClick={() => switchMethod('email')}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              method === 'email' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t('useEmail', 'Use email')}
+            {t('useEmail', 'Email')}
           </button>
           <button
             type="button"
-            onClick={() => setMethod('phone')}
-            onFocus={() => { setError(''); setInfo(''); }}
-            className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-              method === 'phone' ? 'border-orange-200 text-orange-600 bg-orange-50' : 'border-gray-200 text-gray-500'
+            onClick={() => switchMethod('phone')}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              method === 'phone' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t('usePhone', 'Use phone')}
+            {t('usePhone', 'Téléphone')}
           </button>
         </div>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        {/* Formulaire Principal */}
+        <form className="space-y-4" onSubmit={handleGlobalSubmit}>
+          
+          {/* --- CHAMPS EMAIL --- */}
           {method === 'email' && (
             <>
               {mode === 'register' && (
                 <div className="space-y-1">
-                  <label className="text-sm font-semibold text-gray-600">{t('name')}</label>
+                  <label className="text-sm font-semibold text-gray-600">{t('name', 'Nom')}</label>
                   <input
                     type="text"
+                    required
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
                     value={form.name}
-                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder={t('name', 'Name')}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="John Doe"
                   />
                 </div>
               )}
               <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-600">{t('email')}</label>
+                <label className="text-sm font-semibold text-gray-600">{t('email', 'Email')}</label>
                 <input
                   type="email"
+                  required
+                  autoComplete="email"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
                   value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="you@example.com"
-                  required
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-600">{t('password', 'Password')}</label>
+                <label className="text-sm font-semibold text-gray-600">{t('password', 'Mot de passe')}</label>
                 <input
                   type="password"
+                  required
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
                   value={form.password}
-                  onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="••••••••"
-                  required
                 />
               </div>
             </>
           )}
 
+          {/* --- CHAMPS TÉLÉPHONE --- */}
           {method === 'phone' && (
-            <>
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-gray-600">{t('phone')}</label>
-                <input
-                  type="tel"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                  value={phoneForm.phone}
-                  onChange={(e) => {
-                    setPhoneConfirmation(null);
-                    setPhoneForm((prev) => ({ ...prev, phone: e.target.value }));
-                  }}
-                  placeholder="+33123456789"
-                />
-                {phoneConfirmation ? (
-                  <p className="text-xs text-gray-500">{t('weSentCode', 'We sent a code to your phone.')}</p>
-                ) : null}
-              </div>
-            </>
-          )}
-
-      {error && (
-        <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-          {error}
-        </div>
-      )}
-          {method === 'phone' ? (
-            <button
-              type="button"
-              onClick={sendPhoneCode}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60"
-            >
-              {loading ? t('pleaseWait', 'Please wait...') : t('getCode', 'Get code')}
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60"
-            >
-              {loading
-                ? t('pleaseWait', 'Please wait...')
-                : mode === 'login'
-                  ? t('login', 'Log in')
-                  : t('createAccount', 'Create account')}
-            </button>
-          )}
-
-          {method === 'phone' && phoneConfirmation ? (
-            <div className="mt-3 space-y-2">
-              <label className="text-sm font-semibold text-gray-600">{t('enterCode', 'Enter the verification code.')}</label>
-              <input
-                type="tel"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={phoneForm.code}
-                onChange={(e) => setPhoneForm((prev) => ({ ...prev, code: e.target.value }))}
-                placeholder="123456"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-center text-lg tracking-[0.35em] font-mono"
-              />
-              <button
-                type="button"
-                onClick={confirmPhoneCode}
-                className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60"
-                disabled={autoVerifying}
-              >
-                {autoVerifying ? t('pleaseWait', 'Please wait...') : t('login', 'Connexion')}
-              </button>
+            <div className="space-y-4">
+              {!confirmationResult ? (
+                // Étape 1 : Numéro
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-gray-600">{t('phone', 'Numéro de mobile')}</label>
+                  <input
+                    type="tel"
+                    required
+                    autoComplete="tel"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+                    value={phoneForm.phone}
+                    onChange={(e) => setPhoneForm({ ...phoneForm, phone: e.target.value })}
+                    placeholder="06 12 34 56 78"
+                  />
+                </div>
+              ) : (
+                // Étape 2 : Code SMS
+                <div className="space-y-2 animate-fadeIn">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-semibold text-gray-600">{t('enterCode', 'Code SMS')}</label>
+                    <button 
+                      type="button" 
+                      onClick={() => setConfirmationResult(null)}
+                      className="text-xs text-orange-500 hover:underline"
+                    >
+                      {t('changeNumber', 'Changer de numéro')}
+                    </button>
+                  </div>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    required
+                    value={phoneForm.code}
+                    onChange={(e) => setPhoneForm({ ...phoneForm, code: e.target.value })}
+                    placeholder="123456"
+                    className="w-full border border-orange-300 bg-orange-50 rounded-xl px-3 py-2 text-center text-xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                </div>
+              )}
             </div>
-          ) : null}
+          )}
+
+          {/* BOUTON D'ACTION PRINCIPAL */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white py-3 rounded-xl font-bold shadow-lg hover:scale-[1.01] transition disabled:opacity-60 disabled:scale-100 flex justify-center items-center"
+          >
+             {loading && (
+               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+               </svg>
+             )}
+             {method === 'phone' 
+                ? (confirmationResult ? t('verify', 'Vérifier') : t('sendCode', 'Envoyer le code'))
+                : (mode === 'login' ? t('login', 'Se connecter') : t('register', "S'inscrire"))
+             }
+          </button>
         </form>
+
+        {/* Séparateur */}
         <div className="flex items-center space-x-3">
           <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400">or</span>
+          <span className="text-xs text-gray-400">ou continuer avec</span>
           <div className="flex-1 h-px bg-gray-200" />
         </div>
-        <div className="space-y-3">
+
+        {/* Boutons Sociaux */}
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             disabled={loading}
             onClick={() => handlePopupSignIn(googleProvider)}
-            className="w-full bg-white border border-gray-200 rounded-xl py-3 font-semibold text-gray-800 shadow-sm hover:bg-gray-50 transition disabled:opacity-60"
+            className="flex items-center justify-center bg-white border border-gray-200 rounded-xl py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
           >
-            {t('continueWithGoogle', 'Continue with Google')}
+             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.84z" />
+                <path fill="#EA4335" d="M12 4.36c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+            Google
           </button>
           <button
             type="button"
             disabled={loading}
             onClick={() => handlePopupSignIn(appleProvider)}
-            className="w-full bg-black text-white rounded-xl py-3 font-semibold shadow-sm hover:opacity-90 transition disabled:opacity-60"
+            className="flex items-center justify-center bg-black text-white rounded-xl py-2.5 text-sm font-semibold hover:opacity-90 transition"
           >
-            {t('continueWithApple', 'Continue with Apple')}
+            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.74 1.18 0 2.21-.93 3.69-.93.95 0 1.95.29 2.58.74-.69.35-2.29 1.5-2.29 3.63 0 3.61 3.2 4.33 3.2 4.33l-.03.1c-.43 1.35-1.53 3.14-2.23 4.29zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.18 2.32-2.47 4.07-3.74 4.25z" />
+            </svg>
+            Apple
           </button>
         </div>
-      <div className="text-center text-sm text-gray-600">
-        {mode === 'login' ? (
-          <button className="font-semibold text-orange-600" onClick={() => setMode('register')}>
-            {t('needAccount', 'Need an account? Register')}
-          </button>
-          ) : (
-            <button className="font-semibold text-orange-600" onClick={() => setMode('login')}>
-              {t('haveAccount', 'Already have an account? Log in')}
-            </button>
-          )}
-        </div>
+
+        {/* Toggle Login/Register (Uniquement pour Email) */}
+        {method === 'email' && (
+          <div className="text-center text-sm text-gray-600 pt-2">
+            {mode === 'login' ? (
+              <p>
+                {t('needAccount', 'Pas de compte ?')} {' '}
+                <button className="font-bold text-orange-600 hover:underline" onClick={() => setMode('register')}>
+                  {t('registerLink', "S'inscrire")}
+                </button>
+              </p>
+            ) : (
+              <p>
+                {t('haveAccount', 'Déjà un compte ?')} {' '}
+                <button className="font-bold text-orange-600 hover:underline" onClick={() => setMode('login')}>
+                  {t('loginLink', "Se connecter")}
+                </button>
+              </p>
+            )}
+          </div>
+        )}
       </div>
-      <div id="recaptcha-container" className="hidden" />
+      
+      {/* Container Recaptcha (ne pas supprimer) */}
+      <div id="recaptcha-container"></div>
     </div>
   );
 };

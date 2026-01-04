@@ -107,6 +107,27 @@ const ConfettiOverlay = ({ seedKey }) => {
   );
 };
 
+const LogoutOverlay = ({ theme = 'light' }) => (
+  <div className="fixed inset-0 z-[10000] flex items-center justify-center">
+    <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
+    <div
+      className={`relative w-[min(320px,84vw)] rounded-3xl border px-6 py-5 shadow-2xl ${
+        theme === 'dark'
+          ? 'bg-slate-900/70 border-white/10 text-slate-100'
+          : 'bg-white/80 border-white/60 text-slate-900'
+      }`}
+      style={{ WebkitBackdropFilter: 'blur(18px) saturate(180%)', backdropFilter: 'blur(18px) saturate(180%)' }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-3">
+        <div className="h-5 w-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+        <div className="text-sm font-semibold">{i18n.t('loggingOut', 'Déconnexion…')}</div>
+      </div>
+    </div>
+  </div>
+);
+
 const userSelectionRef = (uid) =>
   doc(db, 'artifacts', appId, 'public', 'data', 'userSelections', uid);
 
@@ -157,14 +178,15 @@ export default function ParkSwapApp() {
   const [authNotice, setAuthNotice] = useState('');
 	  const [showInvite, setShowInvite] = useState(false);
 	  const [inviteMessage, setInviteMessage] = useState('');
-	  const [cancelledNotice, setCancelledNotice] = useState(null);
-	  const cancelledNoticeSeenRef = useRef(new Set());
-	  const [celebration, setCelebration] = useState(null);
-	  const celebrationSeenRef = useRef(new Set());
-	  const lastKnownLocationRef = useRef(null);
-	  const selectionWriteInFlight = useRef(false);
-	  const selectionQueueRef = useRef(null);
-	  const heartbeatIntervalRef = useRef(null);
+		  const [cancelledNotice, setCancelledNotice] = useState(null);
+		  const cancelledNoticeSeenRef = useRef(new Set());
+		  const [celebration, setCelebration] = useState(null);
+		  const celebrationSeenRef = useRef(new Set());
+		  const [loggingOut, setLoggingOut] = useState(false);
+		  const lastKnownLocationRef = useRef(null);
+		  const selectionWriteInFlight = useRef(false);
+		  const selectionQueueRef = useRef(null);
+		  const heartbeatIntervalRef = useRef(null);
 	  const heartbeatInFlightRef = useRef(false);
 
   // Try to lock orientation to portrait (best-effort; may fail on some browsers)
@@ -1850,23 +1872,33 @@ export default function ParkSwapApp() {
     return { needsEmailVerify: verificationEmailSent, reauthRequired };
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (err) {
-      console.error('Error signing out:', err);
-    }
-    // Immediately reset local state so UI returns to auth screen
-    setUser(null);
-    setActiveTab('search');
-    setSearchDeckIndex(0);
-    setMyActiveSpot(null);
-    setBookedSpot(null);
-    setVehicles([]);
-    setSelectedVehicle(null);
-    setTransactions([]);
-    setLeaderboard([]);
-  };
+	  const handleLogout = async () => {
+	    if (loggingOut) return;
+	    const startMs = Date.now();
+	    setLoggingOut(true);
+	    try {
+	      await signOut(auth);
+	    } catch (err) {
+	      console.error('Error signing out:', err);
+	    }
+	    const minMs = 2000;
+	    const elapsed = Date.now() - startMs;
+	    const remaining = Math.max(0, minMs - elapsed);
+	    if (remaining) {
+	      await new Promise((resolve) => window.setTimeout(resolve, remaining));
+	    }
+	    // Immediately reset local state so UI returns to auth screen
+	    setUser(null);
+	    setActiveTab('search');
+	    setSearchDeckIndex(0);
+	    setMyActiveSpot(null);
+	    setBookedSpot(null);
+	    setVehicles([]);
+	    setSelectedVehicle(null);
+	    setTransactions([]);
+	    setLeaderboard([]);
+	    setLoggingOut(false);
+	  };
 
   const changeTab = (nextTab) => {
     if (!nextTab || nextTab === activeTab) return;
@@ -1981,6 +2013,7 @@ export default function ParkSwapApp() {
     return (
       <div className="relative h-screen w-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-amber-50">
        <AuthView />
+       {loggingOut && <LogoutOverlay theme={theme} />}
       </div>
     );
   }
@@ -1996,6 +2029,7 @@ export default function ParkSwapApp() {
     <div
       className="relative h-screen w-full bg-gradient-to-br from-orange-50 via-white to-amber-50 font-sans overflow-hidden"
     >
+      {loggingOut && <LogoutOverlay theme={theme} />}
      <div
         className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
           hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'

@@ -269,6 +269,10 @@ export default function ParkSwapApp() {
 		  const initializingRef = useRef(true);
 		  const loginOverlayTimerRef = useRef(null);
 		  const [orientationBlocked, setOrientationBlocked] = useState(false);
+		  const [menuNudgeActive, setMenuNudgeActive] = useState(false);
+		  const menuNudgeTimerRef = useRef(null);
+		  const pendingVehicleOnboardingRef = useRef(false);
+		  const [highlightVehiclesRequestId, setHighlightVehiclesRequestId] = useState(0);
 
       const lastAuthNameKey = 'parkswap_last_auth_name';
       const consumeLastAuthName = () => {
@@ -281,6 +285,15 @@ export default function ParkSwapApp() {
           return '';
         }
       };
+
+	  useEffect(() => {
+	    return () => {
+	      if (menuNudgeTimerRef.current) {
+	        window.clearTimeout(menuNudgeTimerRef.current);
+	        menuNudgeTimerRef.current = null;
+	      }
+	    };
+	  }, []);
 
 	  useEffect(() => {
 	    userUidRef.current = user?.uid || null;
@@ -512,6 +525,7 @@ export default function ParkSwapApp() {
   const [showAccountSheet, setShowAccountSheet] = useState(false);
   const [accountSheetOffset, setAccountSheetOffset] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
+  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
   const sheetDragRef = useRef(false);
   const sheetStartY = useRef(0);
   const sheetOffsetRef = useRef(0);
@@ -520,6 +534,31 @@ export default function ParkSwapApp() {
 	    setSheetEntryAnim(true);
 	    setShowAccountSheet(true);
 	    setAccountSheetOffset(0);
+	    if (pendingVehicleOnboardingRef.current) {
+	      pendingVehicleOnboardingRef.current = false;
+	      setMenuNudgeActive(false);
+	      setHighlightVehiclesRequestId((v) => v + 1);
+	    }
+	  };
+
+	  const nudgeVehicleOnboarding = () => {
+	    pendingVehicleOnboardingRef.current = true;
+	    setMenuNudgeActive(true);
+	    if (menuNudgeTimerRef.current) window.clearTimeout(menuNudgeTimerRef.current);
+	    menuNudgeTimerRef.current = window.setTimeout(() => setMenuNudgeActive(false), 5200);
+
+	    // If the account sheet is already open, jump straight to the in-profile nudge.
+	    if (showAccountSheet) {
+	      pendingVehicleOnboardingRef.current = false;
+	      setHighlightVehiclesRequestId((v) => v + 1);
+	    }
+	  };
+
+	  const openAddVehicle = () => {
+	    setSheetEntryAnim(true);
+	    setShowAccountSheet(true);
+	    setAccountSheetOffset(0);
+	    setAddVehicleRequestId((v) => v + 1);
 	  };
 
 	  const handleAccountSheetPointerDown = (e) => {
@@ -739,39 +778,63 @@ export default function ParkSwapApp() {
     };
   }, []);
 
-	  // --- Auth subscription ---
-	  useEffect(() => {
-	  const unsub = onAuthStateChanged(auth, (fbUser) => {
-
-		    if (fbUser) {
-          const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
-		      const nextUser = {
+		  // --- Auth subscription ---
+		  useEffect(() => {
+		    let cancelled = false;
+		    const hydrateUser = async (fbUser) => {
+		      if (!fbUser) return null;
+		      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
+		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
+		      let language = i18n.language || 'en';
+		      try {
+		        const snap = await getDoc(userRef);
+		        if (snap.exists()) {
+		          const data = snap.data();
+		          if (data?.language) language = data.language;
+		        }
+		      } catch (err) {
+		        console.error('Error loading user language:', err);
+		      }
+		      return {
 		        uid: fbUser.uid,
 		        displayName: fbUser.displayName || fallbackName || 'User',
 		        email: fbUser.email || '',
 		        phone: fbUser.phoneNumber || '',
 		        transactions: 0,
 		        premiumParks: PREMIUM_PARKS_MAX,
-		        language: 'en',
+		        language: language || 'en',
 		      };
-		      const wasLoggedOut = !userUidRef.current && !initializingRef.current;
-		      setUser(nextUser);
-		      if (wasLoggedOut) {
-		        if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
-		        setLoggingIn(true);
-		        loginOverlayTimerRef.current = window.setTimeout(() => setLoggingIn(false), 1200);
-		      }
-		    } else if (!loggingOut) {
-		      setUser(null);
-		    }
+		    };
 
-	    // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
-	    setInitializing(false);
-	    initializingRef.current = false;
-	  });
+		    const unsub = onAuthStateChanged(auth, (fbUser) => {
+		      (async () => {
+		        if (cancelled) return;
+		        if (fbUser) {
+		          const nextUser = await hydrateUser(fbUser);
+		          if (cancelled) return;
+		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
+		          if (nextUser?.language) i18n.changeLanguage(nextUser.language);
+		          setUser(nextUser);
+		          if (wasLoggedOut) {
+		            if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
+		            setLoggingIn(true);
+		            loginOverlayTimerRef.current = window.setTimeout(() => setLoggingIn(false), 1200);
+		          }
+		        } else if (!loggingOut) {
+		          setUser(null);
+		        }
 
-	  return () => unsub();
-	}, []);
+		        // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
+		        setInitializing(false);
+		        initializingRef.current = false;
+		      })();
+		    });
+
+		    return () => {
+		      cancelled = true;
+		      unsub();
+		    };
+		  }, []);
 
   // Fallback: hydrate user immediately if auth already has a currentUser (e.g., after redirect)
  useEffect(() => {
@@ -780,19 +843,34 @@ export default function ParkSwapApp() {
     const fbUser = auth.currentUser;
     if (!fbUser) return;
 
-      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
-	    const nextUser = {
-	      uid: fbUser.uid,
-	      displayName: fbUser.displayName || fallbackName || 'User',
-	      email: fbUser.email || '',
-	      phone: fbUser.phoneNumber || '',
-	      transactions: 0,
-	      premiumParks: PREMIUM_PARKS_MAX,
-	      language: 'en',
-	    };
+    // If auth subscription already hydrated, skip.
+    if (userUidRef.current) return;
 
-    setUser((prev) => prev || nextUser);
-    i18n.changeLanguage(nextUser.language || 'en');
+    (async () => {
+      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
+      let language = i18n.language || 'en';
+      try {
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.language) language = data.language;
+        }
+      } catch (err) {
+        console.error('Error loading user language:', err);
+      }
+      const nextUser = {
+        uid: fbUser.uid,
+        displayName: fbUser.displayName || fallbackName || 'User',
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '',
+        transactions: 0,
+        premiumParks: PREMIUM_PARKS_MAX,
+        language: language || 'en',
+      };
+      setUser((prev) => prev || nextUser);
+      if (nextUser.language) i18n.changeLanguage(nextUser.language);
+    })();
   }, 300); // 300ms = perfect mobile delay
 
   return () => clearTimeout(timer);
@@ -2104,6 +2182,7 @@ export default function ParkSwapApp() {
             onConfirmPlate={handleConfirmPlate}
             onCancelSpot={handleCancelSpot}
             onRenewSpot={handleRenewSpot}
+            onNudgeAddVehicle={nudgeVehicleOnboarding}
           />
         </div>
       );
@@ -2124,6 +2203,8 @@ export default function ParkSwapApp() {
           onChangeTheme={setTheme}
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
+          openAddVehicleRequestId={addVehicleRequestId}
+          highlightVehiclesRequestId={highlightVehiclesRequestId}
         />
       </div>
     );
@@ -2178,7 +2259,7 @@ export default function ParkSwapApp() {
         <button
           type="button"
           onClick={handleMenuClick}
-          className={`w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+          className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
             theme === 'dark'
               ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
               : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
@@ -2187,6 +2268,18 @@ export default function ParkSwapApp() {
           aria-label={i18n.t('settings', 'Settings')}
           title={i18n.t('settings', 'Settings')}
         >
+          {menuNudgeActive ? (
+            <>
+              <span
+                className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
+                aria-hidden="true"
+              />
+              <span
+                className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
+                aria-hidden="true"
+              />
+            </>
+          ) : null}
           <Menu size={22} strokeWidth={2.5} />
         </button>
       </div>
@@ -2252,6 +2345,8 @@ export default function ParkSwapApp() {
           onChangeTheme={setTheme}
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
+          openAddVehicleRequestId={addVehicleRequestId}
+          highlightVehiclesRequestId={highlightVehiclesRequestId}
         />
       </div>
     </div>

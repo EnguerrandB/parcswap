@@ -1,5 +1,6 @@
 // src/views/ProfileView.jsx
 import React, { useState, useEffect, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Calendar,
   Camera,
@@ -26,11 +27,13 @@ import {
   FileText,
   Sun,
   Moon,
+  Globe,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { RecaptchaVerifier, linkWithPhoneNumber } from 'firebase/auth';
+import { PhoneAuthProvider, RecaptchaVerifier, updatePhoneNumber } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, appId, db } from '../firebase';
+import { PHONE_COUNTRIES, formatPhoneForDisplay, formatPhoneInput, guessPhoneCountry, toE164Phone } from '../utils/phone';
 
 const ProfileView = ({
   user,
@@ -46,6 +49,8 @@ const ProfileView = ({
   onChangeTheme,
   onInvite,
   inviteMessage,
+  openAddVehicleRequestId = 0,
+  highlightVehiclesRequestId = 0,
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
@@ -121,37 +126,36 @@ const ProfileView = ({
     let letters1 = '';
     let digits = '';
     let letters2 = '';
+
+    // Extraction souple des segments
     for (const ch of cleaned) {
-      if (letters1.length < 2 && /[A-Z]/.test(ch)) {
+      if (letters1.length < 2 && /[A-Z]/.test(ch) && digits.length === 0) {
         letters1 += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
+      } else if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
         digits += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
+      } else if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
         letters2 += ch;
       }
     }
-    return [letters1, digits, letters2].filter(Boolean).join('-');
+
+    // Construction avec les tirets au bon moment
+    let res = letters1;
+    if (letters1.length === 2 && (digits.length > 0 || cleaned.length > 2)) res += '-';
+    res += digits;
+    if (digits.length === 3 && (letters2.length > 0 || cleaned.length > 5)) res += '-';
+    res += letters2;
+
+    return res;
   };
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
-  const plateMaskPreview = (value) => {
-    const formatted = formatPlate(value);
-    const clean = formatted.replace(/-/g, '');
-    const template = ['A', 'B', '-', '1', '2', '3', '-', 'C', 'D'];
-    let idx = 0;
-    return template
-      .map((ch) => {
-        if (ch === '-') return '-';
-        const val = clean[idx];
-        idx += 1;
-        return val || '_';
-      })
-      .join('');
-  };
-  const [form, setForm] = useState({ model: '', plate: '' });
+  const [form, setForm] = useState({ model: '' });
+
+  const [plateSlots, setPlateSlots] = useState(Array(7).fill(''));
+  
+
+  const [plateValue, setPlateValue] = useState('');
+  const [plateFocused, setPlateFocused] = useState(false);
+  
   const [formImage, setFormImage] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -172,14 +176,28 @@ const ProfileView = ({
   const [infoMsg, setInfoMsg] = useState('');
   const [phoneVerification, setPhoneVerification] = useState({
     status: 'idle',
-    confirmation: null,
+    verificationId: '',
     code: '',
     error: '',
+    phoneE164: '',
   });
+  const [emailVerification, setEmailVerification] = useState({ status: 'idle', error: '' });
   const [showRankInfo, setShowRankInfo] = useState(null);
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showLegal, setShowLegal] = useState(false);
+  const recaptchaRenderPromiseRef = React.useRef(null);
+  const [phoneCountry, setPhoneCountry] = useState(() => guessPhoneCountry(user?.phone).code);
+  const nameInputRef = React.useRef(null);
+  const emailInputRef = React.useRef(null);
+  const phoneInputRef = React.useRef(null);
+  const lastAddVehicleRequestRef = React.useRef(0);
+  const lastHighlightVehiclesRef = React.useRef(0);
+  const vehiclesRowRef = React.useRef(null);
+  const [highlightVehiclesRow, setHighlightVehiclesRow] = useState(false);
+  const highlightVehiclesTimerRef = React.useRef(null);
+  const [highlightAddVehicleButton, setHighlightAddVehicleButton] = useState(false);
+  const highlightAddVehicleTimerRef = React.useRef(null);
   const achievementStats = useMemo(() => {
     const txs = Array.isArray(transactions) ? transactions : [];
     const v = Array.isArray(vehicles) ? vehicles : [];
@@ -491,7 +509,12 @@ const ProfileView = ({
     if (showPremiumParksInfo) setClosingPremiumParksInfo(false);
   }, [showPremiumParksInfo]);
 
-  const phoneChanged = profileForm.phone !== (user?.phone || '');
+  const userPhoneE164 = String(user?.phone || '');
+  const parsedPhone = toE164Phone(profileForm.phone, phoneCountry);
+  const phoneInputHasValue = String(profileForm.phone || '').trim().length > 0;
+  const phoneDirty = phoneInputHasValue ? parsedPhone.e164 !== userPhoneE164 : userPhoneE164 !== '';
+  const phoneChanged = !!parsedPhone.e164 && parsedPhone.e164 !== userPhoneE164;
+  const emailChanged = profileForm.email !== (user?.email || '');
   const phoneVerifiedStatus =
     phoneVerification.status === 'verified' || (!phoneChanged && user?.phoneVerified);
   const selfLeaderboardEntry = leaderboard.find((u) => u.id === user?.uid);
@@ -560,20 +583,77 @@ const ProfileView = ({
   };
 
   useEffect(() => {
+    const nextCountryCode = guessPhoneCountry(user?.phone).code;
     setProfileForm({
       displayName: user?.displayName || '',
       email: user?.email || '',
-      phone: user?.phone || '',
+      phone: formatPhoneForDisplay(user?.phone || '', nextCountryCode),
       language: user?.language || 'en',
     });
-    setPhoneVerification({ status: 'idle', confirmation: null, code: '', error: '' });
+    setPhoneVerification({ status: 'idle', verificationId: '', code: '', error: '', phoneE164: '' });
+    setEmailVerification({ status: 'idle', error: '' });
+    setPhoneCountry(nextCountryCode);
   }, [user]);
+
+  useEffect(() => {
+    const id = Number(openAddVehicleRequestId) || 0;
+    if (!id) return;
+    if (lastAddVehicleRequestRef.current === id) return;
+    lastAddVehicleRequestRef.current = id;
+    setClosingModal(false);
+    setShowModal(true);
+  }, [openAddVehicleRequestId]);
+
+  useEffect(() => {
+    const id = Number(highlightVehiclesRequestId) || 0;
+    if (!id) return;
+    if (lastHighlightVehiclesRef.current === id) return;
+    lastHighlightVehiclesRef.current = id;
+
+    setHighlightVehiclesRow(true);
+    try {
+      vehiclesRowRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    } catch (_) {}
+
+    if (highlightVehiclesTimerRef.current) window.clearTimeout(highlightVehiclesTimerRef.current);
+    highlightVehiclesTimerRef.current = window.setTimeout(() => setHighlightVehiclesRow(false), 4200);
+
+    return () => {};
+  }, [highlightVehiclesRequestId, vehicles.length]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightVehiclesTimerRef.current) window.clearTimeout(highlightVehiclesTimerRef.current);
+      if (highlightAddVehicleTimerRef.current) window.clearTimeout(highlightAddVehicleTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.language) {
       i18n.changeLanguage(user.language);
     }
   }, [user?.language, i18n]);
+
+  const getLanguageFlag = (lng) => {
+    const normalized = String(lng || '').split('-')[0].toLowerCase();
+    if (normalized === 'fr') return '🇫🇷';
+    if (normalized === 'en') return '🇬🇧';
+    return '';
+  };
+
+  const handleChangeLanguage = async (lng) => {
+    if (!lng) return;
+    setProfileForm((prev) => ({ ...prev, language: lng }));
+    i18n.changeLanguage(lng);
+    if (!user?.uid) return;
+    await onUpdateProfile?.({
+      displayName: user?.displayName ?? profileForm.displayName ?? '',
+      email: user?.email ?? profileForm.email ?? '',
+      phone: user?.phone ?? profileForm.phone ?? '',
+      language: lng,
+      phoneVerified: user?.phoneVerified,
+    });
+  };
 
   useEffect(() => {
     if (!showLeaderboard) return;
@@ -597,68 +677,242 @@ const ProfileView = ({
     return () => clearInterval(id);
   }, [showLeaderboard]);
 
+  const resetVehicleModal = () => {
+    setForm({ model: '' });
+    setPlateSlots(Array(7).fill(''));
+    setPlateFocused(false);
+    setFormImage(null);
+  };
+
   const handleSubmit = () => {
-    const formattedPlate = formatPlate(form.plate);
+    const plateValue = plateSlots.join('');
+    const formattedPlate = formatPlate(plateValue);
     if (!form.model.trim() || !isFullPlate(formattedPlate)) return;
     onAddVehicle?.({
       model: form.model.trim(),
       plate: formattedPlate,
       photo: formImage,
     });
-    setForm({ model: '', plate: '' });
-    setFormImage(null);
+    resetVehicleModal();
+  };
+
+  const closeVehicleModal = () => {
+    resetVehicleModal();
+    closeWithAnim(setClosingModal, setShowModal);
+  };
+
+  const PLATE_TEMPLATE = 'AB-123-CD';
+  const PLATE_EDIT_POSITIONS = [0, 1, 3, 4, 5, 7, 8];
+  const plateNextKind = useMemo(() => {
+    const lettersDone = Boolean(plateSlots[0] && plateSlots[1]);
+    const digitsDone = Boolean(plateSlots[2] && plateSlots[3] && plateSlots[4]);
+    if (lettersDone && !digitsDone) return 'digits';
+    if (lettersDone && digitsDone) return 'letters';
+    return 'letters';
+  }, [plateSlots]);
+  const buildPlateDisplay = (slots) => {
+    const chars = PLATE_TEMPLATE.split('');
+    for (let i = 0; i < PLATE_EDIT_POSITIONS.length; i += 1) {
+      const pos = PLATE_EDIT_POSITIONS[i];
+      const v = slots[i];
+      if (v) chars[pos] = v;
+    }
+    return chars.join('');
+  };
+  const buildPlateRender = (slots) => {
+    const chars = PLATE_TEMPLATE.split('');
+    return chars.map((ch, pos) => {
+      const idx = slotIndexForPos(pos);
+      if (idx < 0) return { ch, className: 'text-gray-300' };
+      const v = slots[idx];
+      if (v) return { ch: v, className: 'text-gray-900' };
+      return { ch, className: 'text-gray-300' };
+    });
+  };
+  const clampPlateCaret = (pos) => {
+    const p = Math.max(0, Math.min(PLATE_TEMPLATE.length, Number(pos) || 0));
+    if (p === 2) return 3;
+    if (p === 6) return 7;
+    return p;
+  };
+  const prevEditablePos = (pos) => {
+    const p = clampPlateCaret(pos);
+    for (let i = PLATE_EDIT_POSITIONS.length - 1; i >= 0; i -= 1) {
+      if (PLATE_EDIT_POSITIONS[i] < p) return PLATE_EDIT_POSITIONS[i];
+    }
+    return PLATE_EDIT_POSITIONS[0];
+  };
+  const nextEditablePos = (pos) => {
+    const p = clampPlateCaret(pos);
+    for (let i = 0; i < PLATE_EDIT_POSITIONS.length; i += 1) {
+      if (PLATE_EDIT_POSITIONS[i] > p) return PLATE_EDIT_POSITIONS[i];
+    }
+    return PLATE_EDIT_POSITIONS[PLATE_EDIT_POSITIONS.length - 1] + 1;
+  };
+  const slotIndexForPos = (pos) => PLATE_EDIT_POSITIONS.indexOf(pos);
+  const coercePlateChar = (pos, ch) => {
+    const c = String(ch || '').toUpperCase();
+    if (!c) return '';
+    const isLetterPos = pos === 0 || pos === 1 || pos === 7 || pos === 8;
+    if (isLetterPos) return /[A-Z]/.test(c) ? c : '';
+    return /[0-9]/.test(c) ? c : '';
   };
 
   const ensureRecaptcha = () => {
     if (window.recaptchaVerifier) return window.recaptchaVerifier;
+    recaptchaRenderPromiseRef.current = null;
     window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
     return window.recaptchaVerifier;
   };
 
-  const normalizePhone = (value) => {
-    const v = (value || '').replace(/\s+/g, '');
-    if (v.startsWith('0')) return `+33${v.slice(1)}`;
-    return v;
-  };
-
   const handleSendPhoneCode = async () => {
     if (!auth.currentUser || !profileForm.phone) return;
-    const normalized = normalizePhone(profileForm.phone);
-    if (!/^\+\d{6,15}$/.test(normalized)) {
+    if (!phoneDirty) return;
+    const parsed = toE164Phone(profileForm.phone, phoneCountry);
+    if (!parsed.e164) {
       setPhoneVerification((prev) => ({ ...prev, error: t('phoneFormatError', 'Use international format, e.g. +33123456789.') }));
+      return;
+    }
+    if (parsed.e164 === userPhoneE164) {
+      setPhoneVerification((prev) => ({ ...prev, error: t('phoneSameError', 'This phone number is already set.') }));
       return;
     }
     setPhoneVerification((prev) => ({ ...prev, status: 'sending', error: '' }));
     try {
       const verifier = ensureRecaptcha();
-      await verifier.render();
-      const confirmation = await linkWithPhoneNumber(auth.currentUser, normalized, verifier);
-      setPhoneVerification({ status: 'code-sent', confirmation, code: '', error: '' });
+      if (!recaptchaRenderPromiseRef.current) {
+        recaptchaRenderPromiseRef.current = verifier.render();
+      }
+      try {
+        await recaptchaRenderPromiseRef.current;
+      } catch (err) {
+        const message = String(err?.message || err || '');
+        if (message.toLowerCase().includes('already been rendered')) {
+          recaptchaRenderPromiseRef.current = Promise.resolve();
+        } else {
+          throw err;
+        }
+      }
+      const provider = new PhoneAuthProvider(auth);
+      const verificationId = await provider.verifyPhoneNumber(parsed.e164, verifier);
+      setPhoneVerification({ status: 'code-sent', verificationId, code: '', error: '', phoneE164: parsed.e164 });
       setInfoMsg(t('phoneCodeSent', 'Verification code sent to your phone.'));
     } catch (err) {
-      setPhoneVerification({ status: 'idle', confirmation: null, code: '', error: err.message || 'Unable to send code.' });
+      setPhoneVerification({
+        status: 'idle',
+        verificationId: '',
+        code: '',
+        error: err.message || 'Unable to send code.',
+        phoneE164: '',
+      });
       if (window.recaptchaVerifier?.clear) {
         window.recaptchaVerifier.clear();
         window.recaptchaVerifier = null;
+        recaptchaRenderPromiseRef.current = null;
       }
     }
   };
 
+  const handleSendEmailVerification = async () => {
+    if (!isEditingProfile || !emailChanged) return;
+    if (!profileForm.email) return;
+    setEmailVerification({ status: 'sending', error: '' });
+    try {
+      const nextPhone = toE164Phone(profileForm.phone, phoneCountry).e164 || userPhoneE164;
+      const safePhone = phoneDirty ? (phoneVerifiedStatus ? nextPhone : userPhoneE164) : userPhoneE164;
+      const safePhoneVerified = phoneDirty ? (phoneVerifiedStatus ? true : user?.phoneVerified) : user?.phoneVerified;
+      const res = await onUpdateProfile?.({
+        ...profileForm,
+        phone: safePhone,
+        phoneVerified: safePhoneVerified,
+        email: profileForm.email,
+      });
+      if (res?.error) {
+        const msg = res.reauthRequired
+          ? t('emailUpdateReauth', 'Please sign out/in again to verify and update your email.')
+          : t('updateProfileError', 'Unable to update profile. Please try again.');
+        setEmailVerification({ status: 'idle', error: msg });
+        return;
+      }
+      if (res?.needsEmailVerify) {
+        setInfoMsg(t('emailVerificationSent', 'Verification email sent. Confirm it to finalize your email update.'));
+      } else {
+        setInfoMsg('');
+      }
+      setEmailVerification({ status: 'sent', error: '' });
+    } catch (err) {
+      setEmailVerification({
+        status: 'idle',
+        error: err?.message || t('updateProfileError', 'Unable to update profile. Please try again.'),
+      });
+    }
+  };
+
   const handleVerifyPhoneCode = async () => {
-    if (!phoneVerification.confirmation || !phoneVerification.code) return;
+    if (!auth.currentUser || !phoneVerification.verificationId || !phoneVerification.code) return;
+    const verifiedPhone = phoneVerification.phoneE164 || toE164Phone(profileForm.phone, phoneCountry).e164;
+    if (!verifiedPhone) {
+      setPhoneVerification((prev) => ({ ...prev, error: t('phoneFormatError', 'Use international format, e.g. +33123456789.') }));
+      return;
+    }
     setPhoneVerification((prev) => ({ ...prev, status: 'verifying', error: '' }));
     try {
-      await phoneVerification.confirmation.confirm(phoneVerification.code);
-      await onUpdateProfile?.({
-        ...profileForm,
-        phone: profileForm.phone,
-        phoneVerified: true,
-      });
-      setPhoneVerification({ status: 'verified', confirmation: null, code: '', error: '' });
+      const credential = PhoneAuthProvider.credential(phoneVerification.verificationId, phoneVerification.code);
+      await updatePhoneNumber(auth.currentUser, credential);
+	      await onUpdateProfile?.({
+	        displayName: user?.displayName || '',
+	        email: user?.email || '',
+	        phone: verifiedPhone,
+	        language: profileForm.language || i18n.language || 'en',
+	        phoneVerified: true,
+	      });
+      const verifiedCountryCode = guessPhoneCountry(verifiedPhone).code;
+      setPhoneCountry(verifiedCountryCode);
+      setProfileForm((prev) => ({ ...prev, phone: formatPhoneForDisplay(verifiedPhone, verifiedCountryCode) }));
+      setPhoneVerification({ status: 'verified', verificationId: '', code: '', error: '', phoneE164: verifiedPhone });
       setInfoMsg(t('phoneVerified', 'Phone verified!'));
     } catch (err) {
       setPhoneVerification((prev) => ({ ...prev, status: 'code-sent', error: err.message || 'Invalid code.' }));
     }
+  };
+
+  const collapseFullSelectionOnFocus = (e) => {
+    const el = e?.target;
+    if (!el || typeof el.value !== 'string') return;
+    if (typeof el.selectionStart !== 'number' || typeof el.selectionEnd !== 'number') return;
+    window.requestAnimationFrame(() => {
+      try {
+        const len = el.value.length;
+        if (len > 0 && el.selectionStart === 0 && el.selectionEnd === len) {
+          el.setSelectionRange(len, len);
+        }
+      } catch (_) {}
+    });
+  };
+
+  const cancelProfileEdit = () => {
+    const nextCountryCode = guessPhoneCountry(user?.phone).code;
+    setProfileForm({
+      displayName: user?.displayName || '',
+      email: user?.email || '',
+      phone: formatPhoneForDisplay(user?.phone || '', nextCountryCode),
+      language: user?.language || 'en',
+    });
+    setPhoneVerification({ status: 'idle', verificationId: '', code: '', error: '', phoneE164: '' });
+    setEmailVerification({ status: 'idle', error: '' });
+    setInfoMsg('');
+    setPhoneCountry(nextCountryCode);
+    setIsEditingProfile(false);
+  };
+
+  const startProfileEdit = (field) => {
+    setInfoMsg('');
+    flushSync(() => setIsEditingProfile(true));
+    try {
+      if (field === 'name') nameInputRef.current?.focus?.();
+      if (field === 'email') emailInputRef.current?.focus?.();
+      if (field === 'phone') phoneInputRef.current?.focus?.();
+    } catch (_) {}
   };
 
   return (
@@ -743,19 +997,32 @@ const ProfileView = ({
               collapseLegal();
               setShowModal(true);
             }}
-            className={`w-full p-4 flex items-center justify-between text-left transition ${
+            ref={vehiclesRowRef}
+            className={`relative overflow-hidden w-full p-4 flex items-center justify-between text-left transition ${
               isDark
                 ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
                 : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
-            <div className="flex items-center space-x-3">
+            {highlightVehiclesRow ? (
+              <>
+                <span
+                  className="pointer-events-none absolute inset-0 bg-orange-400/10"
+                  aria-hidden="true"
+                />
+                <span
+                  className="pointer-events-none absolute inset-2 rounded-2xl border border-orange-300/70 animate-pulse"
+                  aria-hidden="true"
+                />
+              </>
+            ) : null}
+            <div className="relative z-10 flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Car size={20} style={iconStyle('vehicle')} />
               </div>
               <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>{t('myVehicles')}</span>
             </div>
-            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+            <ArrowRight size={16} className={`relative z-10 ${isDark ? 'text-slate-500' : 'text-gray-300'}`} />
           </button>
 
 	          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
@@ -948,6 +1215,35 @@ const ProfileView = ({
               />
             </span>
           </button>
+
+	          <div
+	            className={`w-full p-4 flex items-center justify-between text-left ${
+	              isDark ? 'text-slate-100' : 'text-gray-900'
+	            }`}
+	          >
+	            <div className="flex items-center space-x-3">
+	              <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                {getLanguageFlag(profileForm.language) ? (
+	                  <span className="text-lg leading-none">{getLanguageFlag(profileForm.language)}</span>
+	                ) : (
+	                  <Globe size={20} style={iconStyle('appearance')} />
+	                )}
+	              </div>
+	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+	                {t('languageLabel', 'Language')}
+	              </span>
+	            </div>
+            <select
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 ${
+                isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
+              }`}
+              value={profileForm.language}
+              onChange={(e) => handleChangeLanguage(e.target.value)}
+            >
+              <option value="en">English</option>
+              <option value="fr">Français</option>
+            </select>
+          </div>
 
           <button
             type="button"
@@ -1159,173 +1455,227 @@ const ProfileView = ({
           className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
             closingProfile ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
           }`}
-          onClick={() => closeWithAnim(setClosingProfile, setShowProfileModal)}
+          onClick={() => {
+            cancelProfileEdit();
+            closeWithAnim(setClosingProfile, setShowProfileModal);
+          }}
         >
           <div
             className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[85vh] overflow-y-auto ${
               closingProfile ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-	          >
-	            <div className="flex items-center space-x-3 mb-4">
-	              <div className="bg-white p-2 rounded-lg border border-gray-100">
-	                <User size={20} style={iconStyle('profile')} />
-	              </div>
-              <span className="font-semibold text-lg">{t('profile')}</span>
-            </div>
+			          >
+			            <div className="flex items-center justify-between mb-4">
+			              <div className="flex items-center space-x-3">
+			                <div className="bg-white p-2 rounded-lg border border-gray-100">
+			                  <User size={20} style={iconStyle('profile')} />
+			                </div>
+			                <span className="font-semibold text-lg">{t('profile')}</span>
+			              </div>
+			            </div>
 
-            <div className="relative rounded-2xl border border-white/60 bg-white/70 backdrop-blur-sm p-4 shadow-inner shadow-black/5 overflow-hidden">
-              {infoMsg && (
-                <div className="mb-3 text-sm text-orange-700 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
-                  {infoMsg}
-                </div>
-              )}
+	            <div className="space-y-4">
+	              {infoMsg && (
+	                <div className="mb-3 text-sm text-orange-700 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
+	                  {infoMsg}
+	                </div>
+	              )}
 
-              {!isEditingProfile ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditingProfile(true);
-                      setInfoMsg('');
-                    }}
-                    className="text-sm font-semibold text-orange-600 bg-white/90 backdrop-blur px-5 py-3 rounded-xl border border-orange-100 shadow-md hover:bg-orange-50 transition"
-                  >
-                    {t('editProfile', 'Edit')}
-                  </button>
-                </div>
-              ) : null}
-
-              <div className={`space-y-3 transition ${!isEditingProfile ? 'blur-sm pointer-events-none select-none' : ''}`}>
-                <div className="grid grid-cols-1 gap-2">
-                  <label className="text-xs text-gray-500 font-semibold">{t('name')}</label>
-                  <input
-                    type="text"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={profileForm.displayName}
-                    disabled={!isEditingProfile}
-                    onChange={(e) => setProfileForm((prev) => ({ ...prev, displayName: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  <label className="text-xs text-gray-500 font-semibold">{t('email')}</label>
-                  <input
-                    type="email"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={profileForm.email}
-                    disabled={!isEditingProfile}
-                    onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  <label className="text-xs text-gray-500 font-semibold">{t('phone')}</label>
-                  <input
-                    type="tel"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                    value={profileForm.phone}
-                    disabled={!isEditingProfile}
-                    onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  />
-                  {isEditingProfile ? (
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={handleSendPhoneCode}
-                        className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 hover:bg-orange-100 disabled:opacity-50"
-                        disabled={phoneVerification.status === 'sending'}
-                      >
-                        {phoneVerification.status === 'sending'
-                          ? t('pleaseWait', 'Please wait...')
-                          : t('sendCode', 'Send code')}
-                      </button>
-                      {phoneVerification.status === 'code-sent' || phoneVerification.status === 'verifying' ? (
-                        <>
-                          <input
-                            type="tel"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={phoneVerification.code}
-                            onChange={(e) => setPhoneVerification((prev) => ({ ...prev, code: e.target.value }))}
-                            placeholder="123456"
-                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleVerifyPhoneCode}
-                            className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-lg border border-green-100 hover:bg-green-100 disabled:opacity-50"
-                            disabled={phoneVerification.status === 'verifying'}
-                          >
-                            {t('verifyCode', 'Verify code')}
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {phoneVerification.error && (
-                    <p className="text-xs text-red-500">{phoneVerification.error}</p>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  <label className="text-xs text-gray-500 font-semibold">{t('languageLabel')}</label>
-                  <select
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 bg-white"
-                    value={profileForm.language}
-                    disabled={!isEditingProfile}
-                    onChange={(e) => {
-                      const lng = e.target.value;
-                      setProfileForm((prev) => ({ ...prev, language: lng }));
-                      i18n.changeLanguage(lng);
-                    }}
-                  >
-                    <option value="en">English</option>
-                    <option value="fr">Français</option>
-                  </select>
-                </div>
-                {isEditingProfile ? (
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={async () => {
-                        if (phoneChanged && !phoneVerifiedStatus) {
-                          setInfoMsg(t('verifyPhoneToSave', 'Please verify your phone before saving.'));
-                          return;
-                        }
-                        const res = await onUpdateProfile?.({
-                          ...profileForm,
-                          phoneVerified: phoneChanged ? true : user?.phoneVerified,
-                        });
-                        if (res?.error) {
-                          const msg = res.reauthRequired
-                            ? t('emailUpdateReauth', 'Please sign out/in again to verify and update your email.')
-                            : t('updateProfileError', 'Unable to update profile. Please try again.');
-                          setInfoMsg(msg);
-                        } else if (res?.needsEmailVerify) {
-                          setInfoMsg(t('emailVerificationSent', 'Verification email sent. Confirm it to finalize your email update.'));
-                        } else {
-                          setInfoMsg('');
-                        }
-                        setIsEditingProfile(false);
-                      }}
-                      disabled={phoneChanged && !phoneVerifiedStatus}
-                      className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:scale-[1.01] transition disabled:opacity-60"
-                    >
-                      {t('saveProfile', 'Save profile')}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setProfileForm({
-                          displayName: user?.displayName || '',
-                          email: user?.email || '',
-                          phone: user?.phone || '',
-                          language: user?.language || 'en',
-                        });
-                        setIsEditingProfile(false);
-                      }}
-                      className="flex-1 bg-white border border-gray-200 text-gray-600 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition"
-                    >
-                      {t('cancel', 'Cancel')}
-                    </button>
-                  </div>
-                ) : null}
+		              <div className="space-y-3">
+		                <div className="grid grid-cols-1 gap-2">
+		                  <label className="text-xs text-gray-500 font-semibold">{t('name')}</label>
+		                  {!isEditingProfile ? (
+		                    <button
+		                      type="button"
+		                      onClick={() => startProfileEdit('name')}
+		                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-left hover:bg-white/70 transition"
+		                    >
+		                      {profileForm.displayName || t('unknown', 'Unknown')}
+		                    </button>
+		                  ) : (
+		                    <input
+		                      ref={nameInputRef}
+		                      type="text"
+		                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+		                      value={profileForm.displayName}
+		                      onChange={(e) => setProfileForm((prev) => ({ ...prev, displayName: e.target.value }))}
+		                    />
+		                  )}
+		                </div>
+		                <div className="grid grid-cols-1 gap-2">
+		                  <label className="text-xs text-gray-500 font-semibold">{t('email')}</label>
+		                  {!isEditingProfile ? (
+		                    <button
+		                      type="button"
+		                      onClick={() => startProfileEdit('email')}
+		                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-left hover:bg-white/70 transition"
+		                    >
+		                      {profileForm.email || '—'}
+		                    </button>
+		                  ) : (
+		                    <>
+		                      <input
+		                        ref={emailInputRef}
+		                        type="email"
+		                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+		                        value={profileForm.email}
+		                        onFocus={collapseFullSelectionOnFocus}
+		                        onChange={(e) => {
+		                          const next = e.target.value;
+		                          setProfileForm((prev) => ({ ...prev, email: next }));
+		                          if (emailVerification.status !== 'idle' || emailVerification.error) {
+		                            setEmailVerification({ status: 'idle', error: '' });
+		                          }
+		                        }}
+		                      />
+		                      {emailVerification.error ? (
+		                        <p className="text-xs text-red-500">{emailVerification.error}</p>
+		                      ) : null}
+		                    </>
+		                  )}
+		                </div>
+		                <div className="grid grid-cols-1 gap-2">
+		                  <label className="text-xs text-gray-500 font-semibold">{t('phone')}</label>
+		                  {!isEditingProfile ? (
+		                    <button
+		                      type="button"
+		                      onClick={() => startProfileEdit('phone')}
+		                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-left hover:bg-white/70 transition"
+		                    >
+		                      {profileForm.phone || '—'}
+		                    </button>
+		                  ) : (
+		                    <>
+		                      <div className="flex items-center space-x-2">
+		                        <select
+		                          className="border border-gray-200 rounded-xl px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-200"
+		                          value={phoneCountry}
+		                          onChange={(e) => {
+		                            const nextCountry = e.target.value;
+		                            setPhoneCountry(nextCountry);
+		                            setProfileForm((prev) => ({ ...prev, phone: formatPhoneInput(prev.phone, nextCountry) }));
+			                            if (phoneVerification.status !== 'idle' || phoneVerification.code || phoneVerification.error) {
+			                              setPhoneVerification({
+			                                status: 'idle',
+			                                verificationId: '',
+			                                code: '',
+			                                error: '',
+			                                phoneE164: '',
+			                              });
+			                            }
+		                          }}
+		                        >
+		                          {PHONE_COUNTRIES.map((c) => (
+		                            <option key={c.code} value={c.code}>
+		                              {c.flag} {c.callingCode}
+		                            </option>
+		                          ))}
+		                        </select>
+		                        <input
+		                          ref={phoneInputRef}
+		                          type="tel"
+		                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+		                          value={profileForm.phone}
+		                          placeholder={phoneCountry === 'FR' ? '06 12 34 56 78' : ''}
+		                          onFocus={collapseFullSelectionOnFocus}
+		                          onChange={(e) => {
+		                            const next = formatPhoneInput(e.target.value, phoneCountry);
+		                            setProfileForm((prev) => ({ ...prev, phone: next }));
+			                            if (phoneVerification.status !== 'idle' || phoneVerification.code || phoneVerification.error) {
+			                              setPhoneVerification({
+			                                status: 'idle',
+			                                verificationId: '',
+			                                code: '',
+			                                error: '',
+			                                phoneE164: '',
+			                              });
+			                            }
+		                          }}
+		                        />
+		                      </div>
+		                      {phoneVerification.status === 'code-sent' || phoneVerification.status === 'verifying' ? (
+		                        <div className="flex items-center space-x-2">
+		                          <input
+		                            type="tel"
+		                            inputMode="numeric"
+		                            pattern="[0-9]*"
+		                            value={phoneVerification.code}
+		                            onChange={(e) => setPhoneVerification((prev) => ({ ...prev, code: e.target.value }))}
+		                            placeholder="123456"
+		                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs"
+		                          />
+		                          <button
+		                            type="button"
+		                            onClick={handleVerifyPhoneCode}
+		                            className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-lg border border-green-100 hover:bg-green-100 disabled:opacity-50"
+		                            disabled={phoneVerification.status === 'verifying'}
+		                          >
+		                            {t('verifyCode', 'Verify code')}
+		                          </button>
+		                        </div>
+		                      ) : null}
+		                      {phoneVerification.error && (
+		                        <p className="text-xs text-red-500">{phoneVerification.error}</p>
+		                      )}
+		                    </>
+		                  )}
+		                </div>
+		                {isEditingProfile ? (
+		                  <div className="flex space-x-2">
+		                    <button
+		                      onClick={cancelProfileEdit}
+		                      className="flex-1 bg-white border border-gray-200 text-gray-600 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition"
+		                    >
+		                      {t('cancel', 'Cancel')}
+		                    </button>
+		                    {emailChanged ? (
+		                      <button
+		                        type="button"
+		                        onClick={handleSendEmailVerification}
+		                        className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:brightness-110 active:scale-[0.99] transition disabled:opacity-60"
+		                        disabled={emailVerification.status === 'sending' || !String(profileForm.email || '').trim()}
+		                      >
+		                        {emailVerification.status === 'sending'
+		                          ? t('pleaseWait', 'Please wait...')
+		                          : t('sendVerificationEmail', 'Send verification email')}
+		                      </button>
+		                    ) : phoneDirty && phoneVerification.status !== 'verified' ? (
+		                      <button
+		                        type="button"
+		                        onClick={handleSendPhoneCode}
+		                        className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:brightness-110 active:scale-[0.99] transition disabled:opacity-60"
+		                        disabled={phoneVerification.status === 'sending' || !toE164Phone(profileForm.phone, phoneCountry).e164}
+		                      >
+		                        {phoneVerification.status === 'sending'
+		                          ? t('pleaseWait', 'Please wait...')
+		                          : t('sendCode', 'Send code')}
+		                      </button>
+		                    ) : (
+		                      <button
+		                        onClick={async () => {
+		                          const res = await onUpdateProfile?.({
+		                            ...profileForm,
+	                            phone: userPhoneE164,
+	                            phoneVerified: user?.phoneVerified,
+	                          });
+	                          if (res?.error) {
+	                            const msg = res.reauthRequired
+	                              ? t('emailUpdateReauth', 'Please sign out/in again to verify and update your email.')
+	                              : t('updateProfileError', 'Unable to update profile. Please try again.');
+	                            setInfoMsg(msg);
+	                          } else {
+	                            setInfoMsg('');
+	                          }
+	                          setIsEditingProfile(false);
+	                        }}
+		                        className="flex-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white py-3 rounded-xl font-bold shadow-md hover:scale-[1.01] transition"
+		                      >
+		                        {t('saveProfile', 'Save profile')}
+		                      </button>
+		                    )}
+		                  </div>
+		                ) : null}
               </div>
             </div>
           </div>
@@ -1337,17 +1687,22 @@ const ProfileView = ({
           className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
             closingModal ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
           }`}
-          onClick={() => closeWithAnim(setClosingModal, setShowModal)}
+          onClick={closeVehicleModal}
         >
           <div
             className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
               closingModal ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
             }`}
             onClick={(e) => e.stopPropagation()}
-	          >
-	            <h3 className="text-xl font-bold text-gray-900 mb-4">{t('manageVehiclesTitle', 'Manage my vehicles')}</h3>
+		          >
+		            <div className="flex items-center space-x-2 mb-4">
+		              <div className="bg-white p-2 rounded-lg border border-gray-100">
+		                <Car size={20} style={iconStyle('vehicle')} />
+		              </div>
+		              <h3 className="text-xl font-bold text-gray-900">{t('manageVehiclesTitle', 'Manage my vehicles')}</h3>
+		            </div>
 
-	            <div className="space-y-3 mb-4 max-h-64 overflow-y-auto pr-1">
+		            <div className="space-y-3 mb-4 max-h-64 overflow-y-auto pr-1">
               {vehicles.length === 0 && (
                 <p className="text-sm text-gray-400">{t('noVehiclesModal', 'No vehicles yet. Add one below.')}</p>
               )}
@@ -1384,30 +1739,155 @@ const ProfileView = ({
               ))}
             </div>
 
-            <div className="space-y-3">
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                placeholder={t('modelPlaceholder', 'Model (e.g., Tesla Model 3)')}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
-                value={form.model}
-                onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))}
-              />
-            </div>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                placeholder={t('platePlaceholderFull', 'Plate (e.g., AB-123-CD)')}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm uppercase tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-orange-200"
-                value={form.plate}
-                onChange={(e) => setForm((prev) => ({ ...prev, plate: formatPlate(e.target.value) }))}
-              />
-            </div>
-            <div className="flex space-x-2 items-center">
-              <label className="w-full cursor-pointer">
-                <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition">
-                  {formImage ? t('imageSelected', 'Image selected') : t('uploadPhoto', 'Upload vehicle photo')}
-                </div>
+		            <div className="space-y-3">
+		            <div className="flex space-x-2">
+		              <input
+		                type="text"
+		                placeholder={t('modelPlaceholder', 'Model (e.g., Tesla Model 3)')}
+		                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200"
+		                value={form.model}
+		                onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))}
+		              />
+		            </div>
+			            <div className="flex space-x-2">
+			              <div className="relative flex-1">
+			                {plateFocused || plateSlots.some(Boolean) ? (
+			                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+			                    <div className="text-sm uppercase tracking-widest font-mono">
+			                      {buildPlateRender(plateSlots).map((p, idx) => (
+			                        <span key={idx} className={p.className}>
+			                          {p.ch}
+			                        </span>
+			                      ))}
+			                    </div>
+			                  </div>
+			                ) : null}
+			                <input
+			                  type="text"
+			                  placeholder={plateFocused ? 'AB-123-CD' : t('platePlaceholderFull', 'Plate')}
+			                  className={`w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300 ${
+			                    plateFocused || plateSlots.some(Boolean)
+			                      ? 'text-transparent caret-gray-900 bg-white text-center uppercase tracking-widest font-mono'
+			                      : 'text-left normal-case tracking-normal font-sans'
+			                  }`}
+			                  inputMode={plateNextKind === 'digits' ? 'numeric' : 'text'}
+			                  pattern={plateNextKind === 'digits' ? '[0-9]*' : '[A-Za-z]*'}
+			                  autoCapitalize="characters"
+			                  value={plateFocused || plateSlots.some(Boolean) ? ' '.repeat(PLATE_TEMPLATE.length) : ''}
+			                  onFocus={(e) => {
+			                  setPlateFocused(true);
+			                  const start = clampPlateCaret(e.target.selectionStart ?? 0);
+			                  window.requestAnimationFrame(() => {
+			                    try {
+			                      e.target.setSelectionRange(start, start);
+			                    } catch (_) {}
+			                  });
+			                  }}
+			                  onBlur={() => setPlateFocused(false)}
+			                  onKeyDown={(e) => {
+			                  const el = e.currentTarget;
+			                  const selStart = typeof el.selectionStart === 'number' ? el.selectionStart : 0;
+			                  const caret = clampPlateCaret(selStart);
+
+		                  if (e.key === 'ArrowLeft') {
+		                    e.preventDefault();
+		                    const next = prevEditablePos(caret);
+		                    el.setSelectionRange(next, next);
+		                    return;
+		                  }
+		                  if (e.key === 'ArrowRight') {
+		                    e.preventDefault();
+		                    const next = nextEditablePos(caret);
+		                    el.setSelectionRange(next, next);
+		                    return;
+		                  }
+		                  if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    const pos = prevEditablePos(caret);
+                    const idx = slotIndexForPos(pos);
+                    if (idx >= 0) {
+                      setPlateSlots((prev) => {
+                        const next = [...prev];
+                        next[idx] = '';
+                        return next;
+                      });
+                    }
+                    // CORRECTION ICI : On attend que React efface le caractère avant de bouger le curseur
+                    window.requestAnimationFrame(() => {
+                      el.setSelectionRange(pos, pos);
+                    });
+                    return;
+                  }
+
+                  if (e.key === 'Delete') {
+                    e.preventDefault();
+                    const pos = clampPlateCaret(caret);
+                    const idx = slotIndexForPos(pos);
+                    if (idx >= 0) {
+                      setPlateSlots((prev) => {
+                        const next = [...prev];
+                        next[idx] = '';
+                        return next;
+                      });
+                    }
+                    // CORRECTION ICI AUSSI
+                    window.requestAnimationFrame(() => {
+                      el.setSelectionRange(pos, pos);
+                    });
+                    return;
+                  }
+
+		                  if (e.key && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+		                    e.preventDefault();
+		                    const pos = clampPlateCaret(caret);
+		                    const idx = slotIndexForPos(pos);
+		                    const coerced = coercePlateChar(pos, e.key);
+		                    if (idx >= 0 && coerced) {
+  setPlateSlots((prev) => {
+    const next = [...prev];
+    next[idx] = coerced;
+    return next;
+  });
+  
+  const nextPos = nextEditablePos(pos);
+  
+  // CORRECTION : On attend que React ait fini l'affichage pour placer le curseur
+  window.requestAnimationFrame(() => {
+    el.setSelectionRange(nextPos, nextPos);
+  });
+}
+		                  }
+			                  }}
+			                  onPaste={(e) => {
+			                  e.preventDefault();
+			                  const text = (e.clipboardData?.getData('text') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+			                  if (!text) return;
+			                  const chars = text.split('');
+			                  setPlateSlots((prev) => {
+		                    const next = [...prev];
+		                    let j = 0;
+		                    for (let i = 0; i < PLATE_EDIT_POSITIONS.length && j < chars.length; i += 1) {
+		                      const pos = PLATE_EDIT_POSITIONS[i];
+		                      const coerced = coercePlateChar(pos, chars[j]);
+		                      if (coerced) {
+		                        next[i] = coerced;
+		                        j += 1;
+		                      } else {
+		                        j += 1;
+		                        i -= 1;
+		                      }
+		                    }
+			                    return next;
+			                  });
+			                  }}
+			                />
+			              </div>
+			            </div>
+		            <div className="flex space-x-2 items-center">
+		              <label className="w-full cursor-pointer">
+		                <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition">
+		                  {formImage ? t('imageSelected', 'Image selected') : t('uploadPhoto', 'Upload vehicle photo')}
+	                </div>
                 <input
                   type="file"
                   accept="image/*"
@@ -1425,14 +1905,38 @@ const ProfileView = ({
                 />
               </label>
             </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={handleSubmit}
-                className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-orange-700 transition"
-              >
-                {t('addVehicle', 'Add vehicle')}
-              </button>
-            </div>
+	            <div className="flex space-x-2">
+	              <button
+	                type="button"
+	                onClick={closeVehicleModal}
+	                className="flex-1 bg-white border border-gray-200 text-gray-600 py-3 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition"
+	              >
+	                {t('cancel', 'Cancel')}
+	              </button>
+	              <button
+	                type="button"
+	                onClick={handleSubmit}
+	                className={`relative flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-orange-700 transition overflow-hidden ${
+	                  highlightAddVehicleButton ? 'ring-2 ring-orange-300 shadow-[0_0_0_10px_rgba(249,115,22,0.16)] animate-pulse' : ''
+	                }`}
+	              >
+	                {highlightAddVehicleButton ? (
+	                  <>
+	                    <span
+	                      className="pointer-events-none absolute -inset-1 bg-gradient-to-r from-orange-400/25 to-amber-300/20 blur-lg"
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="pointer-events-none absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-orange-600 text-xs font-extrabold flex items-center justify-center shadow"
+                      aria-hidden="true"
+                    >
+                      !
+                    </span>
+	                  </>
+	                ) : null}
+	                {t('addVehicle', 'Add vehicle')}
+	              </button>
+	            </div>
           </div>
         </div>
         </div>
@@ -1446,12 +1950,15 @@ const ProfileView = ({
 	          <div
 	            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative animate-[modalIn_0.28s_ease]"
 	            onClick={(e) => e.stopPropagation()}
-	          >
-	            <p className="text-xs uppercase tracking-wide text-gray-500 mb-3">
-	              {t('achievements', 'Achievements')}
-	            </p>
-	            <div className="grid grid-cols-5 gap-3 mb-4">
-	              {achievements.map((achv) => (
+		          >
+		            <div className="flex items-center space-x-2 mb-4">
+		              <div className="bg-white p-2 rounded-lg border border-gray-100">
+		                <Trophy size={20} style={iconStyle('leaderboard')} />
+		              </div>
+		              <h3 className="text-xl font-bold text-gray-900">{t('achievements', 'Achievements')}</h3>
+		            </div>
+		            <div className="grid grid-cols-5 gap-3 mb-4">
+		              {achievements.map((achv) => (
 	                <button
 	                  key={achv.id}
 	                  type="button"
@@ -1536,12 +2043,12 @@ const ProfileView = ({
             }`}
             onClick={(e) => e.stopPropagation()}
 	          >
-	            <div className="flex items-center space-x-2 mb-4">
-	              <div className="bg-gray-50 p-2 rounded-lg shadow-sm shadow-gray-200/60">
-	                <Trophy size={20} style={iconStyle('leaderboard')} />
-	              </div>
-	          <h3 className="text-xl font-bold text-gray-900">{t('leaderboard', 'Leaderboard')}</h3>
-	        </div>
+		            <div className="flex items-center space-x-2 mb-4">
+		              <div className="bg-white p-2 rounded-lg border border-gray-100">
+		                <Trophy size={20} style={iconStyle('leaderboard')} />
+		              </div>
+		              <h3 className="text-xl font-bold text-gray-900">{t('leaderboard', 'Leaderboard')}</h3>
+		            </div>
 	        <div className="mb-4 bg-orange-50/70 rounded-xl px-3 py-2 text-sm text-orange-700 font-semibold flex items-center justify-between shadow-sm shadow-orange-100/80">
 	          <span>{t('resetsIn', 'Resets in')}</span>
 	          <div className="flex space-x-2 font-mono">
@@ -1738,9 +2245,14 @@ const ProfileView = ({
               const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
               setPrivacyCloseVisible(!atBottom);
             }}
-	          >
-	            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('privacy', 'Privacy Policy')}</h3>
-	            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
+		          >
+		            <div className="flex items-center space-x-2 mb-4">
+		              <div className="bg-white p-2 rounded-lg border border-gray-100">
+		                <FileText size={20} style={iconStyle('legal')} />
+		              </div>
+		              <h3 className="text-xl font-bold text-gray-900">{t('privacy', 'Privacy Policy')}</h3>
+		            </div>
+		            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
 	              {t(
                 'privacyBody',
                 `Privacy Policy
@@ -1853,9 +2365,14 @@ If you have any questions or suggestions about our Privacy Policy, do not hesita
               const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
               setTermsCloseVisible(!atBottom);
             }}
-	          >
-	            <h3 className="text-xl font-bold text-gray-900 mb-3">{t('terms', 'Terms & Conditions')}</h3>
-	            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
+		          >
+		            <div className="flex items-center space-x-2 mb-4">
+		              <div className="bg-white p-2 rounded-lg border border-gray-100">
+		                <FileText size={20} style={iconStyle('legal')} />
+		              </div>
+		              <h3 className="text-xl font-bold text-gray-900">{t('terms', 'Terms & Conditions')}</h3>
+		            </div>
+		            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
 	              {t(
                 'termsBody',
                 `Terms and Conditions

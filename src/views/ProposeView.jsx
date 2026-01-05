@@ -6,7 +6,15 @@ import { MOCK_CARS, formatPrice } from '../constants';
 import WaitingView from './WaitingView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 
-const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot, onRenewSpot, vehicles = [] }) => {
+const ProposeView = ({
+  myActiveSpot,
+  onProposeSpot,
+  onConfirmPlate,
+  onCancelSpot,
+  onRenewSpot,
+  onNudgeAddVehicle,
+  vehicles = [],
+}) => {
   const { t } = useTranslation('common');
   const { isOnline, isPoorConnection } = useConnectionQuality();
   const formatPlate = (value) => {
@@ -32,7 +40,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
   const firstVehicle = vehicles.find((v) => v.isDefault) || vehicles[0];
   const [proposeForm, setProposeForm] = useState({
-    car: firstVehicle?.model || MOCK_CARS[0].model,
+    car: firstVehicle?.model || '',
     time: 5,
     price: 5,
     length: 5,
@@ -129,50 +137,55 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
         {/* Car */}
         <div>
           <label className="block text-sm font-medium text-gray-500 mb-2">{t('myCarLabel', 'My Car')}</label>
-          <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
-            <div className="flex space-x-3 snap-x snap-mandatory">
-              {vehicles.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
-                  className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition ${
-                    proposeForm.car === v.model
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-100 hover:border-gray-200'
-                  }`}
-                >
-                  <Car
-                    className={`mb-2 ${
-                      proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'
+          {vehicles.length > 0 ? (
+            <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+              <div className="flex space-x-3 snap-x snap-mandatory">
+                {vehicles.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
+                    className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition ${
+                      proposeForm.car === v.model
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-gray-100 hover:border-gray-200'
                     }`}
-                  />
-                  <p className="font-semibold text-sm">{v.model}</p>
-                  <p className="text-xs text-gray-400">{v.plate}</p>
-                </button>
-              ))}
-            {vehicles.length === 0 && (
-              MOCK_CARS.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setProposeForm({ ...proposeForm, car: c.model })}
-                  className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition ${
-                    proposeForm.car === c.model
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-100 hover:border-gray-200'
-                  }`}
-                >
-                  <Car
-                    className={`mb-2 ${
-                      proposeForm.car === c.model ? 'text-orange-500' : 'text-gray-400'
-                    }`}
-                  />
-                  <p className="font-semibold text-sm">{c.model}</p>
-                  <p className="text-xs text-gray-400">{c.plate}</p>
-                </button>
-              ))
-            )}
+                  >
+                    <Car
+                      className={`mb-2 ${
+                        proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'
+                      }`}
+                    />
+                    <p className="font-semibold text-sm">{v.model}</p>
+                    <p className="text-xs text-gray-400">{v.plate}</p>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+              <div className="flex space-x-3 snap-x snap-mandatory">
+                {MOCK_CARS.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onNudgeAddVehicle?.()}
+                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition border-gray-100 hover:border-gray-200 bg-white"
+                  >
+                    <span
+                      className="pointer-events-none absolute top-3 right-3 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-xs font-extrabold flex items-center justify-center shadow"
+                      aria-hidden="true"
+                    >
+                      ?
+                    </span>
+                    <Car className="mb-2 text-gray-300" />
+                    <p className="font-semibold text-sm text-gray-800">{c.model}</p>
+                    <p className="text-xs text-gray-400 tracking-widest font-mono">??-???-??</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Time */}
@@ -248,6 +261,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
       </div>
 
       <div className="mt-8 pb-8 pt-2">
+        {vehicles.length === 0 ? null : (
 	        <button
 	          type="button"
 	          disabled={publishing || !isOnline}
@@ -283,11 +297,15 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
 	            }
 	          }}
 	          className={`w-full py-4 rounded-xl font-bold shadow-lg transition text-lg flex items-center justify-center space-x-2 ${
-	            publishing || !isOnline ? 'opacity-80 cursor-not-allowed' : 'hover:scale-[1.01]'
+	            publishing || !isOnline
+	              ? 'opacity-80 cursor-not-allowed'
+	              : 'hover:scale-[1.01]'
 	          } ${
 	            !isOnline
 	              ? 'bg-gray-200 text-gray-500'
-	              : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+	              : vehicles.length === 0
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
 	          }`}
 	        >
 	          {!isOnline ? <WifiOff size={18} className="text-gray-500" /> : null}
@@ -299,6 +317,7 @@ const ProposeView = ({ myActiveSpot, onProposeSpot, onConfirmPlate, onCancelSpot
 	                : t('publishSpot', 'Publish Spot')}
 	          </span>
 	        </button>
+        )}
 	        {publishError ? (
 	          <p className="mt-3 text-sm font-semibold text-rose-600 text-center">{publishError}</p>
 	        ) : null}

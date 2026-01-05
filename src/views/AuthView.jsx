@@ -17,6 +17,7 @@ import {
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, auth, db } from '../firebase';
 import { useTranslation } from 'react-i18next';
+import { PHONE_COUNTRIES, formatPhoneInput, toE164Phone } from '../utils/phone';
 
 // --- CSS IN-JS pour l'animation de fond subtile (Mesh Gradient) ---
 const styles = `
@@ -58,6 +59,7 @@ const AuthView = ({ noticeMessage = '' }) => {
   // --- État du formulaire ---
   const [form, setForm] = useState({ email: '', password: '', name: '' });
   const [phoneForm, setPhoneForm] = useState({ phone: '', code: '' });
+  const [phoneCountry, setPhoneCountry] = useState('FR');
 
   // --- État de l'interface ---
   const [mode, setMode] = useState('login');
@@ -151,6 +153,7 @@ const AuthView = ({ noticeMessage = '' }) => {
     if (method !== 'email') setMethod('email');
     setConfirmationResult(null);
     setPhoneForm((prev) => ({ ...prev, phone: '', code: '' }));
+    setPhoneCountry('FR');
     clearRecaptcha();
   }, [mode]);
 
@@ -247,13 +250,8 @@ const AuthView = ({ noticeMessage = '' }) => {
       return;
     }
 
-    let phoneInput = phoneForm.phone.replace(/\s+/g, '');
-    if (!phoneInput.startsWith('+')) {
-      if (phoneInput.startsWith('0')) phoneInput = phoneInput.replace(/^0/, '+33');
-      else phoneInput = '+33' + phoneInput;
-    }
-
-    if (phoneInput.length < 8) {
+    const parsedPhone = toE164Phone(phoneForm.phone, phoneCountry);
+    if (!parsedPhone.e164) {
       setError(t('phoneFormatError', 'Numéro incorrect.'));
       return;
     }
@@ -261,7 +259,7 @@ const AuthView = ({ noticeMessage = '' }) => {
     setLoading(true);
     try {
       const verifier = setupRecaptcha();
-      const confirmation = await signInWithPhoneNumber(auth, phoneInput, verifier);
+      const confirmation = await signInWithPhoneNumber(auth, parsedPhone.e164, verifier);
       setConfirmationResult(confirmation);
       setInfo(t('phoneCodeSent', 'Code SMS envoyé.'));
     } catch (err) {
@@ -484,22 +482,39 @@ const AuthView = ({ noticeMessage = '' }) => {
             )}
 
             {/* PHONE FIELDS */}
-            {method === 'phone' && (
-              <div className="space-y-4 pt-2">
-                {!confirmationResult ? (
-                  <input
-                    type="tel"
-                    className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400 text-center tracking-widest"
-                    placeholder="06 12 34 56 78"
-                    value={phoneForm.phone}
-                    onChange={(e) => setPhoneForm({...phoneForm, phone: e.target.value})}
-                    required
-                  />
-                ) : (
-                  <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                     <div className="flex justify-between items-center px-1">
-                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Code de validation</span>
-                      <button type="button" onClick={() => setConfirmationResult(null)} className="text-xs text-orange-600 font-bold hover:underline">Modifier</button>
+	            {method === 'phone' && (
+	              <div className="space-y-4 pt-2">
+	                {!confirmationResult ? (
+	                  <div className="flex gap-2">
+	                    <select
+	                      className="h-12 px-3 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all"
+	                      value={phoneCountry}
+	                      onChange={(e) => {
+	                        const next = e.target.value;
+	                        setPhoneCountry(next);
+	                        setPhoneForm((prev) => ({ ...prev, phone: formatPhoneInput(prev.phone, next) }));
+	                      }}
+	                    >
+	                      {PHONE_COUNTRIES.map((c) => (
+	                        <option key={c.code} value={c.code}>
+	                          {c.flag} {c.callingCode}
+	                        </option>
+	                      ))}
+	                    </select>
+	                    <input
+	                      type="tel"
+	                      className="flex-1 h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400 text-center tracking-widest"
+	                      placeholder={phoneCountry === 'FR' ? '06 12 34 56 78' : ''}
+	                      value={phoneForm.phone}
+	                      onChange={(e) => setPhoneForm({ ...phoneForm, phone: formatPhoneInput(e.target.value, phoneCountry) })}
+	                      required
+	                    />
+	                  </div>
+	                ) : (
+	                  <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+	                     <div className="flex justify-between items-center px-1">
+	                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Code de validation</span>
+	                      <button type="button" onClick={() => setConfirmationResult(null)} className="text-xs text-orange-600 font-bold hover:underline">Modifier</button>
                     </div>
                     <input
                       type="tel"

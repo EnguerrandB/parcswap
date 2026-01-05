@@ -589,19 +589,31 @@ const AuthView = ({ noticeMessage = '' }) => {
 	          </div>
 
           {/* Footer Link */}
-	          {method === 'email' && (
-	            <p className={`mt-8 text-center text-xs ${isDark ? 'text-slate-300/70' : 'text-gray-500'}`}>
-	              <span className="block">{mode === 'login' ? "Pas encore de compte ?" : "Déjà membre ?"}</span>
-	              <button
-	                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-	                className={`mt-2 font-bold transition-colors ${
-	                  isDark ? 'text-slate-50 hover:text-orange-300' : 'text-gray-900 hover:text-orange-600'
-	                }`}
-	              >
-	                {mode === 'login' ? "Créer un compte" : "Se connecter"}
-	              </button>
-	            </p>
-	          )}
+          {method === 'email' && (
+            <div className="mt-8 text-center">
+              <div className={`text-xs ${isDark ? 'text-slate-300/70' : 'text-gray-500'}`}>
+                {mode === 'login' ? 'Pas encore de compte ?' : 'Déjà membre ?'}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                className={
+                  mode === 'login'
+                    ? `mt-3 w-full h-11 rounded-2xl font-bold text-sm text-white active:scale-[0.99] transition-all duration-200 ${
+                        isDark
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-[0_18px_55px_rgba(249,115,22,0.28)]'
+                          : 'bg-gradient-to-r from-orange-500 to-amber-400 shadow-lg shadow-orange-200'
+                      }`
+                    : `mt-2 font-bold text-sm transition-colors ${
+                        isDark ? 'text-slate-50 hover:text-orange-300' : 'text-gray-900 hover:text-orange-600'
+                      }`
+                }
+              >
+                {mode === 'login' ? 'Créer un compte' : 'Se connecter'}
+              </button>
+            </div>
+          )}
 
         </div>
 

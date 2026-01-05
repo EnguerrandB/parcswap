@@ -719,16 +719,6 @@ const ProfileView = ({
     }
     return chars.join('');
   };
-  const buildPlateRender = (slots) => {
-    const chars = PLATE_TEMPLATE.split('');
-    return chars.map((ch, pos) => {
-      const idx = slotIndexForPos(pos);
-      if (idx < 0) return { ch, className: 'text-gray-300' };
-      const v = slots[idx];
-      if (v) return { ch: v, className: 'text-gray-900' };
-      return { ch, className: 'text-gray-300' };
-    });
-  };
   const clampPlateCaret = (pos) => {
     const p = Math.max(0, Math.min(PLATE_TEMPLATE.length, Number(pos) || 0));
     if (p === 2) return 3;
@@ -756,6 +746,32 @@ const ProfileView = ({
     const isLetterPos = pos === 0 || pos === 1 || pos === 7 || pos === 8;
     if (isLetterPos) return /[A-Z]/.test(c) ? c : '';
     return /[0-9]/.test(c) ? c : '';
+  };
+  const clearPlateRange = (start, end) => {
+    const a = clampPlateCaret(start);
+    const b = clampPlateCaret(end);
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    setPlateSlots((prev) => {
+      const next = [...prev];
+      for (let pos = lo; pos <= hi; pos += 1) {
+        const idx = slotIndexForPos(pos);
+        if (idx >= 0) next[idx] = '';
+      }
+      return next;
+    });
+  };
+  const insertPlateCharAt = (pos, ch) => {
+    const p = clampPlateCaret(pos);
+    const idx = slotIndexForPos(p);
+    const coerced = coercePlateChar(p, ch);
+    if (idx < 0 || !coerced) return { nextPos: p };
+    setPlateSlots((prev) => {
+      const next = [...prev];
+      next[idx] = coerced;
+      return next;
+    });
+    return { nextPos: nextEditablePos(p) };
   };
 
   const ensureRecaptcha = () => {
@@ -1749,45 +1765,31 @@ const ProfileView = ({
 		                onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))}
 		              />
 		            </div>
-			            <div className="flex space-x-2">
-			              <div className="relative flex-1">
-			                {plateFocused || plateSlots.some(Boolean) ? (
-			                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-			                    <div className="text-sm uppercase tracking-widest font-mono">
-			                      {buildPlateRender(plateSlots).map((p, idx) => (
-			                        <span key={idx} className={p.className}>
-			                          {p.ch}
-			                        </span>
-			                      ))}
-			                    </div>
-			                  </div>
-			                ) : null}
-			                <input
-			                  type="text"
-			                  placeholder={plateFocused ? 'AB-123-CD' : t('platePlaceholderFull', 'Plate')}
-			                  className={`w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300 ${
-			                    plateFocused || plateSlots.some(Boolean)
-			                      ? 'text-transparent caret-gray-900 bg-white text-center uppercase tracking-widest font-mono'
-			                      : 'text-left normal-case tracking-normal font-sans'
-			                  }`}
-			                  inputMode={plateNextKind === 'digits' ? 'numeric' : 'text'}
-			                  pattern={plateNextKind === 'digits' ? '[0-9]*' : '[A-Za-z]*'}
-			                  autoCapitalize="characters"
-			                  value={plateFocused || plateSlots.some(Boolean) ? ' '.repeat(PLATE_TEMPLATE.length) : ''}
-			                  onFocus={(e) => {
-			                  setPlateFocused(true);
-			                  const start = clampPlateCaret(e.target.selectionStart ?? 0);
-			                  window.requestAnimationFrame(() => {
-			                    try {
-			                      e.target.setSelectionRange(start, start);
-			                    } catch (_) {}
-			                  });
-			                  }}
-			                  onBlur={() => setPlateFocused(false)}
-			                  onKeyDown={(e) => {
-			                  const el = e.currentTarget;
-			                  const selStart = typeof el.selectionStart === 'number' ? el.selectionStart : 0;
-			                  const caret = clampPlateCaret(selStart);
+				            <div className="flex space-x-2">
+				              <input
+				                type="text"
+				                placeholder={plateFocused ? 'AB-123-CD' : t('platePlaceholderFull', 'Plate')}
+				                className={`flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300 ${
+				                  plateFocused || plateSlots.some(Boolean) ? 'text-center uppercase tracking-widest font-mono' : 'text-left normal-case tracking-normal font-sans'
+				                }`}
+				                inputMode={plateNextKind === 'digits' ? 'numeric' : 'text'}
+				                pattern={plateNextKind === 'digits' ? '[0-9]*' : '[A-Za-z]*'}
+				                autoCapitalize="characters"
+				                value={plateFocused || plateSlots.some(Boolean) ? buildPlateDisplay(plateSlots) : ''}
+				                onFocus={(e) => {
+				                  setPlateFocused(true);
+				                  const start = clampPlateCaret(e.target.selectionStart ?? 0);
+				                  window.requestAnimationFrame(() => {
+				                    try {
+				                      e.target.setSelectionRange(start, start);
+				                    } catch (_) {}
+				                  });
+				                }}
+				                onBlur={() => setPlateFocused(false)}
+				                onKeyDown={(e) => {
+				                  const el = e.currentTarget;
+				                  const selStart = typeof el.selectionStart === 'number' ? el.selectionStart : 0;
+				                  const caret = clampPlateCaret(selStart);
 
 		                  if (e.key === 'ArrowLeft') {
 		                    e.preventDefault();
@@ -1857,32 +1859,31 @@ const ProfileView = ({
   });
 }
 		                  }
-			                  }}
-			                  onPaste={(e) => {
-			                  e.preventDefault();
-			                  const text = (e.clipboardData?.getData('text') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-			                  if (!text) return;
-			                  const chars = text.split('');
-			                  setPlateSlots((prev) => {
-		                    const next = [...prev];
-		                    let j = 0;
-		                    for (let i = 0; i < PLATE_EDIT_POSITIONS.length && j < chars.length; i += 1) {
-		                      const pos = PLATE_EDIT_POSITIONS[i];
-		                      const coerced = coercePlateChar(pos, chars[j]);
-		                      if (coerced) {
-		                        next[i] = coerced;
-		                        j += 1;
-		                      } else {
-		                        j += 1;
-		                        i -= 1;
-		                      }
-		                    }
-			                    return next;
-			                  });
-			                  }}
-			                />
-			              </div>
-			            </div>
+				                }}
+				                onPaste={(e) => {
+				                  e.preventDefault();
+				                  const text = (e.clipboardData?.getData('text') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+				                  if (!text) return;
+				                  const chars = text.split('');
+				                  setPlateSlots((prev) => {
+				                    const next = [...prev];
+				                    let j = 0;
+				                    for (let i = 0; i < PLATE_EDIT_POSITIONS.length && j < chars.length; i += 1) {
+				                      const pos = PLATE_EDIT_POSITIONS[i];
+				                      const coerced = coercePlateChar(pos, chars[j]);
+				                      if (coerced) {
+				                        next[i] = coerced;
+				                        j += 1;
+				                      } else {
+				                        j += 1;
+				                        i -= 1;
+				                      }
+				                    }
+				                    return next;
+				                  });
+				                }}
+				              />
+				            </div>
 		            <div className="flex space-x-2 items-center">
 		              <label className="w-full cursor-pointer">
 		                <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition">

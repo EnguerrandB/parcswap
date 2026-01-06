@@ -47,27 +47,6 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
     };
   }, []);
 
-  // Ensure keyframes exist globally so the animation always plays
-  React.useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const styleId = 'waiting-car-slide-keyframes';
-    if (document.getElementById(styleId)) return;
-    const styleEl = document.createElement('style');
-    styleEl.id = styleId;
-    styleEl.textContent = `
-      @keyframes waiting-car-slide {
-        0% { transform: translateX(-120vw); opacity: 0; }
-        8% { transform: translateX(-20%); opacity: 1; }
-        15% { transform: translateX(0); opacity: 1; }
-        55% { transform: translateX(0); opacity: 1; }
-        75% { transform: translateX(40%); opacity: 1; }
-        90% { transform: translateX(120vw); opacity: 0.9; }
-        100% { transform: translateX(160vw); opacity: 0; }
-      }
-    `;
-    document.head.appendChild(styleEl);
-  }, []);
-
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let letters1 = '';

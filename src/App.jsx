@@ -2223,7 +2223,11 @@ export default function ParkSwapApp() {
   if (initializing) {
   // 🔥 IMPORTANT : on attend Firebase avant d'afficher AuthView
   return (
-    <div className={`relative h-screen w-full ${theme === 'dark' ? 'app-surface' : 'bg-white'}`}>
+    <div
+      className={`relative h-screen w-full ${
+        theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'bg-white'
+      }`}
+    >
       <OrientationBlockedOverlay visible={orientationBlocked} />
     </div>
   );
@@ -2233,7 +2237,9 @@ export default function ParkSwapApp() {
     return (
       <div
         className={`relative h-screen w-full overflow-hidden flex items-center justify-center ${
-          theme === 'dark' ? 'app-surface' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+          theme === 'dark'
+            ? 'bg-[#0b1220] text-slate-100 app-surface'
+            : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
         }`}
       >
        <AuthView />
@@ -2254,44 +2260,48 @@ export default function ParkSwapApp() {
   return (
     <div
       className={`relative h-screen w-full font-sans overflow-hidden ${
-        theme === 'dark' ? 'app-surface' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+        theme === 'dark'
+          ? 'bg-[#0b1220] text-slate-100 app-surface'
+          : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
       }`}
     >
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       <OrientationBlockedOverlay visible={orientationBlocked} />
-     <div
-        className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
-          hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={handleMenuClick}
-          className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
-            theme === 'dark'
-              ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
-              : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+      {(activeTab === 'search' || menuNudgeActive) && (
+        <div
+          className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
+            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
           }`}
-          style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
-          aria-label={i18n.t('settings', 'Settings')}
-          title={i18n.t('settings', 'Settings')}
         >
-          {menuNudgeActive ? (
-            <>
-              <span
-                className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
-                aria-hidden="true"
-              />
-              <span
-                className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
-                aria-hidden="true"
-              />
-            </>
-          ) : null}
-          <Menu size={22} strokeWidth={2.5} />
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={handleMenuClick}
+            className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+              theme === 'dark'
+                ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+                : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+            }`}
+            style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+            aria-label={i18n.t('settings', 'Settings')}
+            title={i18n.t('settings', 'Settings')}
+          >
+            {menuNudgeActive ? (
+              <>
+                <span
+                  className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
+                  aria-hidden="true"
+                />
+                <span
+                  className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
+                  aria-hidden="true"
+                />
+              </>
+            ) : null}
+            <Menu size={22} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
 
 	{showAccountSheet && (
   <div className="fixed inset-0 z-[400] flex flex-col justify-end">
@@ -2445,8 +2455,8 @@ export default function ParkSwapApp() {
           </div>
         </div>
       )}
-      <div className="relative flex flex-col h-full">
-        <div className="flex-1 overflow-hidden relative">
+     <div className="relative flex flex-col h-full">
+        <div className={`flex-1 overflow-hidden relative ${theme === 'dark' ? 'bg-[#0b1220]' : ''}`}>
           <div key={activeTab} className={`absolute inset-0 ${tabSlideClass}`}>
             {renderTabContent(activeTab)}
           </div>
@@ -2456,6 +2466,8 @@ export default function ParkSwapApp() {
             activeTab={activeTab}
             setActiveTab={changeTab}
             waitingMode={activeTab === 'propose' && !!myActiveSpot}
+            canPublish={vehicles.length > 0}
+            onPublishDisabledPress={nudgeVehicleOnboarding}
             onCancelPress={() => {
               if (!myActiveSpot?.id) return;
               handleCancelSpot(myActiveSpot.id);

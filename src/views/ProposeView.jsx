@@ -1,6 +1,6 @@
 // src/views/ProposeView.jsx
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Car, Clock, Euro, WifiOff, Wifi } from 'lucide-react';
+import { Car, Clock, Euro, Ruler, WifiOff, Wifi } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MOCK_CARS } from '../constants';
 import WaitingView from './WaitingView';
@@ -163,10 +163,12 @@ const ProposeView = forwardRef(({
 
   return (
     <div
-      className="h-full flex flex-col bg-gray-50 px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
+      className="h-full flex flex-col bg-gray-50 px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto overflow-x-hidden relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
       style={{ touchAction: 'auto' }}
     >
-      <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">{t('leavingTitle', 'Leaving my spot')}</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center propose-title-slide">
+        {t('leavingTitle', 'Leaving my spot')}
+      </h2>
       {isOnline && isPoorConnection ? (
         <div className="mb-4">
           <div className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-sm backdrop-blur">
@@ -177,86 +179,87 @@ const ProposeView = forwardRef(({
       ) : null}
 
       <div className="space-y-6">
-        {/* Car */}
-        <div>
-          {vehicles.length > 0 ? (
-            vehicles.length === 1 ? (
-              <div className="w-full">
-                <div className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 shadow-sm backdrop-blur">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="bg-white p-2 rounded-lg border border-gray-100 shrink-0">
-                      <Car size={20} className="text-orange-500" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-2 min-w-0">
-                        <span className="font-semibold text-sm text-gray-900 truncate">
-                          {vehicles[0]?.model || t('unknown', 'Unknown')}
-                        </span>
-                        <span className="text-xs text-gray-500 font-mono tracking-widest truncate">
-                          {vehicles[0]?.plate || '—'}
-                        </span>
+        <div className="space-y-6">
+          {/* Car */}
+          <div>
+            {vehicles.length > 0 ? (
+              vehicles.length === 1 ? (
+                <div className="w-full">
+                  <div className="w-full flex items-center justify-between px-4 py-3 rounded-[2rem] border border-gray-100 bg-white/80 shadow-sm backdrop-blur">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="bg-white p-2 rounded-lg border border-gray-100 shrink-0">
+                        <Car size={20} className="text-orange-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <span className="font-semibold text-sm text-gray-900 truncate">
+                            {vehicles[0]?.model || t('unknown', 'Unknown')}
+                          </span>
+                          <span className="text-xs text-gray-500 font-mono tracking-widest truncate">
+                            {vehicles[0]?.plate || '—'}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
             ) : (
-              <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+              <div className="w-full overflow-x-auto no-scrollbar touch-pan-x">
                 <div className="flex space-x-3 snap-x snap-mandatory">
                   {vehicles.map((v) => (
                     <button
                       key={v.id}
                       type="button"
                       onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
-                      className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border text-left transition shadow-sm backdrop-blur ${
+                      className={`min-w-[190px] snap-start shrink-0 p-4 rounded-[2rem] border text-left transition shadow-sm backdrop-blur ${
                         proposeForm.car === v.model
                           ? 'border-orange-200 bg-orange-50/60 ring-1 ring-orange-200/40'
                           : 'border-gray-100 bg-white/80 hover:border-gray-200'
                       }`}
-                    >
-                      <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
-                        <Car
-                          size={20}
-                          className={`${proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'}`}
-                        />
-                      </div>
-                      <p className="font-semibold text-sm">{v.model}</p>
-                      <p className="text-xs text-gray-400">{v.plate}</p>
-                    </button>
-                  ))}
+                      >
+                        <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
+                          <Car
+                            size={20}
+                            className={`${proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'}`}
+                          />
+                        </div>
+                        <p className="font-semibold text-sm">{v.model}</p>
+                        <p className="text-xs text-gray-400">{v.plate}</p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
+              )
           ) : (
-            <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+            <div className="w-full overflow-x-auto no-scrollbar touch-pan-x">
               <div className="flex space-x-3 snap-x snap-mandatory">
                 {MOCK_CARS.map((c) => (
                   <button
                     key={c.id}
                     type="button"
                     onClick={() => onNudgeAddVehicle?.()}
-                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border text-left transition border-gray-100 hover:border-gray-200 bg-white/80 shadow-sm backdrop-blur"
+                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-[2rem] border text-left transition border-gray-100 hover:border-gray-200 bg-white/80 shadow-sm backdrop-blur"
                   >
-                    <span
-                      className="pointer-events-none absolute top-3 right-3 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-xs font-extrabold flex items-center justify-center shadow"
-                      aria-hidden="true"
-                    >
-                      ?
-                    </span>
-                    <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
-                      <Car size={20} className="text-gray-300" />
-                    </div>
-                    <p className="font-semibold text-sm text-gray-800">{c.model}</p>
-                    <p className="text-xs text-gray-400 tracking-widest font-mono">??-???-??</p>
-                  </button>
-                ))}
+                      <span
+                        className="pointer-events-none absolute top-3 right-3 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-xs font-extrabold flex items-center justify-center shadow"
+                        aria-hidden="true"
+                      >
+                        ?
+                      </span>
+                      <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
+                        <Car size={20} className="text-gray-300" />
+                      </div>
+                      <p className="font-semibold text-sm text-gray-800">{c.model}</p>
+                      <p className="text-xs text-gray-400 tracking-widest font-mono">??-???-??</p>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Time - Modern Apple-like Card */}
-        <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+          {/* Time - Modern Apple-like Card */}
+          <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
           
           {/* Header: Label & Value */}
           <div className="flex items-center justify-between mb-6">
@@ -322,6 +325,7 @@ const ProposeView = forwardRef(({
               30 min
             </div>
           </div>
+        </div>
         </div>
         
         {/* Price - Same logic/design as "Leaving in" */}
@@ -392,7 +396,7 @@ const ProposeView = forwardRef(({
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
-                <Car size={20} strokeWidth={2.5} />
+                <Ruler size={20} strokeWidth={2.5} />
               </div>
               <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
                 {t('spotLengthLabel', 'Length of the spot')}

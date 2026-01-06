@@ -1,5 +1,5 @@
 // src/components/BottomNav.jsx
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, HandCoins, Send, RotateCw, X } from 'lucide-react';
 
@@ -14,12 +14,43 @@ const HALO_BLUR_CLASS = 'blur-lg';
 
 // ==================================================================================
 
-const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = false, onCancelPress, onRenewPress }) => {
+const BottomNav = ({
+  activeTab,
+  setActiveTab,
+  onProposePress,
+  waitingMode = false,
+  onCancelPress,
+  onRenewPress,
+  canPublish = true,
+  onPublishDisabledPress,
+}) => {
   const { t } = useTranslation('common');
+  const [publishHintOpen, setPublishHintOpen] = useState(false);
+  const publishHintTimerRef = useRef(null);
   
   const activateTab = (tab) => {
     if (setActiveTab) setActiveTab(tab);
   };
+
+  const publishDisabled = activeTab === 'propose' && !waitingMode && !canPublish;
+  const shouldPulsePublish = activeTab === 'propose' && !waitingMode && !publishDisabled;
+
+  const showPublishHint = () => {
+    setPublishHintOpen(true);
+    if (publishHintTimerRef.current) window.clearTimeout(publishHintTimerRef.current);
+    publishHintTimerRef.current = window.setTimeout(() => setPublishHintOpen(false), 2400);
+  };
+
+  useEffect(() => {
+    if (!publishDisabled) setPublishHintOpen(false);
+  }, [publishDisabled]);
+
+  useEffect(() => {
+    return () => {
+      if (publishHintTimerRef.current) window.clearTimeout(publishHintTimerRef.current);
+      publishHintTimerRef.current = null;
+    };
+  }, []);
 
   return (
     <div
@@ -46,8 +77,11 @@ const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = fals
           <div
             className={`
               pointer-events-none absolute top-1.5 bottom-1.5 rounded-full 
-              bg-orange-500 
-              shadow-[0_2px_10px_rgba(249,115,22,0.3)]
+              ${
+                publishDisabled
+                  ? 'bg-gray-300/90 shadow-[0_2px_10px_rgba(15,23,42,0.12)]'
+                  : 'bg-orange-500 shadow-[0_2px_10px_rgba(249,115,22,0.3)]'
+              }
               transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]
               w-[calc(50%-9px)]
               ${activeTab === 'search' 
@@ -103,9 +137,23 @@ const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = fals
           {/* Bouton Proposer */}
           <button
             type="button"
-            onClick={() =>
-              waitingMode ? onRenewPress?.() : (onProposePress ? onProposePress() : activateTab('propose'))
-            }
+            onClick={() => {
+              if (waitingMode) {
+                onRenewPress?.();
+                return;
+              }
+              if (activeTab !== 'propose') {
+                activateTab('propose');
+                return;
+              }
+              if (publishDisabled) {
+                showPublishHint();
+                onPublishDisabledPress?.();
+                return;
+              }
+              if (onProposePress) onProposePress();
+              else activateTab('propose');
+            }}
             onContextMenu={(e) => e.preventDefault()}
             style={{ 
               touchAction: 'none', 
@@ -118,8 +166,31 @@ const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = fals
               flex-1 relative z-20 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
               outline-none focus:outline-none cursor-pointer
               ${activeTab === 'propose' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
+              ${publishDisabled ? 'opacity-60 cursor-not-allowed' : ''}
             `}
+            aria-disabled={publishDisabled ? 'true' : 'false'}
           >
+            {publishHintOpen && publishDisabled ? (
+              <div className="absolute -top-[64px] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+                <div className="relative rounded-2xl border border-white/60 bg-white/90 backdrop-blur-xl px-3 py-2 shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
+                  <span
+                    className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-2.5 w-2.5 rotate-45 bg-white/90 border-b border-r border-white/60"
+                    aria-hidden="true"
+                  />
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-5 w-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-[11px] font-extrabold flex items-center justify-center shadow"
+                      aria-hidden="true"
+                    >
+                      ?
+                    </span>
+                    <span className="text-[12px] font-semibold text-slate-800 whitespace-nowrap">
+                      {t('publishNeedVehicle', 'Ajoute un véhicule pour publier')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {waitingMode ? (
               <RotateCw
                 size={20}
@@ -127,11 +198,15 @@ const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = fals
                 className={`transition-transform duration-300 ${activeTab === 'propose' ? 'scale-105' : 'scale-100'}`}
               />
             ) : activeTab === 'propose' ? (
-              <Send size={20} strokeWidth={2.5} className="transition-transform duration-300 scale-105" />
+              <Send
+                size={20}
+                strokeWidth={2.5}
+                className={`transition-transform duration-300 scale-105 ${shouldPulsePublish ? 'publish-pulse' : ''}`}
+              />
             ) : (
               <HandCoins size={20} strokeWidth={2.5} className="transition-transform duration-300 scale-100" />
             )}
-            <span className="text-sm font-semibold tracking-wide pointer-events-none">
+            <span className={`text-sm font-semibold tracking-wide pointer-events-none ${shouldPulsePublish ? 'publish-pulse' : ''}`}>
               {waitingMode ? t('renew', 'Renew') : activeTab === 'propose' ? t('publish', 'Publish') : t('tabPropose', 'Proposer')}
             </span>
           </button>

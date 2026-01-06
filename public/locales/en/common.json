@@ -187,6 +187,7 @@
   "transactionsLabel": "Transactions",
   "rankMinTransactions": "Minimum {{count}} transactions",
   "unknown": "Unknown",
+  "me": "Me",
   "noLeaderboard": "No leaderboard data yet.",
   "transactionHistory": "Transaction History",
   "noTransactions": "No transactions yet.",

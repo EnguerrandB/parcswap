@@ -1,6 +1,8 @@
 // src/views/ProfileView.jsx
+import { X, Share, ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2 } from 'lucide-react'; // Assurez-vous d'importer ces icônes
 import React, { useState, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
+import { X, FileText, ShieldCheck } from 'lucide-react'; // Assurez-vous d'avoir les icônes
 import {
   Calendar,
   Camera,
@@ -2124,78 +2126,149 @@ const ProfileView = ({
       )}
 
       {showHistory && (
-        <div
-          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
-            closingHistory ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
-          }`}
-          onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
-        >
-          <div
-            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative ${
-              closingHistory ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-	          >
-	            <div className="flex items-center space-x-2 mb-4">
-	              <div className="bg-white p-2 rounded-lg border border-gray-100">
-	                <History size={20} style={iconStyle('history')} />
-	              </div>
-              <h3 className="text-xl font-bold text-gray-900">{t('transactionHistory', 'Transaction History')}</h3>
-            </div>
-            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-              {transactions.length === 0 && (
-                <p className="text-sm text-gray-400">{t('noTransactions', 'No transactions yet.')}</p>
-              )}
-              {transactions.map((tx) => {
-                const replaceUserName = (value) => {
-                  if (!value) return value;
-                  const name = user?.displayName;
-                  if (!name) return value;
-                  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                  return value.replace(new RegExp(escaped, 'gi'), 'Me');
-                };
-                const title = replaceUserName(tx.title || t('transactionHistory', 'Transaction'));
-                return (
-                  <div
-                    key={tx.id}
-                    className="border border-gray-100 rounded-xl px-3 py-2 flex items-center justify-between"
-                  >
-                    <div className="pr-2">
-                      <p className="font-semibold text-gray-900">{title}</p>
-                      <p className="text-xs text-gray-500">
-                        {tx.createdAt?.toDate
-                          ? tx.createdAt.toDate().toLocaleString()
-                          : tx.createdAt?.toString?.() || ''}
-                      </p>
-                    </div>
-                    <div className="text-right flex flex-col items-end space-y-1">
-                      <p className="text-sm font-bold text-gray-900">
-                        {tx.amount != null ? `${tx.amount} €` : ''}
-                      </p>
-                      <p className="text-xs text-gray-500 capitalize">{tx.status || t('completed', 'completed')}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const body = `${title} - ${tx.amount != null ? `${tx.amount} €` : ''} - ${tx.status || ''}`;
-                          if (navigator.share) {
-                            navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
-                          } else if (navigator.clipboard?.writeText) {
-                            navigator.clipboard.writeText(body).catch(() => {});
-                            alert(t('copiedTx', 'Transaction copied to clipboard'));
-                          }
-                        }}
-                        className="text-[11px] text-orange-600 underline"
-                      >
-                        {t('share', 'Share')}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+  <div
+    className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
+      closingHistory ? 'bg-black/0' : 'bg-black/30 backdrop-blur-sm'
+    }`}
+    onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
+  >
+    <div
+      className={`
+        bg-white/90 backdrop-blur-xl border border-white/20 
+        rounded-3xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]
+        ${closingHistory ? 'animate-[modalOut_0.2s_ease_forwards] scale-95 opacity-0' : 'animate-[modalIn_0.3s_ease-out] scale-100 opacity-100'}
+      `}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* HEADER */}
+      <div className="flex items-center justify-between p-6 pb-3">
+        <div className="flex items-center space-x-3">
+          <div className="bg-white p-2 rounded-lg border border-gray-100">
+            <History size={20} style={iconStyle('history')} />
           </div>
+          <span className="text-base font-medium text-gray-900">
+            {t('historyTitle', { defaultValue: 'Historique' })}
+          </span>
         </div>
-      )}
+        <button 
+          onClick={() => closeWithAnim(setClosingHistory, setShowHistory)}
+          className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors text-gray-500"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* LISTE */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar">
+        {transactions.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-48 text-gray-400 space-y-2">
+            <Clock size={48} className="opacity-20" />
+            <p className="text-sm font-medium">{t('noTransactions', 'Aucune transaction.')}</p>
+          </div>
+        )}
+
+        {transactions.map((tx, index) => {
+          const meLabel = t('me', 'Moi');
+          const meName = String(user?.displayName || '').trim();
+          const hostName = String(tx.hostName || '').trim();
+          const bookerName = String(tx.bookerName || '').trim();
+          
+          const isMeHost = hostName && hostName.toLowerCase() === meName.toLowerCase();
+          const isMeBooker = bookerName && bookerName.toLowerCase() === meName.toLowerCase();
+
+          // Logique d'affichage "Intelligent"
+          let displayTitle = t('unknown', 'Inconnu');
+          let displaySubtitle = '';
+          let isIncoming = false; // Pour la couleur/icône
+
+          if (isMeHost) {
+             displayTitle = bookerName || t('unknown', 'Inconnu');
+             displaySubtitle = t('receivedFrom', 'Reçu de');
+             isIncoming = true;
+          } else if (isMeBooker) {
+             displayTitle = hostName || t('unknown', 'Inconnu');
+             displaySubtitle = t('sentTo', 'Envoyé à');
+             isIncoming = false;
+          } else {
+             // Cas fallback (historique brut)
+             displayTitle = `${bookerName} ➜ ${hostName}`;
+          }
+
+	          return (
+	            <div
+	              key={tx.id}
+	              className="group flex items-center justify-between p-3 rounded-2xl transition-colors cursor-default hover:bg-orange-400/10 active:bg-orange-400/10 focus-within:bg-orange-400/10"
+	            >
+	              <div className="flex items-center space-x-4">
+	                {/* ICONE AVATAR / STATUS */}
+	                <div
+	                  className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ring-1 ring-inset ${
+	                    isIncoming
+	                      ? 'bg-orange-500/15 text-orange-600 ring-orange-500/20'
+	                      : 'bg-gray-900/5 text-gray-900 ring-gray-900/10'
+	                  }`}
+	                >
+	                  {isIncoming ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
+	                </div>
+
+                {/* INFO GAUCHE */}
+                <div className="flex flex-col">
+                  <span className="text-base font-semibold text-gray-900 leading-tight">
+                    {displayTitle}
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    {tx.createdAt?.toDate
+                      ? tx.createdAt.toDate().toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })
+                      : tx.createdAt?.toString?.() || ''}
+                  </span>
+                </div>
+              </div>
+
+	              {/* INFO DROITE */}
+	              <div className="flex flex-col items-end space-y-0.5">
+	                 <span
+	                   className={`text-base font-bold tracking-tight tabular-nums ${
+	                     isIncoming ? 'text-orange-600' : 'text-gray-900'
+	                   }`}
+	                 >
+	                    {isIncoming ? '+' : ''}{tx.amount != null ? `${tx.amount} €` : ''}
+	                 </span>
+                 
+                 <div className="flex items-center space-x-2">
+                    {/* Status Badge */}
+                    {tx.status === 'completed' ? (
+                       <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
+                         {tx.status}
+                       </span>
+                    ) : (
+                       <span className="text-[10px] text-gray-400 capitalize">{tx.status}</span>
+                    )}
+
+                    {/* Bouton Share Discret */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const body = `ParkSwap: ${displayTitle} - ${tx.amount}€`;
+                        if (navigator.share) {
+                          navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
+                        } else {
+                          navigator.clipboard.writeText(body);
+                          // Idéalement un petit toast ici
+                        }
+	                      }}
+	                      className="text-gray-300 hover:text-orange-600 transition-colors p-1"
+	                    >
+	                      <Share size={14} />
+	                    </button>
+	                 </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </div>
+)}
 
       {showRankInfo && (
         <div

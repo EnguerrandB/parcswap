@@ -187,6 +187,7 @@
   "transactionsLabel": "Transactions",
   "rankMinTransactions": "Au moins {{count}} transactions",
   "unknown": "Inconnu",
+  "me": "Moi",
   "noLeaderboard": "Pas encore de données de classement.",
   "transactionHistory": "Historique des transactions",
   "noTransactions": "Aucune transaction pour le moment.",

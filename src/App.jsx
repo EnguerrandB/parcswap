@@ -346,9 +346,10 @@ export default function ParkSwapApp() {
 	  const upsertTransaction = async ({ spot, userId, status, role }) => {
 	    if (!spot || !userId) return;
 	    const txId = `${spot.id}-${userId}`;
-	    const titleHost = spot.bookerName ? `${spot.bookerName} ➜ ${spot.hostName || 'Host'}` : spot.hostName || 'Swap';
-	    const titleBooker = spot.hostName ? `${spot.hostName} ➜ You` : 'Swap';
-	    const title = role === 'host' ? titleHost : titleBooker;
+	    const title =
+	      spot.hostName && spot.bookerName
+	        ? `${spot.bookerName} ➜ ${spot.hostName}`
+	        : spot.hostName || spot.bookerName || 'Swap';
 	    const amount = Number(spot.price || 0);
 	    const txDoc = doc(db, 'artifacts', appId, 'public', 'data', 'transactions', txId);
 	    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', userId);

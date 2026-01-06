@@ -2,7 +2,7 @@
 import { X, Share, ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2 } from 'lucide-react'; // Assurez-vous d'importer ces icônes
 import React, { useState, useEffect, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { X, FileText, ShieldCheck } from 'lucide-react'; // Assurez-vous d'avoir les icônes
+import { FileText, ShieldCheck } from 'lucide-react'; // Assurez-vous d'avoir les icônes
 import {
   Calendar,
   Camera,
@@ -26,7 +26,6 @@ import {
   Trophy,
   Laptop,
   Smartphone,
-  FileText,
   Sun,
   Moon,
   Globe,
@@ -36,6 +35,8 @@ import { PhoneAuthProvider, RecaptchaVerifier, updatePhoneNumber } from 'firebas
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, appId, db } from '../firebase';
 import { PHONE_COUNTRIES, formatPhoneForDisplay, formatPhoneInput, guessPhoneCountry, toE164Phone } from '../utils/phone';
+import { PRIVACY_POLICY_TEXT } from '../legal/privacyPolicyText';
+import { TERMS_AND_CONDITIONS_TEXT } from '../legal/termsAndConditionsText';
 
 const ProfileView = ({
   user,
@@ -56,6 +57,13 @@ const ProfileView = ({
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
+  const legalLocale = String(i18n.language || 'en')
+    .toLowerCase()
+    .startsWith('fr')
+    ? 'fr'
+    : 'en';
+  const privacyPolicyText = PRIVACY_POLICY_TEXT[legalLocale] || PRIVACY_POLICY_TEXT.en || '';
+  const termsAndConditionsText = TERMS_AND_CONDITIONS_TEXT[legalLocale] || TERMS_AND_CONDITIONS_TEXT.en || '';
 	  const iconColors = {
 	    rank: '#f97316',
 	    profile: '#ec4899',
@@ -1263,82 +1271,85 @@ const ProfileView = ({
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowLegal((s) => !s)}
-            className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark
-                ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800'
-                : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <FileText size={20} style={iconStyle('legal')} />
-              </div>
-              <span className={`font-semibold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
-                {t('legalAndContact', 'Legal & Contact')}
-              </span>
-            </div>
-            <ArrowRight
-              size={16}
-              className={`${isDark ? 'text-slate-500' : 'text-gray-300'} transition-transform ${
-                showLegal ? 'rotate-90' : 'rotate-0'
-              }`}
-            />
-          </button>
-          {showLegal && (
-            <div
-              className={`px-4 pb-4 pt-2 grid grid-cols-3 gap-2 text-sm ${
-                isDark ? 'bg-slate-800/80' : 'bg-gray-50'
-              } animate-[accordionDown_0.25s_ease]`}
-              style={{ '--accordion-height': 'auto' }}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  collapseLegal();
-                  setShowTerms(true);
-                }}
-                className={`w-full font-semibold py-2 rounded-xl border transition ${
-                  isDark
-                    ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
-                    : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {t('terms', 'Terms')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  collapseLegal();
-                  setShowPrivacy(true);
-                }}
-                className={`w-full font-semibold py-2 rounded-xl border transition ${
-                  isDark
-                    ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
-                    : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {t('privacy', 'Privacy')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  collapseLegal();
-                  window.location.assign('mailto:enguerrand.boitel@gmail.com');
-                }}
-                className={`w-full font-semibold py-2 rounded-xl border transition ${
-                  isDark
-                    ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
-                    : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {t('contactUs', 'Contact')}
-              </button>
-            </div>
-          )}
-        </div>
+	          <div className="w-full">
+	            <button
+	              type="button"
+	              onClick={() => setShowLegal((s) => !s)}
+	              className={`w-full p-4 flex items-center justify-between text-left transition ${
+	                isDark
+	                  ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800'
+	                  : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
+	              }`}
+	            >
+	              <div className="flex items-center space-x-3">
+	                <div className="bg-white p-2 rounded-lg border border-gray-100">
+	                  <FileText size={20} style={iconStyle('legal')} />
+	                </div>
+	                <span className={`font-semibold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
+	                  {t('legalAndContact', 'Legal & Contact')}
+	                </span>
+	              </div>
+	              <ArrowRight
+	                size={16}
+	                className={`${isDark ? 'text-slate-500' : 'text-gray-300'} transition-transform ${
+	                  showLegal ? 'rotate-90' : 'rotate-0'
+	                }`}
+	              />
+	            </button>
+	            <div
+	              className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+	                showLegal ? 'max-h-40 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-1 pointer-events-none'
+	              }`}
+		            >
+		              <div className="px-4 pb-4 pt-2">
+		                <div className="grid grid-cols-3 items-center justify-items-center gap-2 w-full text-sm">
+		                <button
+		                  type="button"
+		                  onClick={() => {
+		                    collapseLegal();
+		                    setShowTerms(true);
+	                  }}
+	                  className={`px-4 font-semibold py-2 rounded-xl border transition ${
+	                    isDark
+	                      ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
+	                      : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+	                  }`}
+	                >
+	                  {t('terms', 'Terms')}
+	                </button>
+	                <button
+	                  type="button"
+	                  onClick={() => {
+	                    collapseLegal();
+	                    setShowPrivacy(true);
+	                  }}
+	                  className={`px-4 font-semibold py-2 rounded-xl border transition ${
+	                    isDark
+	                      ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
+	                      : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+	                  }`}
+	                >
+	                  {t('privacy', 'Privacy')}
+	                </button>
+	                <button
+	                  type="button"
+	                  onClick={() => {
+	                    collapseLegal();
+	                    window.location.assign('mailto:enguerrand.boitel@gmail.com');
+	                  }}
+	                  className={`px-4 font-semibold py-2 rounded-xl border transition ${
+	                    isDark
+	                      ? 'bg-slate-900 text-slate-100 border-slate-700 hover:border-slate-600 hover:bg-slate-800'
+	                      : 'bg-white text-gray-800 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+	                  }`}
+		                >
+		                  {t('contactUs', 'Contact')}
+		                </button>
+		                </div>
+		              </div>
+		            </div>
+		          </div>
+	        </div>
 
       </div>
 
@@ -2302,227 +2313,131 @@ const ProfileView = ({
 		        </div>
 		      )}
 
-      {showPrivacy && (
-        <div
-          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
-            closingPrivacy ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
-          }`}
-          onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
-        >
-          <div
-            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto ${
-              closingPrivacy ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
-              setPrivacyCloseVisible(!atBottom);
-            }}
-		          >
-		            <div className="flex items-center space-x-2 mb-4">
-		              <div className="bg-white p-2 rounded-lg border border-gray-100">
-		                <FileText size={20} style={iconStyle('legal')} />
-		              </div>
-		              <h3 className="text-xl font-bold text-gray-900">{t('privacy', 'Privacy Policy')}</h3>
-		            </div>
-		            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
-	              {t(
-                'privacyBody',
-                `Privacy Policy
-
-Thank you for using LoulouPark!
-
-At LoulouPark, we are committed to respecting your privacy. We wrote this policy to help you understand how we collect, use, and share information that we collect through the LoulouPark mobile applications. Because we're an internet company, some of the concepts below are a little technical, but we've tried our best to explain things simply and transparently. If you have any questions about our privacy policy, please let us know.
-
-What information we collect
-You may be asked to provide personal information anytime you interact with us or one of our affiliates, such as when you use one of our mobile apps. The types of information we collect such as:
-
-1 - When you give it to us or give us permission to obtain it.
-When you sign up for or use LoulouPark, you voluntarily share certain information including your name, telephone number, email address, payment card information, vehicle information, and any other information you give us.
-
-2 - When a third-party gives it to us.
-We may collect your information when a third-party provides your information to us to use our services such as login or signup using third party to set up your account
-
-· Internet or other electronic network activity information, such as information about your interactions with our Services. This includes information about the content you view, the time you spend viewing the content, and the features you access on the Services that we collect using cookies, pixels, and other technologies;
-· Identifiers, such as your Internet Protocol (IP) address, device identifiers (including the manufacturer and model), and Media Access Control (MAC) address;
-· Geo-location data;
-· Standard server log data, such as your application version number, Device type, screen resolution, operating system, browser type and version, and the date and time of your visit.
-We may also aggregate or de-identify the information described above. Aggregated or de-identified data is not subject to this policy.
-
-How we use your information
-We collect and use your information so that we can operate effectively and provide you with the best experience. We also use the information we collect for the following purposes:
-
-· Fulfillment of parking transactions and other purchases, such as completing your parking transaction; and communicating with you about and keeping proper records of those transactions;
-· Customer support, such as notifying you of any changes to our services; responding to your inquiries via email, phone, writing, or social media; investigating and addressing concerns raised by you; and monitoring and improving our customer support responses;
-· Improving our services, such as conducting data analysis and audits; developing new products and services; enhancing our websites and mobile apps improving our services; identifying usage trends and visiting patterns; conducting customer satisfaction, market research, and quality assurance surveys; determining the effectiveness of our promotions; meeting contractual obligations;
-· Marketing and promotions, such as sending you emails and messages about news and new promotions, features, products and services, and content; providing you with relevant advertising on and off our services; and administering your participation in contests, sweepstakes and promotions; and
-· Legal proceedings and requirements, such as investigating or addressing claims or disputes relating to your use of our services; or as otherwise allowed by applicable law; or as requested by regulators, government entities, and official inquiries.
-
-How and when we share your information
-
-We do not sell your name or other personal information to third parties.
-We may share the information we collect with:
-
-1 - Our wholly-owned subsidiaries and affiliates
-We share information within the LoulouPark group of companies to help us provide our services or conduct data processing on our behalf. If we were to engage in a merger, acquisition, bankruptcy, dissolution, reorganization, or similar transaction or proceeding that involves the transfer of the information described in this policy, we would share your information with a party involved in such a process (for example, a potential purchaser).
-
-2 - Third-party companies, service providers or business partners
-We rely on third parties to perform a number of contractual services on our behalf. To do so, we may need to share your information with them. For example, we may rely on service providers to enable functionality on our Services, to provide you with relevant content (including advertisements), to process your payments, and for other business purposes.
-
-3 - Law enforcement agencies or government agencies
-We may share information with law enforcement agencies and/or the judicial system to confirm or dispute a traffic citation issued to you.
-
-4 - Your consent
-We may share your information other than as described in this policy if we notify you, and you agree.
-
-5 - Other services
-We may share your information with third-parties to enable you to sign up for or log in to LoulouPark, or when you decide to link your LoulouPark account to those services.
-
-Where we store your information
-We process and store personal information inside and outside of France, including in countries that have privacy protections that may be less stringent than your jurisdiction.
-
-How we secure your information
-Although we take steps to safeguard personal information, no practices are 100% secure, and we do not guarantee the security of your information.
-
-How we use cookies
-We, along with our partners, use various technologies to collect and store information when you visit one of our services, and this may include using cookies or similar technologies to identify your browser or device. We also use these technologies to collect and store information when you interact with services from our partners, such as advertising services.
-The technologies we use for this automatic data collection may include:
-
-· Cookies. A cookie is a small file placed on the hard drive of your computer. We use cookies to store information, such as your login credentials and website preferences, so that we can remember certain choices you’ve made Cookies can also be used to recognize your device so that you do not have to provide the same information more than once.
-
-· Mobile device identifiers and SDKs. The SDK is a bit of computer code that app developers can include in their apps to enable ads to be shown, data to be collected and related services or analytics to be performed.
-
-· Other technologies. There are other local storage and Internet technologies, such as local shared objects (also referred to as “Flash cookies”) and HTML5 local storage that operate similarly to the technologies discussed above.
-
-Children's data
-Children under 16 are not allowed to use our services. If we learn we have collected or received personal information from a child under 16 without verification of parental consent, we will delete that information. If you believe we might have any information from or about a child under 16, please contact us at enguerrand.boitel@gmail.com.
-
-How we make changes to this policy
-We may change this policy from time to time, and if we do, we’ll post any changes on this page. If you continue to use LoulouPark after those changes are in effect, you agree to the new policy. If the changes are significant, we may provide a more prominent notice or get your consent, as required by law.
-
-Contact us
-If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at enguerrand.boitel@gmail.com.`,
-              )}
-            </p>
-            <div className="sticky bottom-0 left-0 right-0 pt-4 mt-6 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setShowPrivacy(false)}
-                className={`mx-auto flex items-center justify-center w-12 h-12 bg-orange-500 text-white text-xl font-bold rounded-full shadow-[0_12px_24px_-12px_rgba(255,132,0,0.55)] hover:bg-orange-600 transition transform-gpu ${
-                  privacyCloseVisible
-                    ? 'animate-[slideUpFade_0.3s_ease]'
-                    : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
-                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
+	      {showPrivacy && (
+	        <div
+	          className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
+	            closingPrivacy ? 'bg-black/0' : 'bg-black/30 backdrop-blur-sm'
+	          }`}
+	          onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
+	        >
+	          <div
+	            className={`
+	              ${isDark ? 'bg-slate-900/90 border-slate-700/30' : 'bg-white/95 border-white/20'}
+	              backdrop-blur-xl border shadow-2xl rounded-3xl w-full max-w-lg 
+	              flex flex-col max-h-[85vh] overflow-hidden
+	              ${closingPrivacy ? 'animate-[modalOut_0.2s_ease_forwards] scale-95 opacity-0' : 'animate-[modalIn_0.3s_ease-out] scale-100 opacity-100'}
+	            `}
+	            onClick={(e) => e.stopPropagation()}
+	          >
+	            {/* HEADER FIXE : Titre + Croix de fermeture */}
+	            <div
+	              className={`flex items-center justify-between px-6 py-4 border-b backdrop-blur-md z-10 shrink-0 ${
+	                isDark ? 'border-slate-800 bg-slate-900/40' : 'border-gray-100 bg-white/50'
+	              }`}
+	            >
+	              <div className="flex items-center space-x-3">
+	                <div className={`p-2 rounded-full ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-gray-100 text-gray-600'}`}>
+	                  <ShieldCheck size={20} />
+	                </div>
+	                <h3 className={`text-lg font-bold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
+	                  {t('privacy', 'Privacy Policy')}
+	                </h3>
+	              </div>
+	              <button
+	                onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
+	                className={`p-2 rounded-full transition-colors ${
+	                  isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
+	                }`}
 	              >
-	                <ChevronDown size={22} strokeWidth={3} />
+	                <X size={20} />
 	              </button>
+	            </div>
+	
+	            {/* CONTENU SCROLLABLE */}
+	            <div className="overflow-y-auto p-6 no-scrollbar grow">
+	              <p className={`text-sm leading-relaxed whitespace-pre-wrap font-normal ${isDark ? 'text-slate-200' : 'text-gray-600'}`}>
+	                {privacyPolicyText}
+	              </p>
+	              
+	              {/* Gros bouton de fermeture en bas (remplace la flèche) */}
+	              <div className={`mt-8 pt-6 border-t flex justify-center ${isDark ? 'border-slate-800' : 'border-gray-100'}`}>
+	                <button
+	                  type="button"
+	                  onClick={() => closeWithAnim(setClosingPrivacy, setShowPrivacy)}
+	                  className={`w-full text-white font-semibold py-3.5 px-6 rounded-2xl active:scale-95 transition-all shadow-lg ${
+	                    isDark ? 'bg-orange-600 hover:bg-orange-700' : 'bg-gray-900 hover:bg-gray-800'
+	                  }`}
+	                >
+	                  {t('close', 'Fermer')}
+	                </button>
+	              </div>
 	            </div>
 	          </div>
 	        </div>
-      )}
+	      )}
 
-      {showTerms && (
-        <div
-          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
-            closingTerms ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
-          }`}
-          onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
-        >
-          <div
-            className={`bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative max-h-[80vh] overflow-y-auto ${
-              closingTerms ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 12;
-              setTermsCloseVisible(!atBottom);
-            }}
-		          >
-		            <div className="flex items-center space-x-2 mb-4">
-		              <div className="bg-white p-2 rounded-lg border border-gray-100">
-		                <FileText size={20} style={iconStyle('legal')} />
-		              </div>
-		              <h3 className="text-xl font-bold text-gray-900">{t('terms', 'Terms & Conditions')}</h3>
-		            </div>
-		            <p className="text-sm text-gray-600 leading-relaxed space-y-2 whitespace-pre-line">
-	              {t(
-                'termsBody',
-                `Terms and Conditions
-
-By using our Services, you are agreeing to these terms and our Privacy Policy. Please read them carefully.
-
-We offer a variety of Services so sometimes additional terms may apply. Additional terms will be available with the relevant Services, and those additional terms will also become part of your agreement with us, if you use those Services.
-
-These terms and conditions also apply to all parties with whom LoulouPark has entered or will enter an End User License Agreement (EULA). To the extent that a provision of the service conflicts with either (or both) the EULA or Privacy Policy, the EULA shall be deemed to control the relationship between the parties as to that provision. HOWEVER, IN NO CASE SHALL LOULOUPARK BE DEEMED TO WAIVE ANY RIGHT OR PROTECTION TO WHICH IT IS ENTITLED UNDER THE LAWS OF FRANCE OR INTERNATIONAL CONVENTIONS RELATING TO LOULOUPARK INTELLECTUAL PROPERTY RIGHTS.
-
-Changes to the Terms
-We may modify these terms or any additional terms that apply to a Service to, for example, reflect changes to the law or changes to our Services. You should look at the terms regularly. We'll post notice of modifications to these terms on this page. We'll post notice of modified additional terms in the applicable Service. Changes will not apply retroactively after they are posted. However, changes addressing new functions for a Service or changes made for legal reasons will be effective immediately. If you do not agree to the modified terms for a Service, you should discontinue your use of that Service.
-
-Using our Services
-You may use our Services only if you can legally form a binding contract with us, and only in accordance with these terms and all applicable laws. You can't use our Services if it would be prohibited by applicable sanctions. Any use or access by anyone under the age of 16 is not allowed. Using LoulouPark may include downloading an app to your phone, or other device. You agree that we may automatically update that software, and these terms will apply to any updates.
-We are a technology company based in Paris. We do not own, operate, or maintain any parking facility, and we do not provide parking enforcement services. Parking facilities are operated by users. Parking restrictions (i.e. no parking signs) take precedence over any information that you receive from us. All applicable parking rules and regulations apply to you, and your use of the Services does not excuse you from following the rules.
-
-Network Access and Devices
-You are responsible for obtaining the data network access necessary to use the Services. Your mobile network's data and messaging rates and fees may apply if you access or use the Services from your device. You are responsible for acquiring and updating compatible hardware or devices necessary to access and use the Services and any updates. We do not guarantee that the Services will function on any particular hardware or devices. In addition, the Services may be subject to malfunctions and delays inherent in the use of the internet and electronic communications.
-
-Payment
-You understand that use of the Services may result in charges to you for the services you receive ("Charges"). We will receive and/or enable your payment of the applicable Charges for services obtained through your use of the Services. Charges will be inclusive of applicable taxes where required by law. Charges may include other applicable fees or processing fees.
-All Charges and payments will be enabled by LoulouPark using the preferred payment method designated by you in your account, after which you can see transaction. If your primary account payment method is determined to be expired, invalid or otherwise not able to be charged, you agree that we may use a secondary payment method in your account, if available. Charges paid by you are final and non-refundable, unless otherwise determined by LoulouPark.
-
-As between you and LoulouPark, LoulouPark reserves the right to establish, remove and/or revise Charges for any or all services obtained through the use of the Services at any time in our sole discretion. We will use reasonable efforts to inform you of Charges that may apply, provided that you will be responsible for Charges incurred under your account regardless of your awareness of such Charges or the amounts thereof, and shall have no bearing on your use of the Services or the Charges applied to you.
-In certain cases, with respect to third party providers, Charges you incur will be owed directly to third party providers, and LoulouPark will collect payment of those charges from you, on the third party provider's behalf as their limited payment collection agent, and payment of the Charges shall be considered the same as payment made directly by you to the third party provider.
-
-Sweepstakes and Other Promotions
-In addition to these terms, sweepstakes, contests or other promotions (collectively, "Promotions") made available through the Services may have specific rules that are different from these terms. By participating in a Promotion, you will become subject to those rules. We urge you to review the rules before you participate in a Promotion. Promotion rules will control over any conflict with these terms.
-
-Intellectual Property
-We reserve all of our intellectual property rights in the Services. Trademarks and logos used in connection with the Services are the trademarks of their respective owners. LoulouPark trademarks, service marks, graphics and logos used for our Services are trademarks or registered trademarks of LoulouPark.
-
-Licence
-If you have entered an End User License Agreement (EULA) with LoulouPark, your EULA may provide you with greater rights and license as defined by that EULA. Otherwise, you acquire absolutely no rights or licenses in or to the Service and materials contained within the Service other than the limited right to utilize the Service in accordance with the Terms. Should you choose to download content from the Service, you must do so in accordance with the Terms of service. Such download is licensed to you by LoulouPark ONLY for your own personal use in accordance with the Terms of service and does not transfer any other rights to you.
-
-Security
-We care about the security of our users. While we work to protect the security of your content and account, we can't guarantee that unauthorized third parties won't be able to defeat our security measures. We ask that you keep your password secure. Please notify us immediately of any unauthorized use of your account.
-
-Modifying and Terminating our Services
-We are constantly changing and improving our Services. We may add or remove functionalities or features, and we may suspend or stop a Service altogether.
-You can stop using our Services at any time, although we'll be sorry to see you go! We may terminate or suspend your right to access or use our Services for any reason with or without notice. LoulouPark may also stop providing Services to you or add or create new limits to our Services at any time.
-
-Third-party Links
-Our Services may contain links to other websites and resources provided by third parties that are not owned or controlled by us. We have no control over the contents of those websites or resources. If you access any third-party content from our Services, you do so at your own risk and subject to the terms and conditions of use for such third-party content.
-
-Disclaimer of Warranties
-Our Services are provided on an "as is" basis without warranty of any kind, whether express or implied, statutory or otherwise. We specifically disclaim any and all warranties of merchantability, non-infringement, and fitness for a particular purpose.
-
-Limitation of Liability
-TO THE MAXIMUM EXTENT ALLOWED BY LAW, IN NO EVENT WILL THE COLLECTIVE LIABILITY OF LOULOUPARK AND ITS SUBSIDIARIES AND AFFILIATES, AND THEIR RESPECTIVE LICENSORS, SERVICE PROVIDERS, EMPLOYEES, AGENTS, OFFICERS, MEMBERS, MANAGERS AND DIRECTORS, TO ANY PARTY (REGARDLESS OF THE FORM OF ACTION, WHETHER IN CONTRACT, TORT, OR OTHERWISE) EXCEED THE AMOUNT YOU HAVE PAID TO LOULOUPARK TO USE THE SERVICES.
-
-General Terms
-If there is a conflict between these terms and the additional terms, the additional terms will control for that conflict.
-These terms control the relationship between LoulouPark and you. They do not create any third-party beneficiary rights.
-If you do not comply with these terms, and we don't take action right away, this doesn't mean that we are giving up any rights that we may have (such as taking action in the future).
-If it turns out that a particular term is not enforceable, this will not affect any other terms.
-The laws of France will apply to any disputes arising out of or relating to these terms or the Services. All claims arising out of or relating to these terms or the Services will be litigated exclusively in the courts of Paris, France, and you and LoulouPark consent to personal jurisdiction in those courts.`,
-              )}
-            </p>
-            <div className="sticky bottom-0 left-0 right-0 pt-4 mt-6 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setShowTerms(false)}
-                className={`mx-auto flex items-center justify-center w-12 h-12 bg-orange-500 text-white text-xl font-bold rounded-full shadow-[0_12px_24px_-12px_rgba(255,132,0,0.55)] hover:bg-orange-600 transition transform-gpu ${
-                  termsCloseVisible
-                    ? 'animate-[slideUpFade_0.3s_ease]'
-                    : 'animate-[slideDownFadeOut_0.25s_ease_forwards]'
-	                } dark:shadow-[0_16px_32px_-14px_rgba(0,0,0,0.65)]`}
+	      {showTerms && (
+	        <div
+	          className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
+	            closingTerms ? 'bg-black/0' : 'bg-black/30 backdrop-blur-sm'
+	          }`}
+	          onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
+	        >
+	          <div
+	            className={`
+	              ${isDark ? 'bg-slate-900/90 border-slate-700/30' : 'bg-white/95 border-white/20'}
+	              backdrop-blur-xl border shadow-2xl rounded-3xl w-full max-w-lg 
+	              flex flex-col max-h-[85vh] overflow-hidden
+	              ${closingTerms ? 'animate-[modalOut_0.2s_ease_forwards] scale-95 opacity-0' : 'animate-[modalIn_0.3s_ease-out] scale-100 opacity-100'}
+	            `}
+	            onClick={(e) => e.stopPropagation()}
+	          >
+	            {/* HEADER FIXE */}
+	            <div
+	              className={`flex items-center justify-between px-6 py-4 border-b backdrop-blur-md z-10 shrink-0 ${
+	                isDark ? 'border-slate-800 bg-slate-900/40' : 'border-gray-100 bg-white/50'
+	              }`}
+	            >
+	              <div className="flex items-center space-x-3">
+	                <div className={`p-2 rounded-full ${isDark ? 'bg-slate-800 text-slate-200' : 'bg-gray-100 text-gray-600'}`}>
+	                  <FileText size={20} style={iconStyle('legal')} />
+	                </div>
+	                <h3 className={`text-lg font-bold ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>
+	                  {t('terms', 'Terms & Conditions')}
+	                </h3>
+	              </div>
+	              <button
+	                onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
+	                className={`p-2 rounded-full transition-colors ${
+	                  isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-500'
+	                }`}
 	              >
-	                <ChevronDown size={22} strokeWidth={3} />
+	                <X size={20} />
 	              </button>
+	            </div>
+	
+	            {/* CONTENU SCROLLABLE */}
+	            <div className="overflow-y-auto p-6 no-scrollbar grow">
+	              <p className={`text-sm leading-relaxed whitespace-pre-wrap font-normal ${isDark ? 'text-slate-200' : 'text-gray-600'}`}>
+	                {termsAndConditionsText}
+	              </p>
+	              
+	              {/* Gros bouton de fermeture en bas */}
+	              <div className={`mt-8 pt-6 border-t flex justify-center ${isDark ? 'border-slate-800' : 'border-gray-100'}`}>
+	                <button
+	                  type="button"
+	                  onClick={() => closeWithAnim(setClosingTerms, setShowTerms)}
+	                  className={`w-full text-white font-semibold py-3.5 px-6 rounded-2xl active:scale-95 transition-all shadow-lg ${
+	                    isDark ? 'bg-orange-600 hover:bg-orange-700' : 'bg-gray-900 hover:bg-gray-800'
+	                  }`}
+	                >
+	                  {t('close', 'Fermer')}
+	                </button>
+	              </div>
 	            </div>
 	          </div>
 	        </div>
-      )}
+	      )}
     </div>
   );
 };

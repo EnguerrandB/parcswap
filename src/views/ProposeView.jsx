@@ -120,7 +120,7 @@ const ProposeView = ({
 
   return (
     <div
-      className="h-full flex flex-col bg-white px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
+      className="h-full flex flex-col bg-gray-50 px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
       style={{ touchAction: 'auto' }}
     >
       <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">{t('leavingTitle', 'Leaving my spot')}</h2>
@@ -138,30 +138,53 @@ const ProposeView = ({
         <div>
           <label className="block text-sm font-medium text-gray-500 mb-2">{t('myCarLabel', 'My Car')}</label>
           {vehicles.length > 0 ? (
-            <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
-              <div className="flex space-x-3 snap-x snap-mandatory">
-                {vehicles.map((v) => (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
-                    className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition ${
-                      proposeForm.car === v.model
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-100 hover:border-gray-200'
-                    }`}
-                  >
-                    <Car
-                      className={`mb-2 ${
-                        proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'
-                      }`}
-                    />
-                    <p className="font-semibold text-sm">{v.model}</p>
-                    <p className="text-xs text-gray-400">{v.plate}</p>
-                  </button>
-                ))}
+            vehicles.length === 1 ? (
+              <div className="w-full">
+                <div className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-gray-100 bg-white/80 shadow-sm backdrop-blur">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="bg-white p-2 rounded-lg border border-gray-100 shrink-0">
+                      <Car size={20} className="text-orange-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="font-semibold text-sm text-gray-900 truncate">
+                          {vehicles[0]?.model || t('unknown', 'Unknown')}
+                        </span>
+                        <span className="text-xs text-gray-500 font-mono tracking-widest truncate">
+                          {vehicles[0]?.plate || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
+                <div className="flex space-x-3 snap-x snap-mandatory">
+                  {vehicles.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
+                      className={`min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border text-left transition shadow-sm backdrop-blur ${
+                        proposeForm.car === v.model
+                          ? 'border-orange-200 bg-orange-50/60 ring-1 ring-orange-200/40'
+                          : 'border-gray-100 bg-white/80 hover:border-gray-200'
+                      }`}
+                    >
+                      <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
+                        <Car
+                          size={20}
+                          className={`${proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'}`}
+                        />
+                      </div>
+                      <p className="font-semibold text-sm">{v.model}</p>
+                      <p className="text-xs text-gray-400">{v.plate}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
           ) : (
             <div className="w-full overflow-x-auto no-scrollbar pb-2 touch-pan-x">
               <div className="flex space-x-3 snap-x snap-mandatory">
@@ -170,7 +193,7 @@ const ProposeView = ({
                     key={c.id}
                     type="button"
                     onClick={() => onNudgeAddVehicle?.()}
-                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border-2 text-left transition border-gray-100 hover:border-gray-200 bg-white"
+                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-2xl border text-left transition border-gray-100 hover:border-gray-200 bg-white/80 shadow-sm backdrop-blur"
                   >
                     <span
                       className="pointer-events-none absolute top-3 right-3 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-xs font-extrabold flex items-center justify-center shadow"
@@ -178,7 +201,9 @@ const ProposeView = ({
                     >
                       ?
                     </span>
-                    <Car className="mb-2 text-gray-300" />
+                    <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
+                      <Car size={20} className="text-gray-300" />
+                    </div>
                     <p className="font-semibold text-sm text-gray-800">{c.model}</p>
                     <p className="text-xs text-gray-400 tracking-widest font-mono">??-???-??</p>
                   </button>
@@ -188,11 +213,32 @@ const ProposeView = ({
           )}
         </div>
 
-        {/* Time */}
-        <div>
-          <label className="block text-sm font-medium text-gray-500 mb-2">{t('leavingInLabel', 'Leaving in')}</label>
-          <div className="flex items-center space-x-4 bg-gray-50 p-4 rounded-xl">
-            <Clock className="text-orange-500" />
+        {/* Time - Modern Apple-like Card */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+          
+          {/* Header: Label & Value */}
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+                <Clock size={20} strokeWidth={2.5} />
+              </div>
+              <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                {t('leavingInLabel', 'Leaving in')}
+              </label>
+            </div>
+            
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-4xl font-bold text-gray-900 tracking-tight font-sans">
+                {proposeForm.time}
+              </span>
+              <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                min
+              </span>
+            </div>
+          </div>
+
+          {/* Slider */}
+          <div className="relative h-12 flex items-center px-1">
             <input
               ref={timeSliderRef}
               type="range"
@@ -203,18 +249,43 @@ const ProposeView = ({
               onChange={(e) =>
                 setProposeForm({ ...proposeForm, time: parseInt(e.target.value, 10) })
               }
-              className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+              // Astuce pour l'effet de progression (remplissage à gauche)
+              style={{
+                backgroundSize: `${((proposeForm.time - 1) * 100) / 29}% 100%`
+              }}
+              className="
+                relative w-full h-3 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                focus:outline-none focus:ring-0
+                
+                [&::-webkit-slider-thumb]:appearance-none
+                [&::-webkit-slider-thumb]:w-8
+                [&::-webkit-slider-thumb]:h-8
+                [&::-webkit-slider-thumb]:bg-white
+                [&::-webkit-slider-thumb]:rounded-full
+                [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                [&::-webkit-slider-thumb]:border-0
+                [&::-webkit-slider-thumb]:transition-transform
+                [&::-webkit-slider-thumb]:duration-150
+                [&::-webkit-slider-thumb]:ease-out
+                [&::-webkit-slider-thumb]:hover:scale-110
+                [&::-webkit-slider-thumb]:active:scale-95
+              "
             />
-            <span className="font-bold text-lg w-16 text-right">
-              {t('minutes', { count: proposeForm.time, defaultValue: '{{count}} minutes' })}
-            </span>
+            {/* Indicateurs Min/Max */}
+            <div className="absolute top-9 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              1 min
+            </div>
+            <div className="absolute top-9 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              30 min
+            </div>
           </div>
         </div>
-
+        
         {/* Price */}
         <div>
           <label className="block text-sm font-medium text-gray-500 mb-2">{t('askingPrice', 'Asking Price')}</label>
-          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
+          <div className="flex items-center justify-between bg-white/80 border border-gray-100 shadow-sm backdrop-blur p-4 rounded-2xl">
             <button
               onClick={() =>
                 setProposeForm((prev) => ({ ...prev, price: Math.max(0, prev.price - 1) }))
@@ -238,7 +309,7 @@ const ProposeView = ({
         {/* Length */}
         <div>
           <label className="block text-sm font-medium text-gray-500 mb-2">{t('spotLengthLabel', 'Length of the spot')}</label>
-          <div className="flex items-center space-x-4 bg-gray-50 p-4 rounded-xl">
+          <div className="flex items-center space-x-4 bg-white/80 border border-gray-100 shadow-sm backdrop-blur p-4 rounded-2xl">
             <Car className="text-orange-500" />
             <input
               ref={lengthSliderRef}
@@ -251,7 +322,7 @@ const ProposeView = ({
               onChange={(e) =>
                 setProposeForm({ ...proposeForm, length: parseFloat(e.target.value) })
               }
-              className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+              className="flex-1 h-2.5 bg-gray-200/90 rounded-full appearance-none cursor-pointer accent-orange-500 shadow-inner shadow-gray-300/40"
             />
             <span className="font-bold text-lg w-16 text-right">
               {t('lengthValue', { value: proposeForm.length, defaultValue: '{{value}} meters' })}

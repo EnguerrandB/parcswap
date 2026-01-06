@@ -246,6 +246,7 @@ export default function ParkSwapApp() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [activeTab, setActiveTab] = useState('search');
+  const proposeViewRef = useRef(null);
   const tabOrder = ['search', 'propose', 'profile'];
   const [slideDir, setSlideDir] = useState('left');
   const prevTabRef = useRef('search');
@@ -2177,6 +2178,7 @@ export default function ParkSwapApp() {
       return (
         <div className="h-full w-full">
           <ProposeView
+            ref={proposeViewRef}
             myActiveSpot={myActiveSpot}
             vehicles={vehicles}
             onProposeSpot={handleProposeSpot}
@@ -2221,7 +2223,7 @@ export default function ParkSwapApp() {
   if (initializing) {
   // 🔥 IMPORTANT : on attend Firebase avant d'afficher AuthView
   return (
-    <div className="relative h-screen w-full bg-white">
+    <div className={`relative h-screen w-full ${theme === 'dark' ? 'app-surface' : 'bg-white'}`}>
       <OrientationBlockedOverlay visible={orientationBlocked} />
     </div>
   );
@@ -2229,7 +2231,11 @@ export default function ParkSwapApp() {
 
   if (!user) {
     return (
-      <div className="relative h-screen w-full overflow-hidden flex items-center justify-center bg-gradient-to-br from-orange-50 via-white to-amber-50">
+      <div
+        className={`relative h-screen w-full overflow-hidden flex items-center justify-center ${
+          theme === 'dark' ? 'app-surface' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+        }`}
+      >
        <AuthView />
        {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name="" />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
@@ -2247,7 +2253,9 @@ export default function ParkSwapApp() {
 
   return (
     <div
-      className="relative h-screen w-full bg-gradient-to-br from-orange-50 via-white to-amber-50 font-sans overflow-hidden"
+      className={`relative h-screen w-full font-sans overflow-hidden ${
+        theme === 'dark' ? 'app-surface' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+      }`}
     >
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
@@ -2444,7 +2452,26 @@ export default function ParkSwapApp() {
           </div>
         </div>
         <div className="transition-opacity duration-300 opacity-100 z-[70]" style={{ '--bottom-nav-height': 'auto' }}>
-          <BottomNav activeTab={activeTab} setActiveTab={changeTab} />
+          <BottomNav
+            activeTab={activeTab}
+            setActiveTab={changeTab}
+            waitingMode={activeTab === 'propose' && !!myActiveSpot}
+            onCancelPress={() => {
+              if (!myActiveSpot?.id) return;
+              handleCancelSpot(myActiveSpot.id);
+            }}
+            onRenewPress={() => {
+              if (!myActiveSpot?.id) return;
+              handleRenewSpot(myActiveSpot.id);
+            }}
+            onProposePress={() => {
+              if (activeTab !== 'propose') {
+                changeTab('propose');
+                return;
+              }
+              proposeViewRef.current?.publish?.();
+            }}
+          />
         </div>
       </div>
       {selectedSearchSpot && (

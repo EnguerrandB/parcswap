@@ -305,24 +305,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
                 <p className="text-[clamp(16px,5vmin,22px)] font-bold text-gray-900 leading-tight">{formatPrice(myActiveSpot.price)}</p>
               </div>
             </div>
-            <div className="mt-[clamp(12px,3.5vmin,16px)] grid grid-cols-2 gap-[clamp(10px,2.8vmin,14px)]">
-              {onCancel && (
-                <button
-                  onClick={() => onCancel(myActiveSpot.id)}
-                  className="w-full bg-white border border-gray-200 text-gray-700 py-[clamp(10px,2.8vmin,12px)] rounded-[clamp(12px,3.5vmin,16px)] font-semibold shadow-sm hover:bg-gray-50 transition text-[clamp(13px,3.6vmin,15px)]"
-                >
-                  {t('cancel', 'Cancel')}
-                </button>
-              )}
-              {onRenew && (
-                <button
-                  onClick={() => onRenew(myActiveSpot.id)}
-                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white py-[clamp(10px,2.8vmin,12px)] rounded-[clamp(12px,3.5vmin,16px)] font-bold shadow-md hover:scale-[1.01] transition text-[clamp(13px,3.6vmin,15px)]"
-                >
-                  {t('renew', 'Renew')}
-                </button>
-              )}
-            </div>
+            {/* Actions are handled by BottomNav while WaitingView is visible */}
           </div>
 
           {/* BLOC PUB ANIMÉ - Toujours dans le DOM, mais animé via CSS */}
@@ -435,14 +418,7 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
         )}
       </div>
 
-      {onCancel && (
-        <button
-          onClick={onCancel}
-          className="mt-8 px-6 py-3 rounded-xl bg-white border border-gray-200 text-gray-700 font-semibold shadow hover:bg-gray-50 transition"
-        >
-          {t('cancel', 'Cancel')}
-        </button>
-      )}
+      {/* Actions are handled by BottomNav while WaitingView is visible */}
     </div>
   );
 };

@@ -1,7 +1,7 @@
 // src/components/BottomNav.jsx
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, HandCoins } from 'lucide-react';
+import { Search, HandCoins, Send, RotateCw, X } from 'lucide-react';
 
 // ==================================================================================
 // 🎛️ CONFIGURATION
@@ -14,7 +14,7 @@ const HALO_BLUR_CLASS = 'blur-lg';
 
 // ==================================================================================
 
-const BottomNav = ({ activeTab, setActiveTab }) => {
+const BottomNav = ({ activeTab, setActiveTab, onProposePress, waitingMode = false, onCancelPress, onRenewPress }) => {
   const { t } = useTranslation('common');
   
   const activateTab = (tab) => {
@@ -30,17 +30,6 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
       {/* CONTENEUR PRINCIPAL */}
       <div className="relative w-[90%] max-w-[320px] pointer-events-auto">
         
-        {/* LE HALO */}
-        <div
-          className={`
-            pointer-events-none absolute rounded-full halo-pulse
-            bg-white/35
-            ${HALO_SPREAD}
-            ${HALO_BLUR_CLASS}
-          `}
-          style={{ opacity: HALO_OPACITY, transform: `scale(${HALO_SCALE})` }}
-        />
-
         {/* LA BARRE DE NAVIGATION */}
         <div
           id="bottom-nav"
@@ -75,7 +64,7 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
           {/* Bouton Recherche */}
           <button
             type="button"
-            onClick={() => activateTab('search')}
+            onClick={() => (waitingMode ? onCancelPress?.() : activateTab('search'))}
             // Bloque le menu contextuel (clic long)
             onContextMenu={(e) => e.preventDefault()}
             // ⚡️ CRUCIAL : touchAction: 'none' désactive le scroll/zoom sur le bouton
@@ -90,21 +79,33 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
             className={`
               flex-1 relative z-20 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
               outline-none focus:outline-none cursor-pointer
-              ${activeTab === 'search' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
+              ${activeTab === 'search' && !waitingMode ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
             `}
           >
-            <Search 
-              size={20} 
-              strokeWidth={2.5} 
-              className={`transition-transform duration-300 ${activeTab === 'search' ? 'scale-105' : 'scale-100'}`} 
-            />
-            <span className="text-sm font-semibold tracking-wide pointer-events-none">{t('tabSearch', 'Rechercher')}</span>
+            {waitingMode ? (
+              <X
+                size={20}
+                strokeWidth={2.5}
+                className="transition-transform duration-300 scale-100"
+              />
+            ) : (
+              <Search
+                size={20}
+                strokeWidth={2.5}
+                className={`transition-transform duration-300 ${activeTab === 'search' ? 'scale-105' : 'scale-100'}`}
+              />
+            )}
+            <span className="text-sm font-semibold tracking-wide pointer-events-none">
+              {waitingMode ? t('cancel', 'Cancel') : t('tabSearch', 'Rechercher')}
+            </span>
           </button>
 
           {/* Bouton Proposer */}
           <button
             type="button"
-            onClick={() => activateTab('propose')}
+            onClick={() =>
+              waitingMode ? onRenewPress?.() : (onProposePress ? onProposePress() : activateTab('propose'))
+            }
             onContextMenu={(e) => e.preventDefault()}
             style={{ 
               touchAction: 'none', 
@@ -119,12 +120,20 @@ const BottomNav = ({ activeTab, setActiveTab }) => {
               ${activeTab === 'propose' ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
             `}
           >
-            <HandCoins 
-              size={20} 
-              strokeWidth={2.5} 
-              className={`transition-transform duration-300 ${activeTab === 'propose' ? 'scale-105' : 'scale-100'}`} 
-            />
-            <span className="text-sm font-semibold tracking-wide pointer-events-none">{t('tabPropose', 'Proposer')}</span>
+            {waitingMode ? (
+              <RotateCw
+                size={20}
+                strokeWidth={2.5}
+                className={`transition-transform duration-300 ${activeTab === 'propose' ? 'scale-105' : 'scale-100'}`}
+              />
+            ) : activeTab === 'propose' ? (
+              <Send size={20} strokeWidth={2.5} className="transition-transform duration-300 scale-105" />
+            ) : (
+              <HandCoins size={20} strokeWidth={2.5} className="transition-transform duration-300 scale-100" />
+            )}
+            <span className="text-sm font-semibold tracking-wide pointer-events-none">
+              {waitingMode ? t('renew', 'Renew') : activeTab === 'propose' ? t('publish', 'Publish') : t('tabPropose', 'Proposer')}
+            </span>
           </button>
         </div>
       </div>

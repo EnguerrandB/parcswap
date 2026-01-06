@@ -1,12 +1,12 @@
 // src/views/ProposeView.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { Car, Clock, WifiOff, Wifi } from 'lucide-react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Car, Clock, Euro, WifiOff, Wifi } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { MOCK_CARS, formatPrice } from '../constants';
+import { MOCK_CARS } from '../constants';
 import WaitingView from './WaitingView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 
-const ProposeView = ({
+const ProposeView = forwardRef(({
   myActiveSpot,
   onProposeSpot,
   onConfirmPlate,
@@ -14,7 +14,7 @@ const ProposeView = ({
   onRenewSpot,
   onNudgeAddVehicle,
   vehicles = [],
-}) => {
+}, ref) => {
   const { t } = useTranslation('common');
   const { isOnline, isPoorConnection } = useConnectionQuality();
   const formatPlate = (value) => {
@@ -50,7 +50,50 @@ const ProposeView = ({
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const timeSliderRef = useRef(null);
+  const priceSliderRef = useRef(null);
   const lengthSliderRef = useRef(null);
+
+  const publishSpot = async () => {
+    if (publishing) return;
+    if (!isOnline) {
+      setPublishError(t('offlineTitle', { defaultValue: 'No connection' }));
+      return;
+    }
+    if (!vehicles.length) {
+      onNudgeAddVehicle?.();
+      return;
+    }
+    setPublishError('');
+    setPublishing(true);
+    const selected =
+      vehicles.find((v) => v.model === proposeForm.car) ||
+      vehicles.find((v) => v.isDefault) ||
+      vehicles[0] ||
+      null;
+    try {
+      await onProposeSpot?.({
+        ...proposeForm,
+        vehiclePlate: selected?.plate || null,
+        vehicleId: selected?.id || null,
+      });
+    } catch (err) {
+      const code = err?.code || err?.message;
+      if (code === 'active_spot_exists') {
+        setPublishError(
+          t(
+            'publishBlockedActiveSpot',
+            'Tu as déjà une place publiée. Annule-la ou renouvelle-la avant d’en publier une autre.',
+          ),
+        );
+      } else {
+        setPublishError(t('publishFailed', "Impossible de publier la place. Réessaie."));
+      }
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  useImperativeHandle(ref, () => ({ publish: publishSpot }), [publishSpot]);
 
   useEffect(() => {
     const next = vehicles.find((v) => v.isDefault) || vehicles[0];
@@ -82,13 +125,13 @@ const ProposeView = ({
     return () => clearInterval(id);
   }, [myActiveSpot]);
 
-  if (myActiveSpot) {
+    if (myActiveSpot) {
     return (
       <WaitingView
         myActiveSpot={myActiveSpot}
         remainingMs={remainingMs}
-        onCancel={onCancelSpot}
-        onRenew={onRenewSpot}
+        onCancel={null}
+        onRenew={null}
         onConfirmPlate={onConfirmPlate}
       />
     );
@@ -136,7 +179,6 @@ const ProposeView = ({
       <div className="space-y-6">
         {/* Car */}
         <div>
-          <label className="block text-sm font-medium text-gray-500 mb-2">{t('myCarLabel', 'My Car')}</label>
           {vehicles.length > 0 ? (
             vehicles.length === 1 ? (
               <div className="w-full">
@@ -217,7 +259,7 @@ const ProposeView = ({
         <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
           
           {/* Header: Label & Value */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
                 <Clock size={20} strokeWidth={2.5} />
@@ -238,7 +280,7 @@ const ProposeView = ({
           </div>
 
           {/* Slider */}
-          <div className="relative h-12 flex items-center px-1">
+          <div className="relative h-10 flex items-center px-1">
             <input
               ref={timeSliderRef}
               type="range"
@@ -254,13 +296,13 @@ const ProposeView = ({
                 backgroundSize: `${((proposeForm.time - 1) * 100) / 29}% 100%`
               }}
               className="
-                relative w-full h-3 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
                 bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
                 focus:outline-none focus:ring-0
                 
                 [&::-webkit-slider-thumb]:appearance-none
-                [&::-webkit-slider-thumb]:w-8
-                [&::-webkit-slider-thumb]:h-8
+                [&::-webkit-slider-thumb]:w-7
+                [&::-webkit-slider-thumb]:h-7
                 [&::-webkit-slider-thumb]:bg-white
                 [&::-webkit-slider-thumb]:rounded-full
                 [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
@@ -273,44 +315,101 @@ const ProposeView = ({
               "
             />
             {/* Indicateurs Min/Max */}
-            <div className="absolute top-9 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+            <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
               1 min
             </div>
-            <div className="absolute top-9 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+            <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
               30 min
             </div>
           </div>
         </div>
         
-        {/* Price */}
-        <div>
-          <label className="block text-sm font-medium text-gray-500 mb-2">{t('askingPrice', 'Asking Price')}</label>
-          <div className="flex items-center justify-between bg-white/80 border border-gray-100 shadow-sm backdrop-blur p-4 rounded-2xl">
-            <button
-              onClick={() =>
-                setProposeForm((prev) => ({ ...prev, price: Math.max(0, prev.price - 1) }))
-              }
-              className="w-8 h-8 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 shadow text-white font-bold text-xl flex items-center justify-center hover:scale-105 transition"
-            >
-              -
-            </button>
-            <span className="text-3xl font-bold text-gray-900">{formatPrice(proposeForm.price)}</span>
-            <button
-              onClick={() =>
-                setProposeForm((prev) => ({ ...prev, price: prev.price + 1 }))
-              }
-              className="w-8 h-8 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 shadow text-white font-bold text-xl flex items-center justify-center hover:scale-105 transition"
-            >
-              +
-            </button>
+        {/* Price - Same logic/design as "Leaving in" */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+                <Euro size={20} strokeWidth={2.5} />
+              </div>
+              <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                {t('askingPrice', 'Asking Price')}
+              </label>
+            </div>
+
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-4xl font-bold text-gray-900 tracking-tight font-sans">
+                {proposeForm.price}
+              </span>
+              <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                €
+              </span>
+            </div>
+          </div>
+
+          <div className="relative h-10 flex items-center px-1">
+            <input
+              ref={priceSliderRef}
+              type="range"
+              min="0"
+              max="20"
+              step="1"
+              value={proposeForm.price}
+              onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, 20, 1, setProposeForm, 'price')}
+              onChange={(e) => setProposeForm((prev) => ({ ...prev, price: parseInt(e.target.value, 10) }))}
+              style={{
+                backgroundSize: `${(Math.max(0, Math.min(20, proposeForm.price)) * 100) / 20}% 100%`,
+              }}
+              className="
+                relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                focus:outline-none focus:ring-0
+                
+                [&::-webkit-slider-thumb]:appearance-none
+                [&::-webkit-slider-thumb]:w-7
+                [&::-webkit-slider-thumb]:h-7
+                [&::-webkit-slider-thumb]:bg-white
+                [&::-webkit-slider-thumb]:rounded-full
+                [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                [&::-webkit-slider-thumb]:border-0
+                [&::-webkit-slider-thumb]:transition-transform
+                [&::-webkit-slider-thumb]:duration-150
+                [&::-webkit-slider-thumb]:ease-out
+                [&::-webkit-slider-thumb]:hover:scale-110
+                [&::-webkit-slider-thumb]:active:scale-95
+              "
+            />
+            <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              0 €
+            </div>
+            <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              20 €
+            </div>
           </div>
         </div>
 
-        {/* Length */}
-        <div>
-          <label className="block text-sm font-medium text-gray-500 mb-2">{t('spotLengthLabel', 'Length of the spot')}</label>
-          <div className="flex items-center space-x-4 bg-white/80 border border-gray-100 shadow-sm backdrop-blur p-4 rounded-2xl">
-            <Car className="text-orange-500" />
+        {/* Length - Same style as "Leaving in" */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+                <Car size={20} strokeWidth={2.5} />
+              </div>
+              <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                {t('spotLengthLabel', 'Length of the spot')}
+              </label>
+            </div>
+
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-4xl font-bold text-gray-900 tracking-tight font-sans">
+                {proposeForm.length}
+              </span>
+              <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                m
+              </span>
+            </div>
+          </div>
+
+          <div className="relative h-10 flex items-center px-1">
             <input
               ref={lengthSliderRef}
               type="range"
@@ -319,82 +418,44 @@ const ProposeView = ({
               step="0.5"
               value={proposeForm.length}
               onPointerDown={(e) => startRangeDrag(e, lengthSliderRef, 4, 6, 0.5, setProposeForm, 'length')}
-              onChange={(e) =>
-                setProposeForm({ ...proposeForm, length: parseFloat(e.target.value) })
-              }
-              className="flex-1 h-2.5 bg-gray-200/90 rounded-full appearance-none cursor-pointer accent-orange-500 shadow-inner shadow-gray-300/40"
+              onChange={(e) => setProposeForm({ ...proposeForm, length: parseFloat(e.target.value) })}
+              style={{
+                backgroundSize: `${((proposeForm.length - 4) * 100) / 2}% 100%`,
+              }}
+              className="
+                relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                focus:outline-none focus:ring-0
+                
+                [&::-webkit-slider-thumb]:appearance-none
+                [&::-webkit-slider-thumb]:w-7
+                [&::-webkit-slider-thumb]:h-7
+                [&::-webkit-slider-thumb]:bg-white
+                [&::-webkit-slider-thumb]:rounded-full
+                [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                [&::-webkit-slider-thumb]:border-0
+                [&::-webkit-slider-thumb]:transition-transform
+                [&::-webkit-slider-thumb]:duration-150
+                [&::-webkit-slider-thumb]:ease-out
+                [&::-webkit-slider-thumb]:hover:scale-110
+                [&::-webkit-slider-thumb]:active:scale-95
+              "
             />
-            <span className="font-bold text-lg w-16 text-right">
-              {t('lengthValue', { value: proposeForm.length, defaultValue: '{{value}} meters' })}
-            </span>
+            <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              4 m
+            </div>
+            <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+              6 m
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="mt-8 pb-8 pt-2">
-        {vehicles.length === 0 ? null : (
-	        <button
-	          type="button"
-	          disabled={publishing || !isOnline}
-	          onClick={async () => {
-	            if (publishing || !isOnline) return;
-	            setPublishError('');
-	            setPublishing(true);
-	            const selected =
-	              vehicles.find((v) => v.model === proposeForm.car) ||
-	              vehicles.find((v) => v.isDefault) ||
-	              vehicles[0] ||
-	              null;
-	            try {
-	              await onProposeSpot?.({
-	                ...proposeForm,
-	                vehiclePlate: selected?.plate || null,
-	                vehicleId: selected?.id || null,
-	              });
-	            } catch (err) {
-	              const code = err?.code || err?.message;
-	              if (code === 'active_spot_exists') {
-	                setPublishError(
-	                  t(
-	                    'publishBlockedActiveSpot',
-	                    'Tu as déjà une place publiée. Annule-la ou renouvelle-la avant d’en publier une autre.',
-	                  ),
-	                );
-	              } else {
-	                setPublishError(t('publishFailed', "Impossible de publier la place. Réessaie."));
-	              }
-	            } finally {
-	              setPublishing(false);
-	            }
-	          }}
-	          className={`w-full py-4 rounded-xl font-bold shadow-lg transition text-lg flex items-center justify-center space-x-2 ${
-	            publishing || !isOnline
-	              ? 'opacity-80 cursor-not-allowed'
-	              : 'hover:scale-[1.01]'
-	          } ${
-	            !isOnline
-	              ? 'bg-gray-200 text-gray-500'
-	              : vehicles.length === 0
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
-	          }`}
-	        >
-	          {!isOnline ? <WifiOff size={18} className="text-gray-500" /> : null}
-	          <span>
-	            {publishing
-	              ? t('publishing', 'Publishing...')
-	              : !isOnline
-	                ? t('offlineTitle', { defaultValue: 'No connection' })
-	                : t('publishSpot', 'Publish Spot')}
-	          </span>
-	        </button>
-        )}
-	        {publishError ? (
-	          <p className="mt-3 text-sm font-semibold text-rose-600 text-center">{publishError}</p>
-	        ) : null}
-	      </div>
+      {publishError ? (
+        <p className="mt-6 text-sm font-semibold text-rose-600 text-center">{publishError}</p>
+      ) : null}
 	    </div>
 	  );
-};
+});
 
 export default ProposeView;

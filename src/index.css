@@ -611,10 +611,27 @@ body[data-theme="dark"] .border-white\/80 {
 }
 
 body[data-theme="dark"] .app-surface {
-  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), transparent 25%),
-    radial-gradient(circle at 80% 0%, rgba(249, 115, 22, 0.12), transparent 35%),
-    #0b1220;
+  background-color: #0b1220;
+  background-image:
+    radial-gradient(circle, rgba(59, 130, 246, 0.08), transparent 60%),
+    radial-gradient(circle, rgba(249, 115, 22, 0.12), transparent 60%);
+  background-repeat: no-repeat;
+  background-size: 140% 140%, 160% 160%;
+  background-position: 20% 20%, 80% 0%;
+  animation: appSurfaceDrift 14s ease-in-out infinite;
   color: #e5e7eb;
+}
+
+@keyframes appSurfaceDrift {
+  0% {
+    background-position: 20% 20%, 80% 0%;
+  }
+  50% {
+    background-position: 20% 20%, 82% 2%;
+  }
+  100% {
+    background-position: 20% 20%, 79% -1%;
+  }
 }
 
 body[data-theme="dark"] .price-card-surface {
@@ -801,6 +818,10 @@ body[data-theme="dark"] textarea::placeholder {
 
   .tab-slide-left,
   .tab-slide-right {
+    animation: none !important;
+  }
+
+  body[data-theme="dark"] .app-surface {
     animation: none !important;
   }
 

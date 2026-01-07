@@ -575,7 +575,7 @@ export default function ParkSwapApp() {
 	    const startedInScrollable = Boolean(scrollContainer);
 
 	    // Si on touche dans le contenu scrollable et qu'il n'est pas en haut, on laisse scroller.
-	    if (startedInScrollable && scrollContainer.scrollTop > 0) return;
+	    if (startedInScrollable && scrollContainer.scrollTop > 1) return;
 
 	    setSheetEntryAnim(false);
 

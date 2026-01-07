@@ -528,13 +528,15 @@ export default function ParkSwapApp() {
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
-  const [showAccountSheet, setShowAccountSheet] = useState(false);
-  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
-  const [isSheetDragging, setIsSheetDragging] = useState(false);
-  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
-  const sheetDragRef = useRef(false);
-  const sheetStartY = useRef(0);
-  const sheetOffsetRef = useRef(0);
+	  const [showAccountSheet, setShowAccountSheet] = useState(false);
+	  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
+	  const [isSheetDragging, setIsSheetDragging] = useState(false);
+	  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
+	  const sheetDragRef = useRef(false);
+	  const sheetDragAxisRef = useRef('y'); // 'y' pull-down or 'x' swipe-right (mapped to vertical offset)
+	  const sheetStartY = useRef(0);
+	  const sheetOffsetRef = useRef(0);
+  const sheetRef = useRef(null)
 
 	  const handleMenuClick = () => {
 	    setSheetEntryAnim(true);
@@ -567,9 +569,9 @@ export default function ParkSwapApp() {
 	    setAddVehicleRequestId((v) => v + 1);
 	  };
 
-	  const handleAccountSheetPointerDown = (e) => {
-	    // Empêcher la propagation pour ne pas bouger la map en dessous
-	    e.stopPropagation();
+		  const handleAccountSheetPointerDown = (e) => {
+		    // Empêcher la propagation pour ne pas bouger la map en dessous
+		    e.stopPropagation();
 
 	    const scrollContainer = e.target?.closest?.('[data-role="account-sheet-scroll"]');
 	    const startedInScrollable = Boolean(scrollContainer);
@@ -584,8 +586,9 @@ export default function ParkSwapApp() {
 	    const startX = e.clientX || (e.touches && e.touches[0].clientX);
 	    if (startY == null) return;
 
-	    sheetStartY.current = startY;
-	    sheetOffsetRef.current = 0;
+		    sheetStartY.current = startY;
+		    sheetOffsetRef.current = 0;
+		    sheetDragAxisRef.current = 'y';
 
 	    // Drag immédiat si on prend la "handle", sinon on attend un vrai pull-down (scroll top).
 	    sheetDragRef.current = !startedInScrollable;
@@ -614,6 +617,7 @@ export default function ParkSwapApp() {
 
 	      if (startedInScrollable) {
 	        // Si le contenu commence à scroller, on annule le drag de sheet.
+            // Tolérance > 1 pour éviter les conflits de rebond
 	        if (scrollContainer && scrollContainer.scrollTop > 1) {
 	          cleanup();
 	          return;
@@ -639,7 +643,13 @@ export default function ParkSwapApp() {
 	      }
 
 	      const visibleOffset = deltaY > 0 ? deltaY : 0;
-	      setAccountSheetOffset(visibleOffset);
+          
+          // MODIFICATION : Mise à jour directe du DOM pour la fluidité (60fps)
+          if (sheetRef.current) {
+            sheetRef.current.style.transform = `translateY(${visibleOffset}px)`;
+          }
+	      // setAccountSheetOffset(visibleOffset); // <--- SUPPRIMÉ (cause des re-renders)
+          
 	      sheetOffsetRef.current = visibleOffset;
 	      if (visibleOffset > 0 && ev.cancelable) ev.preventDefault();
 	    };
@@ -651,13 +661,18 @@ export default function ParkSwapApp() {
 
 	      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
 	      sheetDragRef.current = false;
+          
+          // MODIFICATION : On nettoie le style inline pour que React/CSS reprenne la main
+          if (sheetRef.current) {
+             sheetRef.current.style.removeProperty('transform');
+          }
 
 	      const delta = sheetOffsetRef.current;
 	      const screenHeight = window.innerHeight;
 
 	      // Si on a glissé de plus de 150px vers le bas, on ferme
 	      if (delta > 150) {
-	        // 1. On pousse la feuille tout en bas (hors écran)
+	        // 1. On pousse la feuille tout en bas (hors écran) via l'état React
 	        setAccountSheetOffset(screenHeight);
 
 	        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant

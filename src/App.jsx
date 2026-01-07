@@ -614,7 +614,7 @@ export default function ParkSwapApp() {
 
 	      if (startedInScrollable) {
 	        // Si le contenu commence à scroller, on annule le drag de sheet.
-	        if (scrollContainer && scrollContainer.scrollTop > 0) {
+	        if (scrollContainer && scrollContainer.scrollTop > 1) {
 	          cleanup();
 	          return;
 	        }

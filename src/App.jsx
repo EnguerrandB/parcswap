@@ -535,7 +535,7 @@ export default function ParkSwapApp() {
 		  const sheetDragRef = useRef(false);
 		  const sheetStartY = useRef(0);
 		  const sheetOffsetRef = useRef(0);
-  const sheetRef = useRef(null)
+  
 
 	  const handleMenuClick = () => {
 	    setSheetEntryAnim(true);
@@ -615,8 +615,7 @@ export default function ParkSwapApp() {
 
 	      if (startedInScrollable) {
 	        // Si le contenu commence à scroller, on annule le drag de sheet.
-            // Tolérance > 1 pour éviter les conflits de rebond
-	        if (scrollContainer && scrollContainer.scrollTop > 1) {
+	        if (scrollContainer && scrollContainer.scrollTop > 0) {
 	          cleanup();
 	          return;
 	        }
@@ -641,13 +640,7 @@ export default function ParkSwapApp() {
 	      }
 
 	      const visibleOffset = deltaY > 0 ? deltaY : 0;
-          
-          // MODIFICATION : Mise à jour directe du DOM pour la fluidité (60fps)
-          if (sheetRef.current) {
-            sheetRef.current.style.transform = `translateY(${visibleOffset}px)`;
-          }
-	      // setAccountSheetOffset(visibleOffset); // <--- SUPPRIMÉ (cause des re-renders)
-          
+	      setAccountSheetOffset(visibleOffset);
 	      sheetOffsetRef.current = visibleOffset;
 	      if (visibleOffset > 0 && ev.cancelable) ev.preventDefault();
 	    };
@@ -659,18 +652,13 @@ export default function ParkSwapApp() {
 
 	      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
 	      sheetDragRef.current = false;
-          
-          // MODIFICATION : On nettoie le style inline pour que React/CSS reprenne la main
-          if (sheetRef.current) {
-             sheetRef.current.style.removeProperty('transform');
-          }
 
 	      const delta = sheetOffsetRef.current;
 	      const screenHeight = window.innerHeight;
 
 	      // Si on a glissé de plus de 150px vers le bas, on ferme
 	      if (delta > 150) {
-	        // 1. On pousse la feuille tout en bas (hors écran) via l'état React
+	        // 1. On pousse la feuille tout en bas (hors écran)
 	        setAccountSheetOffset(screenHeight);
 
 	        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
@@ -683,6 +671,8 @@ export default function ParkSwapApp() {
 	        setAccountSheetOffset(0);
 	      }
 	    };
+
+	    
 
 	    window.addEventListener('pointermove', onMove);
 	    window.addEventListener('pointerup', onEnd);
@@ -2277,9 +2267,9 @@ export default function ParkSwapApp() {
     prevTab !== activeTab;
   const tabSlideClass = shouldTabSlide ? (slideDir === 'left' ? 'tab-slide-left' : 'tab-slide-right') : '';
 
-  const launchRenewWave = () => {
-    try {
-      if (typeof document === 'undefined') return;
+	  const launchRenewWave = () => {
+	    try {
+	      if (typeof document === 'undefined') return;
       const fromEl = document.querySelector('[data-role="bottomnav-propose-button"]');
       const toEl = document.querySelector('[data-role="waiting-timer-target"]');
       if (!fromEl || !toEl) return;
@@ -2298,12 +2288,15 @@ export default function ParkSwapApp() {
     } catch (_) {
       // ignore
     }
-  };
+	  };
 
-  return (
-    <div
-      className={`relative h-screen w-full font-sans overflow-hidden ${
-        theme === 'dark'
+	  const isHostSelectionFlow =
+	    !!myActiveSpot && (myActiveSpot.status === 'booked' || myActiveSpot.status === 'confirmed');
+
+	  return (
+	    <div
+	      className={`relative h-screen w-full font-sans overflow-hidden ${
+	        theme === 'dark'
           ? 'bg-[#0b1220] text-slate-100 app-surface'
           : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
       }`}
@@ -2328,12 +2321,12 @@ export default function ParkSwapApp() {
           />
         </div>
       ) : null}
-     {(activeTab === 'search' || menuNudgeActive) && !searchFiltersOpen && (
-        <div
-          className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
-            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
-          }`}
-        >
+	      {activeTab === 'search' && !searchFiltersOpen && !isHostSelectionFlow && (
+	        <div
+	          className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
+	            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
+	          }`}
+	        >
           <button
             type="button"
             onClick={handleMenuClick}
@@ -2358,9 +2351,9 @@ export default function ParkSwapApp() {
                 />
               </>
             ) : null}
-            <Menu size={22} strokeWidth={2.5} />
-          </button>
-        </div>
+          <Menu size={22} strokeWidth={2.5} />
+        </button>
+      </div>
       )}
 
 	{showAccountSheet && (
@@ -2388,7 +2381,7 @@ export default function ParkSwapApp() {
     
     {/* La feuille de compte */}
     <div
-	ref={sheetRef}
+
       className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
         ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
       `}

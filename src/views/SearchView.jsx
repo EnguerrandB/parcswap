@@ -523,7 +523,10 @@ const SearchView = ({
   const priceSliderRef = useRef(null);
   const { isOnline, isPoorConnection } = useConnectionQuality();
   const prefsHydratedRef = useRef(false);
-  const prefsWriteTimerRef = useRef(null);
+  const prefsTouchedRef = useRef(false);
+  const prefsWriteInFlightRef = useRef(false);
+  const prefsWriteQueuedRef = useRef(null);
+  const prefsFlushRequestedRef = useRef(false);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
   const maxSpotPrice = useMemo(() => {
     const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
@@ -558,6 +561,7 @@ const SearchView = ({
   const setRadiusFromRange = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return;
+    prefsTouchedRef.current = true;
     if (n >= RADIUS_MAX_KM - 1e-6) {
       setRadius(null);
     } else {
@@ -568,6 +572,7 @@ const SearchView = ({
   const setPriceMaxFromRange = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return;
+    prefsTouchedRef.current = true;
     if (n >= maxSpotPrice - 1e-6) {
       setPriceMax(null);
     } else {
@@ -677,11 +682,13 @@ const SearchView = ({
               : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw));
         const nextPriceMax = data.priceMax == null ? null : Number(data.priceMax);
 
-        if (nextRadius == null || (Number.isFinite(nextRadius) && nextRadius > 0)) {
-          setRadius((prev) => (prefsHydratedRef.current ? prev : nextRadius));
-        }
-        if (nextPriceMax == null || Number.isFinite(nextPriceMax)) {
-          setPriceMax((prev) => (prefsHydratedRef.current ? prev : nextPriceMax));
+        if (!prefsTouchedRef.current) {
+          if (nextRadius == null || (Number.isFinite(nextRadius) && nextRadius > 0)) {
+            setRadius(nextRadius);
+          }
+          if (nextPriceMax == null || Number.isFinite(nextPriceMax)) {
+            setPriceMax(nextPriceMax);
+          }
         }
 
         prefsLastSavedRef.current = {
@@ -700,7 +707,7 @@ const SearchView = ({
 
   useEffect(() => {
     if (!currentUserId) return undefined;
-    if (!prefsHydratedRef.current) return undefined;
+    if (!prefsHydratedRef.current && !prefsTouchedRef.current) return undefined;
 
     const safeRadius =
       radius == null
@@ -711,27 +718,56 @@ const SearchView = ({
     const last = prefsLastSavedRef.current;
     if (last.radius === safeRadius && last.priceMax === safePriceMax) return undefined;
 
-    if (prefsWriteTimerRef.current) window.clearTimeout(prefsWriteTimerRef.current);
-    prefsWriteTimerRef.current = window.setTimeout(async () => {
-      try {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', currentUserId);
-        await setDoc(
-          ref,
-          { radiusKm: safeRadius, priceMax: safePriceMax, updatedAt: serverTimestamp() },
-          { merge: true },
-        );
-        prefsLastSavedRef.current = { radius: safeRadius, priceMax: safePriceMax };
-      } catch (err) {
-        console.error('Error persisting search prefs:', err);
-      }
-    }, 450);
+    prefsWriteQueuedRef.current = { radiusKm: safeRadius, priceMax: safePriceMax };
+    prefsFlushRequestedRef.current = true;
 
-    return () => {
-      if (prefsWriteTimerRef.current) window.clearTimeout(prefsWriteTimerRef.current);
+    const flush = async () => {
+      if (prefsWriteInFlightRef.current) return;
+      prefsWriteInFlightRef.current = true;
+      try {
+        while (prefsWriteQueuedRef.current) {
+          const next = prefsWriteQueuedRef.current;
+          prefsWriteQueuedRef.current = null;
+          try {
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', currentUserId);
+            await setDoc(
+              ref,
+              { ...next, updatedAt: serverTimestamp() },
+              { merge: true },
+            );
+            prefsLastSavedRef.current = { radius: next.radiusKm ?? null, priceMax: next.priceMax ?? null };
+          } catch (err) {
+            console.error('Error persisting search prefs:', err);
+            if (!prefsWriteQueuedRef.current) prefsWriteQueuedRef.current = next;
+            break;
+          }
+        }
+      } finally {
+        prefsWriteInFlightRef.current = false;
+        if (prefsWriteQueuedRef.current || prefsFlushRequestedRef.current) {
+          prefsFlushRequestedRef.current = false;
+          Promise.resolve().then(() => flush());
+        }
+      }
     };
+    flush();
+
+    return undefined;
   }, [currentUserId, radius, priceMax]);
 
   const sortedSpots = [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)); // older first so new cards go to the back
+  const countAvailableWith = (radiusKmOverride, priceMaxOverride) => {
+    const filtered = sortedSpots.filter((spot) => {
+      const withinRadius =
+        radiusKmOverride == null ? true : getDistanceMeters(spot, userCoords) <= radiusKmOverride * 1000;
+      if (!withinRadius) return false;
+      if (priceMaxOverride == null) return true;
+      const p = Number(spot?.price ?? 0);
+      return Number.isFinite(p) ? p <= priceMaxOverride : true;
+    });
+    return uniqueSpotsByHost(filtered).length;
+  };
+
   const filteredSpots = sortedSpots.filter((spot) => {
     const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
     if (!withinRadius) return false;
@@ -748,6 +784,14 @@ const SearchView = ({
   const showEmpty = (noSpots || outOfCards) && !selectedSpot && isOnline;
   const isMapOpen = !!selectedSpot;
   const activeSpot = visibleSpots?.[0] || null;
+  const relaxedRadiusCount =
+    noSpots && radius != null ? countAvailableWith(Math.min(RADIUS_MAX_KM, Number(radius) + 0.5), priceMax) : 0;
+  const relaxedPriceCount =
+    noSpots && priceMax != null ? countAvailableWith(radius, Number(priceMax) + 1) : 0;
+  const showRelaxHint =
+    noSpots &&
+    (radius != null || priceMax != null) &&
+    (relaxedRadiusCount > 0 || relaxedPriceCount > 0);
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
   const isActiveFreeSpot = isFreeSpot(activeSpot);
@@ -1195,6 +1239,42 @@ const SearchView = ({
                   {t('noSpotsSubtitleFun', 'Widen the radius or blink— a spot will pop up.')}
                 </p>
               </div>
+              {showRelaxHint ? (
+                <div
+                  className={`mx-auto w-full rounded-[24px] border px-4 py-3 text-left shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl ${
+                    isDark ? 'bg-slate-900/70 border-white/10' : 'bg-white/80 border-white/60'
+                  }`}
+                >
+                  <div className={`text-[11px] font-extrabold uppercase tracking-[0.18em] ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
+                    {t('relaxFilters', { defaultValue: 'Relax filters' })}
+                  </div>
+                  <div className={`mt-1 text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                    {t('relaxFiltersHint', { defaultValue: 'More spots are available with:' })}
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    {relaxedRadiusCount > 0 ? (
+                      <div className={`flex items-center justify-between rounded-2xl px-3 py-2 ${isDark ? 'bg-white/5' : 'bg-orange-50/60'}`}>
+                        <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+                          {t('relaxRadiusStep', { defaultValue: '+500 m radius' })}
+                        </span>
+                        <span className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-600'}`}>
+                          {t('spotsCount', { defaultValue: '{{count}} spots', count: relaxedRadiusCount })}
+                        </span>
+                      </div>
+                    ) : null}
+                    {relaxedPriceCount > 0 ? (
+                      <div className={`flex items-center justify-between rounded-2xl px-3 py-2 ${isDark ? 'bg-white/5' : 'bg-orange-50/60'}`}>
+                        <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
+                          {t('relaxPriceStep', { defaultValue: '+1 € max price' })}
+                        </span>
+                        <span className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-600'}`}>
+                          {t('spotsCount', { defaultValue: '{{count}} spots', count: relaxedPriceCount })}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <>

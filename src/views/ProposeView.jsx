@@ -275,7 +275,7 @@ const ProposeView = forwardRef(({
                       onClick={() => setProposeForm({ ...proposeForm, car: v.model })}
                       className={`min-w-[190px] snap-start shrink-0 p-4 rounded-[2rem] border text-left transition shadow-sm backdrop-blur ${
                         proposeForm.car === v.model
-                          ? 'border-orange-200 bg-orange-50/60 ring-1 ring-orange-200/40'
+                          ? 'border-orange-400 bg-white/80'
                           : 'border-gray-100 bg-white/80 hover:border-gray-200'
                       }`}
                     >

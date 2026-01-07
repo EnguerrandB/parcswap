@@ -450,9 +450,9 @@ const MapInner = ({
           density: zoomBasedReveal(0.5),
           intensity: 1.0,
           color: '#a8adbc',
-          opacity: 0.7,
-          vignette: zoomBasedReveal(1.0),
-          'vignette-color': '#464646',
+          opacity: 0.25,
+          vignette: 0,
+          'vignette-color': '#6b6b6b',
           direction: [0, 80],
           'droplet-size': [2.6, 18.2],
           'distortion-strength': 0.7,
@@ -871,7 +871,7 @@ useEffect(() => {
         
         let geometry = decodePolyline(polyline, 6);
         // Prepend user location to ensure connection, but don't rely on it for bearing
-        if (userLoc) geometry = [[userLoc.lng, userLoc.lat], ...geometry];
+        // if (userLoc) geometry = [[userLoc.lng, userLoc.lat], ...geometry];
         geometry.push([spot.lng, spot.lat]);
 
         setNavGeometry(geometry);
@@ -1219,45 +1219,119 @@ useEffect(() => {
           source: 'route',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            'line-color': '#ea580c', // Orange-600
-            'line-width': 8,
-            'line-opacity': 0.8,
+            'line-color': '#ffffff',
+            'line-width': 6,
+            'line-opacity': 0.45,
+            'line-emissive-strength': 1,
           },
         });
 
-        // Glow effect
+        // Glow effect (below the core line)
         map.addLayer({
           id: 'route-glow',
           type: 'line',
           source: 'route',
           paint: {
-            'line-color': '#fb923c', // Orange-400
-            'line-width': 16,
-            'line-opacity': 0.3,
-            'line-blur': 10,
+            'line-color': '#ffffff',
+            'line-width': 14,
+            'line-opacity': 0.25,
+            'line-blur': 12,
+            'line-emissive-strength': 1,
+          },
+        }, 'route-line');
+
+        // Dark outline to keep the white line visible over light buildings
+        map.addLayer({
+          id: 'route-outline',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': 'rgba(0, 0, 0, 0.35)',
+            'line-width': 10,
+            'line-opacity': 1,
+            'line-emissive-strength': 1,
           },
         }, 'route-line');
       }
 
       // 2. La source pour les boules animées
+
+      
       if (!map.getSource('route-dots')) {
+
+        if (!map.hasImage('3d-sphere')) {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    const grad = ctx.createRadialGradient(
+      size * 0.35, size * 0.35, size * 0.05,
+      size * 0.5, size * 0.5, size * 0.5
+    );
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(1, 'rgba(200, 200, 200, 1)');
+
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    map.addImage('3d-sphere', ctx.getImageData(0, 0, size, size));
+  }
+
+
         map.addSource('route-dots', {
           type: 'geojson',
           data: { type: 'FeatureCollection', features: [] }
         });
 
-	        map.addLayer({
-	          id: 'route-dots-layer',
-	          type: 'circle', // Utilisation de 'circle' pour des vraies boules
-	          source: 'route-dots',
-	          paint: {
-	            'circle-color': '#ffffff',
-	            'circle-radius': 6, // Plus gros + bien visible (taille fixe en pixels)
-	            'circle-stroke-width': 0,
-	            'circle-pitch-alignment': 'viewport', // Reste face à l'écran même si la carte est inclinée
-	          }
-	        });
-	      }
+        map.addLayer({
+          id: 'route-dots-glow',
+          type: 'circle',
+          source: 'route-dots',
+          paint: {
+            'circle-color': '#ff7a00',
+            'circle-radius': [
+      'interpolate', ['linear'], ['zoom'],
+      10, 2,  // Si dézoomé (vue ville) -> tout petit (2px)
+      15, 6,  // Zoom moyen (ton réglage actuel) -> 6px
+      22, 15  // Zoom max (très proche) -> gros (15px)
+      ],
+            'circle-opacity': 0.55,
+            'circle-blur': 1,
+            'circle-pitch-alignment': 'map',
+            'circle-emissive-strength': 1,
+          }
+        });
+
+        map.addLayer({
+    id: 'route-dots-layer',
+    type: 'symbol', // Type symbol pour afficher l'image
+    source: 'route-dots',
+    layout: {
+      'icon-image': '3d-sphere',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-pitch-alignment': 'viewport', // La bille reste ronde face écran
+      'icon-size': [
+        'interpolate', ['linear'], ['zoom'],
+        13, 0.1,
+        16, 0.25,
+        20, 0.6
+      ]
+    },
+    paint: {
+      'icon-opacity': 1,
+      'icon-emissive-strength': 1
+    }
+  });
+
+        
+      }
 
 	      // --- Animation Loop ---
 	      let startTimestamp = null;
@@ -1366,14 +1440,30 @@ useEffect(() => {
             });
 
            watchIdRef.current = navigator.geolocation.watchPosition(
-               (pos) => {
-                   const { latitude, longitude, heading, speed } = pos.coords;
-                   const newCoords = [longitude, latitude];
-                   
-                   updateRouteProgress(longitude, latitude);
+  (pos) => {
+    const { latitude, longitude } = pos.coords; // On ignore heading et speed du GPS
+    const newCoords = [longitude, latitude];
+    
+    // 1. Trouver où on est sur la ligne orange/blanche
+    // (On utilise ta fonction existante findClosestPointIndex)
+    const { index: closestIdx } = findClosestPointIndex(navGeometry, longitude, latitude);
+
+    // 2. Calculer l'angle "idéal" de la route
+    // On regarde le segment actuel : du point le plus proche vers le suivant
+    if (closestIdx < navGeometry.length - 1) {
+      const p1 = navGeometry[closestIdx];
+      const p2 = navGeometry[closestIdx + 1];
+      
+      // On force l'angle à être celui de la route tracée
+      currentBearing = computeBearing(p1, p2);
+    } 
+    // Fallback : si on est à la toute fin, on garde le dernier angle connu
+
+    updateRouteProgress(longitude, latitude);
                    
                    // Initialisation au premier point
-                   if (!prevCoords) {
+                   if (!prevCoords) 
+                    {
                        prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
                        if (markerPopupRef.current) {
@@ -1415,10 +1505,10 @@ useEffect(() => {
                    // Décalage de la caméra pour voir "devant" (effet Chase Mode)
                    const CAMERA_OFFSET_METERS = 100; // Ajustez cette valeur pour placer la voiture plus ou moins bas
                    const shiftedCenter = offsetCenter(
-                     newCoords,
-                     currentBearing, // On projette le centre DEVANT la voiture, dans l'axe de la route
-                     CAMERA_OFFSET_METERS
-                   );
+      newCoords,
+      currentBearing, // Ici on utilise l'angle de la route, c'est super fluide
+      100 
+    );
 
                     map.easeTo({
                       center: shiftedCenter,
@@ -1470,8 +1560,16 @@ useEffect(() => {
         // Nettoyage des layers/sources si nécessaire lors du démontage complet
         if (mapRef.current && mapRef.current.getLayer('route-dots-layer')) {
              mapRef.current.removeLayer('route-dots-layer');
+            }
+        if (mapRef.current && mapRef.current.getLayer('route-dots-glow')) {
+             mapRef.current.removeLayer('route-dots-glow');
+            }
+        if (mapRef.current && mapRef.current.getLayer('route-outline')) {
+             mapRef.current.removeLayer('route-outline');
+            }
+        if (mapRef.current && mapRef.current.getSource('route-dots')) {
              mapRef.current.removeSource('route-dots');
-        }
+            }
       };
     }
   }, [navReady, navGeometry, navSteps, mapLoaded]);
@@ -1619,7 +1717,7 @@ useEffect(() => {
           img.draggable = false;
           img.style.filter = 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))';
           img.style.zIndex = '1';
-          img.style.opacity = '0.85';
+          img.style.opacity = '1';
 
           const presenceDot = document.createElement('span');
           presenceDot.className = 'user-marker-presence-dot';

@@ -617,6 +617,11 @@ body[data-theme="dark"] .app-surface {
   color: #e5e7eb;
 }
 
+body[data-theme="dark"] .price-card-surface {
+  background: rgba(15, 23, 42, 0.82);
+  border-color: #1f2937;
+}
+
 body[data-theme="dark"] .propose-publish-bar {
   background: linear-gradient(to top, rgba(11, 18, 32, 0.96), rgba(11, 18, 32, 0.85), rgba(11, 18, 32, 0.7));
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -704,46 +709,49 @@ body[data-theme="dark"] textarea::placeholder {
   }
 }
 
-.propose-title-slide {
-  animation: propose-title-slide 10s ease-in-out infinite;
-  animation-fill-mode: forwards;
-  will-change: transform, opacity;
+.price-gold-surface {
+  border-color: rgba(255, 236, 170, 0.55);
 }
 
-@keyframes propose-title-slide {
-  0% {
-    transform: translateX(-160vw);
-    opacity: 0;
-  }
+.price-card-surface {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgb(243 244 246);
+  transition:
+    border-color 880ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 880ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 
-  10% {
-    transform: translateX(-100vw);
+.price-card-surface > * {
+  position: relative;
+  z-index: 1;
+}
+
+.price-card-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, #fff5cc 0%, #ffe08a 18%, #d4af37 48%, #b8860b 78%, #6b4f13 100%);
+  opacity: 0;
+  clip-path: circle(0% at 50% 50%);
+  transition:
+    clip-path 1100ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 420ms ease;
+  filter: saturate(1.08) contrast(1.02);
+}
+
+.price-card-surface.price-gold-surface::before {
+  opacity: 1;
+  clip-path: circle(140% at 50% 50%);
+}
+
+@supports not (clip-path: circle(50% at 50% 50%)) {
+  .price-card-surface::before {
+    clip-path: none;
+  }
+  .price-card-surface.price-gold-surface::before {
     opacity: 1;
-  }
-
-  25% {
-    transform: translateX(+10%);
-    opacity: 1;
-  }
-
-  50% {
-    transform: translateX(0);
-    opacity: 1;
-  }
-
-  75% {
-    transform: translateX(10%);
-    opacity: 1;
-  }
-
-  90% {
-    transform: translateX(100vw);
-    opacity: 0.9;
-  }
-
-  100% {
-    transform: translateX(160vw);
-    opacity: 0;
   }
 }
 

@@ -1,7 +1,7 @@
 // src/views/SearchView.jsx
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, MapPin, Bell, WifiOff, Wifi } from 'lucide-react';
+import { X, MapPin, Bell, WifiOff, Wifi, Euro } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import useConnectionQuality from '../hooks/useConnectionQuality';
@@ -485,6 +485,7 @@ const SearchView = ({
   leaderboard = [],
   userCoords = null,
   currentUserId = null,
+  onFiltersOpenChange,
   deckIndex = null,
   setDeckIndex,
 }) => {
@@ -945,6 +946,11 @@ const SearchView = ({
     }
   };
 
+  useEffect(() => {
+    onFiltersOpenChange?.(showRadiusPicker);
+    return () => onFiltersOpenChange?.(false);
+  }, [showRadiusPicker, onFiltersOpenChange]);
+
   return (
     <div
       ref={viewRef}
@@ -989,70 +995,136 @@ const SearchView = ({
 	            }`}
 	            style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
 	          >
-            <div
-              className={`backdrop-blur-lg rounded-2xl shadow-2xl border p-4 ${
-                isDark ? 'bg-slate-900/90 border-white/10 shadow-black/40' : 'bg-white/95 border-white/80'
-              }`}
-            >
-	              <div className="flex items-center justify-between mb-2">
-	                <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-	                  {t('searchRadius', 'Search radius')}
-	                </span>
-	                <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
-	                  {radius == null
-	                    ? anyLabel
-	                    : t('radiusValue', {
-	                        value: radius.toFixed(1),
-	                        defaultValue: '{{value}} km',
-	                      })}
-	                </span>
-	              </div>
-	              <input
-	                ref={radiusSliderRef}
-	                type="range"
-	                min={RADIUS_MIN_KM}
-	                max={RADIUS_MAX_KM}
-	                step="0.1"
-	                value={radius == null ? RADIUS_MAX_KM : radius}
-	                onPointerDown={(e) =>
-	                  startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadiusFromRange)
-	                }
-	                onChange={(e) => setRadiusFromRange(parseFloat(e.target.value))}
-	                className="w-full accent-orange-500"
-	              />
-	              <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-	                <span>100 m</span>
-	                <span>500 m</span>
-	                <span>{anyLabel}</span>
-	              </div>
+            <div className="space-y-4">
+              <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                      <MapPin size={20} strokeWidth={2.5} />
+                    </div>
+                    <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                      {t('searchRadius', 'Search radius')}
+                    </label>
+                  </div>
 
-              <div className={`mt-5 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200/60'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                    {t('priceFilter', { defaultValue: 'Max price' })}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-bold ${isDark ? 'text-amber-300' : 'text-orange-600'}`}>
-                      {priceMax == null
-                        ? t('anyPrice', { defaultValue: 'Any' })
-                        : t('priceValue', { defaultValue: '{{value}} €', value: formatEuro(priceMax) })}
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                      {radius == null ? anyLabel : radius.toFixed(1)}
+                    </span>
+                    <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                      {radius == null ? '' : 'km'}
                     </span>
                   </div>
                 </div>
-	                <input
-	                  ref={priceSliderRef}
-	                  type="range"
-	                  min="0"
-	                  max={maxSpotPrice}
-	                  step="0.5"
-	                  value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
-	                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
-	                  onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
-	                  className="w-full accent-orange-500"
-	                />
-                <div className={`mt-2 flex justify-between text-[11px] uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                  <span>0 €</span>
-                  <span>{formatEuro(maxSpotPrice)} €</span>
+
+                <div className="relative h-10 flex items-center px-1">
+                  <input
+                    ref={radiusSliderRef}
+                    type="range"
+                    min={RADIUS_MIN_KM}
+                    max={RADIUS_MAX_KM}
+                    step="0.1"
+                    value={radius == null ? RADIUS_MAX_KM : radius}
+                    onPointerDown={(e) =>
+                      startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadiusFromRange)
+                    }
+                    onChange={(e) => setRadiusFromRange(parseFloat(e.target.value))}
+                    style={{
+                      backgroundSize: `${
+                        ((Number((radius == null ? RADIUS_MAX_KM : radius)) - RADIUS_MIN_KM) * 100) /
+                        (RADIUS_MAX_KM - RADIUS_MIN_KM)
+                      }% 100%`,
+                    }}
+                    className="
+                      relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                      bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                      focus:outline-none focus:ring-0
+
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:w-7
+                      [&::-webkit-slider-thumb]:h-7
+                      [&::-webkit-slider-thumb]:bg-white
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                      [&::-webkit-slider-thumb]:border-0
+                      [&::-webkit-slider-thumb]:transition-transform
+                      [&::-webkit-slider-thumb]:duration-150
+                      [&::-webkit-slider-thumb]:ease-out
+                      [&::-webkit-slider-thumb]:hover:scale-110
+                      [&::-webkit-slider-thumb]:active:scale-95
+                    "
+                  />
+                  <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                    100 m
+                  </div>
+                  <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                    {anyLabel}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                      <Euro size={20} strokeWidth={2.5} />
+                    </div>
+                    <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                      {t('priceFilter', { defaultValue: 'Max price' })}
+                    </label>
+                  </div>
+
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                      {priceMax == null ? anyLabel : formatEuro(priceMax)}
+                    </span>
+                    <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                      {priceMax == null ? '' : '€'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative h-10 flex items-center px-1">
+                  <input
+                    ref={priceSliderRef}
+                    type="range"
+                    min="0"
+                    max={maxSpotPrice}
+                    step="0.5"
+                    value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+                    onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
+                    onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
+                    style={{
+                      backgroundSize: `${
+                        ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
+                        Math.max(1, maxSpotPrice)
+                      }% 100%`,
+                    }}
+                    className="
+                      relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                      bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                      focus:outline-none focus:ring-0
+
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:w-7
+                      [&::-webkit-slider-thumb]:h-7
+                      [&::-webkit-slider-thumb]:bg-white
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                      [&::-webkit-slider-thumb]:border-0
+                      [&::-webkit-slider-thumb]:transition-transform
+                      [&::-webkit-slider-thumb]:duration-150
+                      [&::-webkit-slider-thumb]:ease-out
+                      [&::-webkit-slider-thumb]:hover:scale-110
+                      [&::-webkit-slider-thumb]:active:scale-95
+                    "
+                  />
+                  <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                    0 €
+                  </div>
+                  <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                    {formatEuro(maxSpotPrice)} €
+                  </div>
                 </div>
               </div>
             </div>

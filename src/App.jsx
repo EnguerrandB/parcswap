@@ -521,6 +521,7 @@ export default function ParkSwapApp() {
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
+  const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
@@ -2167,6 +2168,7 @@ export default function ParkSwapApp() {
 	            leaderboard={leaderboard}
 	            userCoords={userCoords}
 	            currentUserId={user?.uid || null}
+              onFiltersOpenChange={setSearchFiltersOpen}
 	            premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
 	            deckIndex={searchDeckIndex}
 	            setDeckIndex={setSearchDeckIndex}
@@ -2185,7 +2187,7 @@ export default function ParkSwapApp() {
             onConfirmPlate={handleConfirmPlate}
             onCancelSpot={handleCancelSpot}
             onRenewSpot={handleRenewSpot}
-            onNudgeAddVehicle={nudgeVehicleOnboarding}
+            onNudgeAddVehicle={openAddVehicle}
           />
         </div>
       );
@@ -2268,7 +2270,7 @@ export default function ParkSwapApp() {
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       <OrientationBlockedOverlay visible={orientationBlocked} />
-      {(activeTab === 'search' || menuNudgeActive) && (
+      {(activeTab === 'search' || menuNudgeActive) && !searchFiltersOpen && (
         <div
           className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
             hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -2467,7 +2469,7 @@ export default function ParkSwapApp() {
             setActiveTab={changeTab}
             waitingMode={activeTab === 'propose' && !!myActiveSpot}
             canPublish={vehicles.length > 0}
-            onPublishDisabledPress={nudgeVehicleOnboarding}
+            onPublishDisabledPress={openAddVehicle}
             onCancelPress={() => {
               if (!myActiveSpot?.id) return;
               handleCancelSpot(myActiveSpot.id);

@@ -1,6 +1,6 @@
 // src/views/ProposeView.jsx
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { Car, Clock, Euro, Ruler, WifiOff, Wifi } from 'lucide-react';
+import { Car, Clock, Euro, Plus, Ruler, WifiOff, Wifi } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MOCK_CARS } from '../constants';
 import WaitingView from './WaitingView';
@@ -49,6 +49,9 @@ const ProposeView = forwardRef(({
   const [remainingMs, setRemainingMs] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
+  const [titleFlash, setTitleFlash] = useState(false);
+  const [vehicleIconSwapFor, setVehicleIconSwapFor] = useState(null);
+  const titleFlashTimerRef = useRef(null);
   const timeSliderRef = useRef(null);
   const priceSliderRef = useRef(null);
   const lengthSliderRef = useRef(null);
@@ -94,6 +97,30 @@ const ProposeView = forwardRef(({
   };
 
   useImperativeHandle(ref, () => ({ publish: publishSpot }), [publishSpot]);
+
+  const flashTitle = () => {
+    setTitleFlash(true);
+    if (titleFlashTimerRef.current) window.clearTimeout(titleFlashTimerRef.current);
+    titleFlashTimerRef.current = window.setTimeout(() => setTitleFlash(false), 1000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (titleFlashTimerRef.current) window.clearTimeout(titleFlashTimerRef.current);
+      titleFlashTimerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!vehicleIconSwapFor) return undefined;
+    const onDown = (e) => {
+      const withinToggle = e.target?.closest?.('[data-vehicle-icon-toggle="1"]');
+      if (withinToggle) return;
+      setVehicleIconSwapFor(null);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [vehicleIconSwapFor]);
 
   useEffect(() => {
     const next = vehicles.find((v) => v.isDefault) || vehicles[0];
@@ -161,13 +188,34 @@ const ProposeView = forwardRef(({
     window.addEventListener('pointercancel', onEnd);
   };
 
+  const isFreePrice = Number(proposeForm.price) === 0;
+  const handleVehicleIconClick = (id) => {
+    if (vehicleIconSwapFor === id) {
+      onNudgeAddVehicle?.();
+      setVehicleIconSwapFor(null);
+      return;
+    }
+    setVehicleIconSwapFor(id);
+  };
+
   return (
     <div
       className="h-full flex flex-col bg-gray-50 px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto overflow-x-hidden relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
       style={{ touchAction: 'auto' }}
     >
-      <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center propose-title-slide">
-        {t('leavingTitle', 'Leaving my spot')}
+      <h2
+        className={`text-2xl font-bold mb-6 text-center select-none ${
+          titleFlash ? 'text-orange-500' : 'text-gray-900'
+        }`}
+        style={{ WebkitTapHighlightColor: 'transparent', WebkitUserSelect: 'none', userSelect: 'none' }}
+        onClick={flashTitle}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') flashTitle();
+        }}
+      >
+        {titleFlash ? t('leavingTitleNow', 'Now ?') : t('leavingTitle', 'Leaving my spot')}
       </h2>
       {isOnline && isPoorConnection ? (
         <div className="mb-4">
@@ -187,9 +235,19 @@ const ProposeView = forwardRef(({
                 <div className="w-full">
                   <div className="w-full flex items-center justify-between px-4 py-3 rounded-[2rem] border border-gray-100 bg-white/80 shadow-sm backdrop-blur">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="bg-white p-2 rounded-lg border border-gray-100 shrink-0">
-                        <Car size={20} className="text-orange-500" />
-                      </div>
+                      <button
+                        type="button"
+                        data-vehicle-icon-toggle="1"
+                        onClick={() => handleVehicleIconClick('single')}
+                        className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 shrink-0"
+                        aria-label={t('addVehicle', 'Add vehicle')}
+                      >
+                        {vehicleIconSwapFor === 'single' ? (
+                          <Plus size={20} strokeWidth={2.8} className="text-orange-500" />
+                        ) : (
+                          <Car size={20} strokeWidth={2.5} />
+                        )}
+                      </button>
                       <div className="min-w-0">
                         <div className="flex items-baseline gap-2 min-w-0">
                           <span className="font-semibold text-sm text-gray-900 truncate">
@@ -201,8 +259,8 @@ const ProposeView = forwardRef(({
                         </div>
                       </div>
                     </div>
-                  </div>
                 </div>
+              </div>
             ) : (
               <div className="w-full overflow-x-auto no-scrollbar touch-pan-x">
                 <div className="flex space-x-3 snap-x snap-mandatory">
@@ -216,47 +274,66 @@ const ProposeView = forwardRef(({
                           ? 'border-orange-200 bg-orange-50/60 ring-1 ring-orange-200/40'
                           : 'border-gray-100 bg-white/80 hover:border-gray-200'
                       }`}
+                    >
+                      <button
+                        type="button"
+                        data-vehicle-icon-toggle="1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVehicleIconClick(String(v.id || v.model || 'vehicle'));
+                        }}
+                        className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 mb-2"
+                        aria-label={t('addVehicle', 'Add vehicle')}
                       >
-                        <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
+                        {vehicleIconSwapFor === String(v.id || v.model || 'vehicle') ? (
+                          <Plus size={20} strokeWidth={2.8} className="text-orange-500" />
+                        ) : (
                           <Car
                             size={20}
+                            strokeWidth={2.5}
                             className={`${proposeForm.car === v.model ? 'text-orange-500' : 'text-gray-400'}`}
                           />
-                        </div>
-                        <p className="font-semibold text-sm">{v.model}</p>
-                        <p className="text-xs text-gray-400">{v.plate}</p>
+                        )}
                       </button>
-                    ))}
-                  </div>
-                </div>
-              )
-          ) : (
-            <div className="w-full overflow-x-auto no-scrollbar touch-pan-x">
-              <div className="flex space-x-3 snap-x snap-mandatory">
-                {MOCK_CARS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => onNudgeAddVehicle?.()}
-                    className="relative min-w-[190px] snap-start shrink-0 p-4 rounded-[2rem] border text-left transition border-gray-100 hover:border-gray-200 bg-white/80 shadow-sm backdrop-blur"
-                  >
-                      <span
-                        className="pointer-events-none absolute top-3 right-3 w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-xs font-extrabold flex items-center justify-center shadow"
-                        aria-hidden="true"
-                      >
-                        ?
-                      </span>
-                      <div className="bg-white p-2 rounded-lg border border-gray-100 inline-flex mb-2">
-                        <Car size={20} className="text-gray-300" />
-                      </div>
-                      <p className="font-semibold text-sm text-gray-800">{c.model}</p>
-                      <p className="text-xs text-gray-400 tracking-widest font-mono">??-???-??</p>
+                      <p className="font-semibold text-sm">{v.model}</p>
+                      <p className="text-xs text-gray-400">{v.plate}</p>
                     </button>
                   ))}
                 </div>
               </div>
-            )}
-          </div>
+            )
+          ) : (
+            <button
+              type="button"
+              onClick={() => onNudgeAddVehicle?.()}
+              className="w-full text-left"
+            >
+              <div className="w-full flex items-center justify-between px-4 py-3 rounded-[2rem] border border-gray-100 bg-white/80 shadow-sm backdrop-blur">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 shrink-0">
+                    <Car size={20} strokeWidth={2.5} className="text-orange-500" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      <span className="font-semibold text-sm text-gray-900 truncate">
+                        {t('addVehicle', 'Add vehicle')}
+                      </span>
+                      <span className="text-xs text-gray-500 font-mono tracking-widest truncate">
+                        —
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 text-white text-sm font-extrabold flex items-center justify-center shadow"
+                  aria-hidden="true"
+                >
+                  +
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
 
           {/* Time - Modern Apple-like Card */}
           <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
@@ -264,7 +341,7 @@ const ProposeView = forwardRef(({
           {/* Header: Label & Value */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
                 <Clock size={20} strokeWidth={2.5} />
               </div>
               <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
@@ -329,22 +406,36 @@ const ProposeView = forwardRef(({
         </div>
         
         {/* Price - Same logic/design as "Leaving in" */}
-        <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+        <div
+          className={`price-card-surface p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden group ${
+            isFreePrice ? 'price-gold-surface' : ''
+          }`}
+        >
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+              <div
+                className={`w-10 h-10 flex items-center justify-center rounded-full shadow-sm transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105 ${
+                  isFreePrice
+                    ? 'bg-white/45 text-slate-900 shadow-none ring-1 ring-black/55'
+                    : 'bg-orange-50 text-orange-500 shadow-orange-100/50'
+                }`}
+              >
                 <Euro size={20} strokeWidth={2.5} />
               </div>
-              <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+              <label className={`${isFreePrice ? 'text-slate-900' : 'text-gray-600'} font-semibold text-[15px] tracking-wide`}>
                 {t('askingPrice', 'Asking Price')}
               </label>
             </div>
 
             <div className="flex items-baseline gap-1.5">
-              <span className="text-4xl font-bold text-gray-900 tracking-tight font-sans">
+              <span
+                className={`text-4xl font-bold tracking-tight font-sans ${
+                  isFreePrice ? 'text-white drop-shadow-[0_12px_26px_rgba(0,0,0,0.22)]' : 'text-gray-900'
+                }`}
+              >
                 {proposeForm.price}
               </span>
-              <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+              <span className={`text-sm font-bold uppercase tracking-wider translate-y-[-2px] ${isFreePrice ? 'text-white/80' : 'text-gray-400'}`}>
                 €
               </span>
             </div>
@@ -395,7 +486,7 @@ const ProposeView = forwardRef(({
         <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-300 group-hover:scale-105">
+              <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
                 <Ruler size={20} strokeWidth={2.5} />
               </div>
               <label className="text-gray-600 font-semibold text-[15px] tracking-wide">

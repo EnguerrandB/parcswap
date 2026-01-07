@@ -14,6 +14,7 @@ import userCar1 from '../assets/user-car-1.png';
 import userCar2 from '../assets/user-car-2.png';
 import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
+import userDirectionArrow from '../assets/user-direction-arrow.svg';
 
 // --- Helpers ---
 
@@ -296,6 +297,15 @@ const MapInner = ({
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   const OTHER_VISIBILITY_MIN_ZOOM = 13;
+  const OTHER_USERS_MAX_DISTANCE_KM = 5;
+  const OTHER_USERS_MAX_VISIBLE = 25;
+  const viewerCoordsRef = useRef(null);
+
+  useEffect(() => {
+    const candidate = userLoc || userCoords;
+    viewerCoordsRef.current =
+      candidate && isValidCoord(candidate.lng, candidate.lat) ? { lng: candidate.lng, lat: candidate.lat } : null;
+  }, [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1166,104 +1176,154 @@ useEffect(() => {
 
 
     // 2. Navigation Mode
+    // 2. Navigation Mode
     if (navReady && navGeometry.length > 1) {
-       const map = mapRef.current;
-       const updateRouteProgress = (lng, lat) => {
-         if (!navGeometry.length || !map) return null;
-         const { index: closestIdx, distanceKm } = findClosestPointIndex(navGeometry, lng, lat);
-         if (map.getSource('route')) {
-           const remaining = navGeometry.slice(closestIdx);
-           const coordinates = remaining.length ? [[lng, lat], ...remaining] : [[lng, lat]];
-           map.getSource('route').setData({
-             type: 'Feature',
-             geometry: { type: 'LineString', coordinates },
-           });
-         }
-         if (navSteps.length > 0) {
-           const progressRatio = closestIdx / Math.max(1, navGeometry.length - 1);
-           const nextIdx = Math.min(navSteps.length - 1, Math.floor(progressRatio * navSteps.length));
-           setNavIndex((prev) => (Number.isFinite(nextIdx) ? nextIdx : prev));
-         }
-         return { closestIdx, distanceKm };
-       };
-       
-        if (!map.getSource('route')) {
-          map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
-          map.addLayer({
-            id: 'route-line',
-            type: 'line',
-            source: 'route',
-            layout: {
-              'line-cap': 'round',
-              'line-join': 'round',
-            },
-            paint: {
-              'line-color': '#f97316',
-              'line-width': 8,
-              'line-opacity': 0.9,
-              'line-dasharray': [1.2, 1.8],
-            },
+      const map = mapRef.current;
+
+      // --- Fonction utilitaire pour interpoler des points le long de la ligne ---
+      const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
+        const points = [];
+        let accumulatedDist = 0;
+        let nextPointDist = offsetMeters;
+        
+        for (let i = 0; i < geometry.length - 1; i++) {
+          const start = geometry[i];
+          const end = geometry[i + 1];
+          // Distance approximative simple (suffisante pour l'animation visuelle)
+          // 1 degré lat ~= 111km -> 111000m. 
+          const dLat = end[1] - start[1];
+          const dLng = (end[0] - start[0]) * Math.cos(start[1] * Math.PI / 180);
+          const dist = Math.sqrt(dLat * dLat + dLng * dLng) * 111000;
+
+          while (nextPointDist <= accumulatedDist + dist) {
+            const ratio = (nextPointDist - accumulatedDist) / dist;
+            const lng = start[0] + (end[0] - start[0]) * ratio;
+            const lat = start[1] + (end[1] - start[1]) * ratio;
+            points.push([lng, lat]);
+            nextPointDist += spacingMeters;
+          }
+          accumulatedDist += dist;
+        }
+        return points;
+      };
+
+      // --- Ajout des sources et layers ---
+      
+      // 1. La ligne de route statique (orange)
+      if (!map.getSource('route')) {
+        map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
+        
+        map.addLayer({
+          id: 'route-line',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#ea580c', // Orange-600
+            'line-width': 8,
+            'line-opacity': 0.8,
+          },
+        });
+
+        // Glow effect
+        map.addLayer({
+          id: 'route-glow',
+          type: 'line',
+          source: 'route',
+          paint: {
+            'line-color': '#fb923c', // Orange-400
+            'line-width': 16,
+            'line-opacity': 0.3,
+            'line-blur': 10,
+          },
+        }, 'route-line');
+      }
+
+      // 2. La source pour les boules animées
+      if (!map.getSource('route-dots')) {
+        map.addSource('route-dots', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+
+	        map.addLayer({
+	          id: 'route-dots-layer',
+	          type: 'circle', // Utilisation de 'circle' pour des vraies boules
+	          source: 'route-dots',
+	          paint: {
+	            'circle-color': '#ffffff',
+	            'circle-radius': 6, // Plus gros + bien visible (taille fixe en pixels)
+	            'circle-stroke-width': 0,
+	            'circle-pitch-alignment': 'viewport', // Reste face à l'écran même si la carte est inclinée
+	          }
+	        });
+	      }
+
+	      // --- Animation Loop ---
+	      let startTimestamp = null;
+	      const speed = 25; // Mètres par seconde (vitesse de l'animation)
+	      const spacing = 14; // Beaucoup plus rapprochées
+
+      const animateDots = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = (timestamp - startTimestamp) / 1000; // secondes
+        
+        // Calcul du décalage actuel (boucle infinie grâce au modulo)
+        const currentOffset = (progress * speed) % spacing;
+
+        // Génération des points
+        const dotCoords = getPathPoints(navGeometry, spacing, currentOffset);
+
+        // Mise à jour de la source GeoJSON
+        if (map.getSource('route-dots')) {
+          map.getSource('route-dots').setData({
+            type: 'FeatureCollection',
+            features: dotCoords.map(coord => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: coord }
+            }))
           });
-
-          map.addLayer({
-  id: 'route-glow',
-  type: 'line',
-  source: 'route',
-  paint: {
-    'line-color': '#fb923c',
-   'line-width': 18,
-'line-opacity': 0.25,
-'line-blur': 12,
-  },
-}, 'route-line');
-
-map.addLayer({
-  id: 'route-flow',
-  type: 'line',
-  source: 'route',
-  paint: {
-    'line-color': '#fdba74', // orange clair
-    'line-width': 4,
-    'line-opacity': 0.8,
-    'line-dasharray': [0, 2],
-  },
-}, 'route-line');
-
-
-let dashPhase = 0;
-
-const animateRoute = () => {
-  if (!map.getLayer('route-flow')) return;
-
-  dashPhase = (dashPhase + 0.04) % 3;
-
-  map.setPaintProperty('route-flow', 'line-dasharray', [
-    0.3,
-    2.8 + dashPhase,
-  ]);
-
-  routeAnimRef.current = requestAnimationFrame(animateRoute);
-};
-
-if (!routeAnimRef.current) {
-  animateRoute();
-}
-
-
-        } else {
-          map.getSource('route').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } });
         }
 
+        routeAnimRef.current = requestAnimationFrame(animateDots);
+      };
+
+      if (!routeAnimRef.current) {
+        routeAnimRef.current = requestAnimationFrame(animateDots);
+      }
+
+
+
+
        if (!markerRef.current) {
-         const el = document.createElement('img');
-         // FIX 2: Smooth CSS transition for the car icon
-         el.className = 'car-marker-container transition-transform duration-1000 linear';
-         el.src = carMarker;
-         el.alt = 'Car';
-         el.style.width = '48px';
-         el.style.height = '48px';
+          // Création du marqueur (Flèche Waze)
+         const el = document.createElement('div');
+         el.className = 'car-marker-container transition-transform duration-100 linear';
+         el.style.width = '52px';
+         el.style.height = '52px';
          el.style.transformOrigin = 'center center';
          el.draggable = false;
+         
+         // SVG Flèche Waze
+         el.innerHTML = `
+             <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" style="transform-origin: center;">
+               <defs>
+                 <filter id="wazeGlow" x="-50%" y="-50%" width="200%" height="200%">
+                   <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="rgba(0, 0, 0, 0.3)" />
+                 </filter>
+               </defs>
+               <g filter="url(#wazeGlow)">
+                 <path
+                   d="M26 6L44 46L26 36L8 46L26 6Z"
+                   fill="#33CCFF"
+                   stroke="white"
+                   stroke-width="4"
+                   stroke-linejoin="round"
+                   stroke-linecap="round"
+                 />
+               </g>
+             </svg>
+           `;
 
          const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
            buildOtherUserPopupHTML(
@@ -1276,8 +1336,8 @@ if (!routeAnimRef.current) {
 
           markerRef.current = new mapboxgl.Marker({
             element: el,
-            rotationAlignment: 'viewport',
-            pitchAlignment: 'viewport',
+            rotationAlignment: 'map', // 'map' pour que la flèche suive la rotation de la carte correctement
+            pitchAlignment: 'map',
            })
              .setLngLat(userLoc ? [userLoc.lng, userLoc.lat] : navGeometry[0])
              .setRotation(0)
@@ -1285,35 +1345,34 @@ if (!routeAnimRef.current) {
              .addTo(map);
          markerPopupRef.current = popup;
       }
+      
+      // ... suite du code (watchPosition, etc.) ...
+
 
        // --- START TRACKING ---
        if (navigator.geolocation) {
            const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
            
-           // FIX 3: Initialize prevCoords as null to prevent jumping/bad bearing calculation on start
            let prevCoords = null; 
+           let currentBearing = 0; // Stocke le dernier cap connu pour éviter les sauts
 
-           // Initial FlyTo - Center on destination (parking spot)
-           const destPoint = navGeometry[navGeometry.length - 1] || navGeometry[0];
-           const prevPoint = navGeometry.length > 1 ? navGeometry[navGeometry.length - 2] : destPoint;
-           const initialBearing = computeBearing(destPoint, prevPoint);
-           
+           // FlyTo initial pour se placer
+           const startPoint = navGeometry[0] || [spot.lng, spot.lat];
            map.flyTo({ 
-               center: destPoint, 
-               zoom: 17, // Focus on the spot right after accept
-               pitch: 45,
-               bearing: isNaN(initialBearing) ? 0 : initialBearing, 
-               padding: { top: 120, bottom: 20 },
+               center: startPoint, 
+               zoom: 17, 
+               pitch: 50,
                duration: 2000 
             });
 
            watchIdRef.current = navigator.geolocation.watchPosition(
                (pos) => {
-                   const { latitude, longitude, heading } = pos.coords;
+                   const { latitude, longitude, heading, speed } = pos.coords;
                    const newCoords = [longitude, latitude];
+                   
                    updateRouteProgress(longitude, latitude);
                    
-                   // If this is the first point, just set it and wait for next one to calculate bearing
+                   // Initialisation au premier point
                    if (!prevCoords) {
                        prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
@@ -1329,44 +1388,53 @@ if (!routeAnimRef.current) {
                        const coordObj = { lat: latitude, lng: longitude };
                        setUserLoc(coordObj);
                        persistUserLocation(coordObj);
+                       
+                       // Si on a déjà un heading GPS valide au démarrage, on l'utilise
+                       if (heading !== null && !isNaN(heading)) {
+                           currentBearing = heading;
+                       }
                        return;
                    }
 
-                   // Calculate distance moved
+                   // Calcul de la distance parcourue depuis le dernier point
                    const distMoved = getDistanceFromLatLonInKm(prevCoords[1], prevCoords[0], latitude, longitude);
                    
-                   const bearingToDestination = computeBearing(
-                    newCoords,
-                    [spot.lng, spot.lat]
-                  );
+                   // --- LOGIQUE WAZE : Orientation basée sur le Cap (Heading) ---
+                   
+                   // 1. Priorité au Heading GPS natif si disponible et qu'on bouge un peu
+                   // (Le heading GPS est souvent null à l'arrêt ou imprécis)
+                   if (heading !== null && !isNaN(heading) && (speed === null || speed > 1)) {
+                       currentBearing = heading;
+                   } 
+                   // 2. Sinon, on calcule l'angle par rapport au mouvement précédent (si > 3 mètres)
+                   else if (distMoved > 0.003) {
+                       currentBearing = computeBearing(prevCoords, newCoords);
+                   }
+                   // 3. Sinon (à l'arrêt), on garde le `currentBearing` précédent pour ne pas que la carte tourne sur elle-même.
 
-                 const CAMERA_OFFSET_METERS = 140; // 👈 ajuste entre 90 et 160
-
-                  const shiftedCenter = offsetCenter(
-                    newCoords,
-                    bearingToDestination, // 👈 même direction que la route
-                    CAMERA_OFFSET_METERS
-                  );
+                   // Décalage de la caméra pour voir "devant" (effet Chase Mode)
+                   const CAMERA_OFFSET_METERS = 100; // Ajustez cette valeur pour placer la voiture plus ou moins bas
+                   const shiftedCenter = offsetCenter(
+                     newCoords,
+                     currentBearing, // On projette le centre DEVANT la voiture, dans l'axe de la route
+                     CAMERA_OFFSET_METERS
+                   );
 
                     map.easeTo({
                       center: shiftedCenter,
-                      zoom: 16.6,
-                      pitch: 48,
-                      bearing: bearingToDestination,
-                      padding: {
-                        top: 120,
-                        bottom: 0,
-                        left: 40,
-                        right: 40,
-                      },
-                      duration: 900,
-                      easing: t => t,
+                      zoom: 17.5,      // Zoom plus serré style GPS
+                      pitch: 55,       // Vue plus inclinée (3D)
+                      bearing: currentBearing, // La carte tourne selon VOTRE direction
+                      padding: { top: 0, bottom: 0, left: 0, right: 0 }, // Le décalage est géré par offsetCenter
+                      duration: 1000,  // Animation fluide (1s correspond souvent à l'intervalle GPS)
+                      easing: t => t,  // Linéaire pour la fluidité continue
                     });
 
                   if (markerRef.current) {
                     markerRef.current.getElement().style.zIndex = '10';
                     markerRef.current.setLngLat(newCoords);
-                    markerRef.current.setRotation(bearingToDestination);
+                    markerRef.current.setRotation(currentBearing); // La voiture tourne aussi selon le cap
+                    
                     if (markerPopupRef.current) {
                       markerPopupRef.current.setHTML(
                         buildOtherUserPopupHTML(
@@ -1377,8 +1445,6 @@ if (!routeAnimRef.current) {
                       );
                     }
                   }
-
- 
                    
                    const coordObj = { lat: latitude, lng: longitude };
                    setUserLoc(coordObj);
@@ -1391,18 +1457,22 @@ if (!routeAnimRef.current) {
        }
 
        return () => {
-  // 🧹 STOP animation route
-  if (routeAnimRef.current) {
-    cancelAnimationFrame(routeAnimRef.current);
-    routeAnimRef.current = null;
-  }
-
-  // 🧹 STOP GPS
-  if (watchIdRef.current) {
-    navigator.geolocation.clearWatch(watchIdRef.current);
-    watchIdRef.current = null;
-  }
-};
+        if (routeAnimRef.current) {
+          cancelAnimationFrame(routeAnimRef.current);
+          routeAnimRef.current = null;
+        }
+        // ... (votre nettoyage existant GPS)
+        if (watchIdRef.current) {
+           navigator.geolocation.clearWatch(watchIdRef.current);
+           watchIdRef.current = null;
+        }
+        
+        // Nettoyage des layers/sources si nécessaire lors du démontage complet
+        if (mapRef.current && mapRef.current.getLayer('route-dots-layer')) {
+             mapRef.current.removeLayer('route-dots-layer');
+             mapRef.current.removeSource('route-dots');
+        }
+      };
     }
   }, [navReady, navGeometry, navSteps, mapLoaded]);
 
@@ -1424,20 +1494,47 @@ if (!routeAnimRef.current) {
     const unsubscribe = onSnapshot(
       locRef,
       (snap) => {
-        const seen = new Set();
-        const allLocations = snap.docs.map((docSnap) => ({
-          uid: docSnap.id,
-          ...docSnap.data(),
-        }));
         updateSelfPopup();
-        snap.docs.forEach((docSnap) => {
-          const uid = docSnap.id;
-          const data = docSnap.data();
-          if (uid === currentUserId) return;
-          const lng = Number(data.lng);
-          const lat = Number(data.lat);
-          if (!isValidCoord(lng, lat)) return;
-          seen.add(uid);
+
+        const anchor =
+          viewerCoordsRef.current ||
+          (spot && isValidCoord(Number(spot.lng), Number(spot.lat))
+            ? { lng: Number(spot.lng), lat: Number(spot.lat) }
+            : { lng: 2.295, lat: 48.8738 });
+
+        const candidates = snap.docs
+          .map((docSnap) => {
+            const uid = docSnap.id;
+            const data = docSnap.data();
+            if (!uid || uid === currentUserId) return null;
+            const lng = Number(data.lng);
+            const lat = Number(data.lat);
+            if (!isValidCoord(lng, lat)) return null;
+            const distanceKm = getDistanceFromLatLonInKm(anchor.lat, anchor.lng, lat, lng);
+            return { uid, data, lng, lat, distanceKm };
+          })
+          .filter(Boolean)
+          .filter((row) => Number.isFinite(row.distanceKm) && row.distanceKm <= OTHER_USERS_MAX_DISTANCE_KM)
+          .sort((a, b) => a.distanceKm - b.distanceKm)
+          .slice(0, OTHER_USERS_MAX_VISIBLE);
+
+        const allowed = new Set(candidates.map((c) => c.uid));
+
+        // Remove markers that are now out of range / overflow
+        for (const [uid, marker] of otherUserMarkersRef.current.entries()) {
+          if (!allowed.has(uid)) {
+            marker.remove();
+            otherUserMarkersRef.current.delete(uid);
+            otherUserIconsRef.current.delete(uid);
+            otherUserPositionsRef.current.delete(uid);
+            otherUserWrappersRef.current.delete(uid);
+            otherUserProfilesRef.current.delete(uid);
+            otherUserProfileFetchRef.current.delete(uid);
+          }
+        }
+
+        candidates.forEach(({ uid, data, lng, lat }) => {
+          if (!allowed.has(uid)) return;
 
           const updatedAtDate = data.updatedAt?.toDate?.() || null;
           const cachedProfile = otherUserProfilesRef.current.get(uid) || {};
@@ -1576,17 +1673,7 @@ if (!routeAnimRef.current) {
           otherUserPositionsRef.current.set(uid, displayPos);
           return;
         });
-        // Cleanup markers not in snapshot
-        for (const [uid, marker] of otherUserMarkersRef.current.entries()) {
-          if (!seen.has(uid)) {
-            marker.remove();
-            otherUserMarkersRef.current.delete(uid);
-            otherUserIconsRef.current.delete(uid);
-            otherUserPositionsRef.current.delete(uid);
-            otherUserWrappersRef.current.delete(uid);
-            otherUserProfilesRef.current.delete(uid);
-          }
-        }
+
       },
       (err) => console.error('Error watching user locations', err),
     );
@@ -1603,7 +1690,7 @@ if (!routeAnimRef.current) {
       otherUserProfilesRef.current.clear();
       otherUserProfileFetchRef.current.clear();
     };
-  }, [mapLoaded, currentUserId]);
+  }, [mapLoaded, currentUserId, spot?.id]);
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">

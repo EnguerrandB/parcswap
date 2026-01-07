@@ -530,12 +530,11 @@ export default function ParkSwapApp() {
   const [userCoords, setUserCoords] = useState(null);
 	  const [showAccountSheet, setShowAccountSheet] = useState(false);
 	  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
-	  const [isSheetDragging, setIsSheetDragging] = useState(false);
-	  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
-	  const sheetDragRef = useRef(false);
-	  const sheetDragAxisRef = useRef('y'); // 'y' pull-down or 'x' swipe-right (mapped to vertical offset)
-	  const sheetStartY = useRef(0);
-	  const sheetOffsetRef = useRef(0);
+		  const [isSheetDragging, setIsSheetDragging] = useState(false);
+		  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
+		  const sheetDragRef = useRef(false);
+		  const sheetStartY = useRef(0);
+		  const sheetOffsetRef = useRef(0);
   const sheetRef = useRef(null)
 
 	  const handleMenuClick = () => {
@@ -586,9 +585,8 @@ export default function ParkSwapApp() {
 	    const startX = e.clientX || (e.touches && e.touches[0].clientX);
 	    if (startY == null) return;
 
-		    sheetStartY.current = startY;
-		    sheetOffsetRef.current = 0;
-		    sheetDragAxisRef.current = 'y';
+			    sheetStartY.current = startY;
+			    sheetOffsetRef.current = 0;
 
 	    // Drag immédiat si on prend la "handle", sinon on attend un vrai pull-down (scroll top).
 	    sheetDragRef.current = !startedInScrollable;
@@ -2390,6 +2388,7 @@ export default function ParkSwapApp() {
     
     {/* La feuille de compte */}
     <div
+	ref={sheetRef}
       className={`relative w-full h-[90vh] bg-white rounded-t-3xl shadow-2xl border border-gray-100 overflow-hidden 
         ${isSheetDragging ? '' : 'transition-transform duration-300 ease-out'}
       `}

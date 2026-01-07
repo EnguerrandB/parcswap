@@ -1659,12 +1659,10 @@ useEffect(() => {
 
           const existing = otherUserMarkersRef.current.get(uid);
           if (existing) {
-            const prevPos = previousDisplayPos || displayPos;
-            const bearing = computeBearing([prevPos.lng, prevPos.lat], [displayPos.lng, displayPos.lat]);
             existing.setLngLat([displayPos.lng, displayPos.lat]);
             const wrapper = otherUserWrappersRef.current.get(uid);
-            if (wrapper && Number.isFinite(bearing)) {
-              wrapper.style.transform = `rotate(${bearing}deg)`;
+            if (wrapper) {
+              wrapper.style.transform = 'rotate(0deg)';
             }
             const popup = existing.getPopup();
             if (popup) {
@@ -1752,22 +1750,7 @@ useEffect(() => {
           otherUserMarkersRef.current.set(uid, marker);
           otherUserWrappersRef.current.set(uid, imgWrapper);
           updateOtherMarkersVisibility(mapRef.current?.getZoom());
-          const initialBearing = Number.isFinite(
-            computeBearing(
-              previousDisplayPos
-                ? [previousDisplayPos.lng, previousDisplayPos.lat]
-                : [displayPos.lng, displayPos.lat],
-              [displayPos.lng, displayPos.lat],
-            ),
-          )
-            ? computeBearing(
-                previousDisplayPos
-                  ? [previousDisplayPos.lng, previousDisplayPos.lat]
-                  : [displayPos.lng, displayPos.lat],
-                [displayPos.lng, displayPos.lat],
-              )
-            : 0;
-          imgWrapper.style.transform = `rotate(${initialBearing}deg)`;
+          imgWrapper.style.transform = 'rotate(0deg)';
           otherUserPositionsRef.current.set(uid, displayPos);
           return;
         });
@@ -2145,41 +2128,71 @@ useEffect(() => {
         )}
 
         {/* Recenter control */}
-        {mapLoaded && mapMoved && showRoute && showSteps && (
-          <div
-            className="absolute right-6 z-30 pointer-events-auto"
-            style={{
-              bottom: `${20 + summaryHeight + 16}px`,
-            }}
-          >
-            <button
-              type="button"
-              aria-label="Recenter on me"
-              onClick={() => {
-                const candidate =
-                  userLoc && isValidCoord(userLoc.lng, userLoc.lat)
-                    ? [userLoc.lng, userLoc.lat]
-                    : navGeometry?.[0];
-                if (!candidate || !isValidCoord(candidate[0], candidate[1]) || !mapRef.current) return;
-                mapRef.current.easeTo({
-                  center: candidate,
-                  duration: 600,
-                  pitch: 45,
-                  zoom: 17,
-                  essential: true,
-                });
-                setMapMoved(false);
-              }}
-              className="rounded-3xl shadow-[0_22px_46px_-12px_rgba(0,0,0,0.55)] border border-orange-200 bg-gradient-to-br from-orange-500 to-amber-400 p-4 flex items-center justify-center hover:translate-y-[-3px] active:translate-y-[1px] transition transform-gpu"
-            >
-              <div className="relative w-9 h-9 flex items-center justify-center bg-white rounded-full shadow-inner shadow-orange-900/20">
-                <svg className="w-6 h-6 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 3.25c-.35 0-.66.2-.8.52l-3 7a.88.88 0 0 0 1.02 1.18l2.43-.52.13 8.07c.01.44.37.8.82.8s.81-.36.82-.8l.13-8.07 2.43.52a.88.88 0 0 0 1.02-1.18l-3-7a.86.86 0 0 0-.79-.52Z" />
-                </svg>
-              </div>
-            </button>
-          </div>
-        )}
+{mapLoaded && mapMoved && showRoute && showSteps && (
+  <div
+    className="absolute right-4 z-30 pointer-events-auto transition-all duration-500 ease-out"
+    style={{
+      // On garde ton calcul de position dynamique
+      bottom: `${20 + summaryHeight + 16}px`, 
+    }}
+  >
+    <button
+      type="button"
+      aria-label="Recenter on me"
+      onClick={() => {
+        const candidate =
+          userLoc && isValidCoord(userLoc.lng, userLoc.lat)
+            ? [userLoc.lng, userLoc.lat]
+            : navGeometry?.[0];
+        if (!candidate || !isValidCoord(candidate[0], candidate[1]) || !mapRef.current) return;
+        
+        mapRef.current.easeTo({
+          center: candidate,
+          duration: 800, // Un peu plus lent pour un effet plus "premium"
+          pitch: 55,     // On remet la vue 3D inclinée
+          zoom: 17.5,
+          bearing: 0,    // Optionnel : remet le nord ou le cap
+          essential: true,
+          easing: (t) => t * (2 - t) // Ease-out quad plus naturel
+        });
+        setMapMoved(false);
+      }}
+      className="
+        group
+        flex items-center justify-center
+        w-12 h-12
+        rounded-full
+        
+        /* Design Apple Glass : Fond blanc/noir translucide + Blur puissant */
+        bg-white/80 dark:bg-gray-800/80
+        backdrop-blur-xl
+        
+        /* Bordure subtile pour la définition */
+        border border-white/40 dark:border-white/10
+        
+        /* Ombre douce et diffuse (pas de noir pur) */
+        shadow-[0_8px_20px_-6px_rgba(0,0,0,0.15)]
+        
+        /* Couleur de l'icône */
+        text-orange-500
+        
+        /* Animation au clic (effet ressort) */
+        transition-all duration-300 cubic-bezier(0.34, 1.56, 0.64, 1)
+        hover:scale-110
+        active:scale-90 active:bg-white/95
+      "
+    >
+      {/* Icône flèche de navigation (style iOS) */}
+      <svg 
+        className="w-6 h-6 drop-shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" 
+        viewBox="0 0 24 24" 
+        fill="currentColor"
+      >
+        <path d="M4.414 10.866a2 2 0 0 1 .463-2.618l9.16-7.073c1.378-1.063 3.327.18 2.96 1.886l-2.628 12.228a2 2 0 0 1-2.64 1.488l-3.326-.95-3.088 2.872a1 1 0 0 1-1.636-.98l1.014-4.884-1.226-.922a1 1 0 0 1 .943-1.047Z" />
+      </svg>
+    </button>
+  </div>
+)}
       </div>
     </div>
   );

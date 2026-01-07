@@ -137,6 +137,7 @@ const BottomNav = ({
           {/* Bouton Proposer */}
           <button
             type="button"
+            data-role="bottomnav-propose-button"
             onClick={() => {
               if (waitingMode) {
                 onRenewPress?.();

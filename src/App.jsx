@@ -243,6 +243,7 @@ const measureBottomSafeOffset = () => {
 };
 
 export default function ParkSwapApp() {
+  const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [activeTab, setActiveTab] = useState('search');
@@ -522,6 +523,8 @@ export default function ParkSwapApp() {
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
+  const [renewFeedbackId, setRenewFeedbackId] = useState(0);
+  const [renewWave, setRenewWave] = useState(null);
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
@@ -2188,6 +2191,8 @@ export default function ParkSwapApp() {
             onCancelSpot={handleCancelSpot}
             onRenewSpot={handleRenewSpot}
             onNudgeAddVehicle={openAddVehicle}
+            renewFeedbackId={renewFeedbackId}
+            renewWaveDurationMs={RENEW_WAVE_DURATION_MS}
           />
         </div>
       );
@@ -2259,6 +2264,29 @@ export default function ParkSwapApp() {
     prevTab !== activeTab;
   const tabSlideClass = shouldTabSlide ? (slideDir === 'left' ? 'tab-slide-left' : 'tab-slide-right') : '';
 
+  const launchRenewWave = () => {
+    try {
+      if (typeof document === 'undefined') return;
+      const fromEl = document.querySelector('[data-role="bottomnav-propose-button"]');
+      const toEl = document.querySelector('[data-role="waiting-timer-target"]');
+      if (!fromEl || !toEl) return;
+      const from = fromEl.getBoundingClientRect();
+      const to = toEl.getBoundingClientRect();
+      const fromPt = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+      const toPt = { x: to.left + to.width / 2, y: to.top + to.height / 2 };
+      const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setRenewWave({ id, from: fromPt, to: toPt, phase: 0 });
+      window.requestAnimationFrame(() => {
+        setRenewWave((prev) => (prev && prev.id === id ? { ...prev, phase: 1 } : prev));
+      });
+      window.setTimeout(() => {
+        setRenewWave((prev) => (prev && prev.id === id ? null : prev));
+      }, RENEW_WAVE_DURATION_MS + 180);
+    } catch (_) {
+      // ignore
+    }
+  };
+
   return (
     <div
       className={`relative h-screen w-full font-sans overflow-hidden ${
@@ -2270,7 +2298,24 @@ export default function ParkSwapApp() {
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       <OrientationBlockedOverlay visible={orientationBlocked} />
-      {(activeTab === 'search' || menuNudgeActive) && !searchFiltersOpen && (
+      {renewWave ? (
+        <div className="fixed inset-0 z-[10050] pointer-events-none">
+          <div
+            className="absolute w-4 h-4 rounded-full border-2 border-orange-500/70 bg-orange-400/15 shadow-[0_12px_30px_rgba(249,115,22,0.22)]"
+            style={{
+              left: 0,
+              top: 0,
+              transform: `translate(${(renewWave.phase ? renewWave.to.x : renewWave.from.x) - 8}px, ${
+                (renewWave.phase ? renewWave.to.y : renewWave.from.y) - 8
+              }px) scale(${renewWave.phase ? 2.2 : 1})`,
+              opacity: renewWave.phase ? 0.15 : 0.95,
+              transition: `transform ${RENEW_WAVE_DURATION_MS}ms cubic-bezier(0.2,0.8,0.2,1), opacity ${RENEW_WAVE_DURATION_MS}ms cubic-bezier(0.2,0.8,0.2,1)`,
+              willChange: 'transform, opacity',
+            }}
+          />
+        </div>
+      ) : null}
+     {(activeTab === 'search' || menuNudgeActive) && !searchFiltersOpen && (
         <div
           className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
             hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -2476,6 +2521,8 @@ export default function ParkSwapApp() {
             }}
             onRenewPress={() => {
               if (!myActiveSpot?.id) return;
+              setRenewFeedbackId((v) => v + 1);
+              launchRenewWave();
               handleRenewSpot(myActiveSpot.id);
             }}
             onProposePress={() => {

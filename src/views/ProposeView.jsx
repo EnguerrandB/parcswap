@@ -13,6 +13,8 @@ const ProposeView = forwardRef(({
   onCancelSpot,
   onRenewSpot,
   onNudgeAddVehicle,
+  renewFeedbackId = 0,
+  renewWaveDurationMs = 650,
   vehicles = [],
 }, ref) => {
   const { t } = useTranslation('common');
@@ -152,7 +154,7 @@ const ProposeView = forwardRef(({
     return () => clearInterval(id);
   }, [myActiveSpot]);
 
-    if (myActiveSpot) {
+  if (myActiveSpot) {
     return (
       <WaitingView
         myActiveSpot={myActiveSpot}
@@ -160,6 +162,8 @@ const ProposeView = forwardRef(({
         onCancel={null}
         onRenew={null}
         onConfirmPlate={onConfirmPlate}
+        renewFeedbackId={renewFeedbackId}
+        renewWaveDurationMs={renewWaveDurationMs}
       />
     );
   }

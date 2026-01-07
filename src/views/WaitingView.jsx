@@ -13,7 +13,16 @@ import GotConfirmedView from './GotConfirmedView';
  * - Pass `spot` for the search overlay.
  * - Pass `myActiveSpot`/`remainingMs` for the host waiting states.
  */
-const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onConfirmPlate }) => {
+const WaitingView = ({
+  spot,
+  myActiveSpot,
+  remainingMs,
+  onCancel,
+  onRenew,
+  onConfirmPlate,
+  renewFeedbackId = 0,
+  renewWaveDurationMs = 650,
+}) => {
   const { t } = useTranslation('common');
   const isDark =
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
@@ -22,6 +31,9 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   const [showAd, setShowAd] = useState(false);
   const [bookerCoords, setBookerCoords] = useState(null);
   const [bookerLastSeen, setBookerLastSeen] = useState(null);
+  const [optimisticRenew, setOptimisticRenew] = useState(null);
+  const [optimisticNow, setOptimisticNow] = useState(() => Date.now());
+  const [timerPulse, setTimerPulse] = useState(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const carMotionStyle = {
     animation: 'waiting-car-slide 9s ease-in-out infinite',
@@ -46,6 +58,49 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
       document.documentElement.style.overscrollBehavior = prevHtmlOverscroll;
     };
   }, []);
+
+  useEffect(() => {
+    if (!myActiveSpot?.id) return undefined;
+    if (!renewFeedbackId) return undefined;
+    
+    const durationMin = Number(myActiveSpot.time ?? 5);
+
+    // CHANGEMENT ICI : On stocke le timeout pour pouvoir le nettoyer
+    const tWave = window.setTimeout(() => {
+      const now = Date.now();
+      const endAt = now + durationMin * 60_000;
+
+      // 1. On lance le POP visuel
+      setTimerPulse(true);
+
+      // 2. On attend la fin du POP (220ms) pour changer le texte du timer
+      window.setTimeout(() => {
+        setTimerPulse(false);
+        setOptimisticRenew({ startAt: now, endAt, spotId: myActiveSpot.id }); // <--- La ligne a été déplacée ici
+      }, 220);
+
+      window.setTimeout(() => setOptimisticRenew(null), 4500);
+
+    }, renewWaveDurationMs);
+
+    return () => {
+      window.clearTimeout(tWave);
+    };
+  }, [renewFeedbackId, myActiveSpot?.id, myActiveSpot?.time, renewWaveDurationMs]);
+
+  useEffect(() => {
+    if (!optimisticRenew) return undefined;
+    const id = setInterval(() => setOptimisticNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [optimisticRenew]);
+
+  const displayRemainingMs = (() => {
+    if (!myActiveSpot || !optimisticRenew) return remainingMs;
+    if (optimisticRenew.spotId !== myActiveSpot.id) return remainingMs;
+    if (optimisticNow < optimisticRenew.startAt) return remainingMs;
+    const ms = optimisticRenew.endAt - optimisticNow;
+    return ms > 0 ? ms : 0;
+  })();
 
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -123,32 +178,31 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
   if (myActiveSpot) {
     const bookerAccepted = !!myActiveSpot.bookerAccepted;
     const isReservedPendingAccept = myActiveSpot.status === 'booked' && !bookerAccepted;
-    const isExpired =
-      myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0);
+    // On ajoute "!optimisticRenew &&" au début
+    // Remplacez la définition de isExpired (vers la ligne 160) par ceci :
+    const isExpired = !optimisticRenew && (myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0));
 
     // Plan the sponsored card timing: appear 5s after start, disappear 5s before end
     // Gestion de l'affichage de la Pub
-    useEffect(() => {
-      // 1. Reset immédiat si le statut n'est pas bon
-      if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) {
-        setShowAd(false);
-        return undefined;
-      }
+   // Dans le useEffect qui gère renewFeedbackId :
 
-      // 2. Si on démarre et qu'il reste déjà moins de 5s, on n'affiche rien
-      if (remainingMs != null && remainingMs <= 5000) {
-        setShowAd(false);
-        return undefined;
-      }
+    const tWave = window.setTimeout(() => {
+      const now = Date.now();
+      const endAt = now + durationMin * 60_000;
 
-      // 3. Sinon, on programme l'affichage dans 5 secondes
-      // IMPORTANT : On ne met PAS remainingMs dans les dépendances pour ne pas reset le timer à chaque seconde
-      const timer = setTimeout(() => {
-        setShowAd(true);
-      }, 5000);
+      // 1. On lance le POP visuel
+      setTimerPulse(true);
 
-      return () => clearTimeout(timer);
-    }, [myActiveSpot?.id, myActiveSpot?.status, isExpired]); // <-- remainingMs retiré ici
+      // 2. On attend la fin du POP (220ms) pour mettre à jour les chiffres
+      window.setTimeout(() => {
+        setTimerPulse(false);
+        // AJOUT DE "- 1000" ICI pour éviter le bug du "00:00" la première fois
+        setOptimisticRenew({ startAt: now - 1000, endAt, spotId: myActiveSpot.id });
+      }, 220);
+
+      window.setTimeout(() => setOptimisticRenew(null), 4500);
+
+    }, renewWaveDurationMs);
 
     // Gestion de la disparition de la Pub (quand il reste peu de temps)
     useEffect(() => {
@@ -269,10 +323,15 @@ const WaitingView = ({ spot, myActiveSpot, remainingMs, onCancel, onRenew, onCon
                 <p className="text-[clamp(12px,3.2vmin,14px)] text-gray-500">
                   {isExpired ? t('listingExpiredLabel', 'Listing expired') : t('listingExpiresIn', 'Listing expires in')}
                 </p>
-                <p className="text-[clamp(18px,6vmin,26px)] font-bold text-gray-900 leading-tight">
-                  {remainingMs != null && !isExpired
-                    ? `${String(Math.floor(remainingMs / 60000)).padStart(2, '0')}:${String(
-                        Math.floor((remainingMs % 60000) / 1000),
+                <p
+                  className={`text-[clamp(18px,6vmin,26px)] font-bold text-gray-900 leading-tight transition-transform duration-200 ease-out ${
+                    timerPulse ? 'scale-[1.08]' : 'scale-100'
+                  }`}
+                  data-role="waiting-timer-target"
+                >
+                  {displayRemainingMs != null && !isExpired
+                    ? `${String(Math.floor(displayRemainingMs / 60000)).padStart(2, '0')}:${String(
+                        Math.floor((displayRemainingMs % 60000) / 1000),
                       ).padStart(2, '0')}`
                     : isExpired
                       ? '00:00'

@@ -159,8 +159,8 @@ const ProposeView = forwardRef(({
       <WaitingView
         myActiveSpot={myActiveSpot}
         remainingMs={remainingMs}
-        onCancel={null}
-        onRenew={null}
+        onCancel={onCancelSpot}
+        onRenew={onRenewSpot}
         onConfirmPlate={onConfirmPlate}
         renewFeedbackId={renewFeedbackId}
         renewWaveDurationMs={renewWaveDurationMs}

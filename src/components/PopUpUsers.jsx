@@ -152,6 +152,11 @@ export const enhancePopupAnimation = (popup) => {
       content.classList.remove('popup-exit');
       content.classList.add('popup-enter');
     }
+    if (!popup.__autoCloseTimer) {
+      popup.__autoCloseTimer = setTimeout(() => {
+        popup.remove();
+      }, 10_000);
+    }
     return res;
   };
   const originalRemove = popup.remove.bind(popup);
@@ -161,8 +166,16 @@ export const enhancePopupAnimation = (popup) => {
     if (content) {
       content.classList.remove('popup-enter');
       content.classList.add('popup-exit');
+      if (popup.__autoCloseTimer) {
+        clearTimeout(popup.__autoCloseTimer);
+        popup.__autoCloseTimer = null;
+      }
       setTimeout(() => originalRemove(), 170);
       return popup;
+    }
+    if (popup.__autoCloseTimer) {
+      clearTimeout(popup.__autoCloseTimer);
+      popup.__autoCloseTimer = null;
     }
     return originalRemove();
   };

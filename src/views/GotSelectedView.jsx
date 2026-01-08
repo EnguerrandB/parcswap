@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ShieldCheck, X } from 'lucide-react';
 import { collection, doc, getCountFromServer, onSnapshot, query, where } from 'firebase/firestore';
 import { appId, db } from '../firebase';
+import BottomNav from '../components/BottomNav';
 
 const rankIcon = (count = 0) => {
   const n = Number(count) || 0;
@@ -167,19 +168,18 @@ const GotSelectedView = ({ spot, onCancel }) => {
 
       </div>
 
-      {/* Action Button (Separated for better ergonomics) */}
       {onCancel && (
-        <button
-          onClick={handleCancelClick}
-          className={`mt-8 group relative px-8 py-4 rounded-full font-semibold transition-all duration-300 active:scale-95 flex items-center gap-2 
-            ${isDark 
-              ? 'bg-slate-800 text-red-400 hover:bg-slate-700 hover:text-red-300' 
-              : 'bg-white text-red-500 shadow-lg shadow-gray-200 hover:shadow-xl hover:text-red-600'
-            }`}
-        >
-            <X className="w-4 h-4" />
-            <span>{t('cancelReturn', 'Cancel & return')}</span>
-        </button>
+        <BottomNav
+          customActions={{
+            single: true,
+            activeTab: 'search',
+            barClassName: isDark
+              ? 'bg-slate-900/70 border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-2xl'
+              : 'bg-white/70 border-white/40 shadow-[0_8px_32px_rgba(15,23,42,0.14)] backdrop-blur-2xl',
+            activeClassName: 'bg-transparent shadow-none',
+            left: { label: t('cancel', 'Cancel'), icon: X, onClick: handleCancelClick },
+          }}
+        />
       )}
 
       {showCancelModal && (

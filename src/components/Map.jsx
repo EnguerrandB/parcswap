@@ -196,7 +196,7 @@ const getManeuverIcon = (instruction) => {
 
   if (type === 'finish') {
     return (
-      <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+      <svg className="w-8 h-8 text-current" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
@@ -204,7 +204,7 @@ const getManeuverIcon = (instruction) => {
   }
   return (
     <svg 
-      className="w-10 h-10 text-white transition-transform duration-500" 
+      className="w-10 h-10 text-current transition-transform duration-500" 
       style={{ transform: `rotate(${rotate}deg)` }}
       fill="none" 
       viewBox="0 0 24 24" 
@@ -639,26 +639,14 @@ useEffect(() => {
 
   const instructionCardStyle = useMemo(
     () => ({
-      // Apple Dark: Base noire translucide | Apple Light: Base blanche translucide
-      background: isDark 
-        ? 'rgba(30, 30, 30, 0.70)' 
-        : 'rgba(255, 255, 255, 0.75)',
-      
-      // Bordure très fine : blanche légère en sombre / grise légère en clair
-      border: isDark 
-        ? '1px solid rgba(255, 255, 255, 0.12)' 
-        : '1px solid rgba(255, 255, 255, 0.8)', // Effet "inner light"
-
-      // Le secret d'Apple : Saturation élevée (180%+) + Blur fort
-      backdropFilter: 'blur(20px) saturate(180%)',
-      WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      
-      // Ombre plus douce et diffuse (Smooth shadow)
+      background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.86)',
+      border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgb(243 244 246)',
+      backdropFilter: 'blur(16px) saturate(160%)',
+      WebkitBackdropFilter: 'blur(16px) saturate(160%)',
       boxShadow: isDark
-        ? '0 8px 32px 0 rgba(0, 0, 0, 0.35)'
-        : '0 8px 32px 0 rgba(31, 38, 135, 0.10)',
-        
-      borderRadius: '20px', // Apple utilise souvent des rayons larges
+        ? '0 10px 30px rgba(0, 0, 0, 0.35)'
+        : '0 8px 30px rgba(0, 0, 0, 0.04)',
+      borderRadius: '2rem',
     }),
     [isDark],
   );
@@ -1303,6 +1291,7 @@ useEffect(() => {
              </svg>
            `;
 
+
          const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
            buildOtherUserPopupHTML(
              t,
@@ -1842,11 +1831,11 @@ useEffect(() => {
               style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
             >
               <div
-                className="rounded-2xl overflow-hidden pointer-events-auto backdrop-blur-2xl"
+                className="rounded-[2rem] overflow-hidden pointer-events-auto backdrop-blur-2xl border border-orange-100/70"
                 style={{ ...instructionCardStyle, color: instructionTextColor }}
               >
                 <div className="flex items-center gap-4 px-4 py-3">
-                  <div className="shrink-0 bg-white/20 border border-white/30 p-2.5 rounded-2xl shadow-inner shadow-white/10">
+                  <div className="shrink-0 bg-orange-50 border border-orange-100 p-2.5 rounded-2xl shadow-inner text-orange-500">
                     {getManeuverIcon(stepsToShow[navIndex])}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1863,11 +1852,13 @@ useEffect(() => {
                     )}
                   </div>
                 </div>
-                <div className="h-[3px] bg-white/10 w-full">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 shadow-[0_0_14px_rgba(59,130,246,0.55)] transition-all duration-1000"
-                    style={{ width: `${Math.min(100, (navIndex / Math.max(1, stepsToShow.length)) * 100)}%` }}
-                  ></div>
+                <div className="px-4 pb-3">
+                  <div className="h-2 rounded-full bg-orange-100/70 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-orange-400 to-amber-400 shadow-[0_0_14px_rgba(249,115,22,0.35)] transition-all duration-1000"
+                      style={{ width: `${Math.min(100, (navIndex / Math.max(1, stepsToShow.length)) * 100)}%` }}
+                    ></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1878,7 +1869,7 @@ useEffect(() => {
               className="absolute left-4 right-4 z-20 pointer-events-none animate-[slideUp_0.3s_ease-out]"
               style={{ bottom: '20px' }}
             >
-              <div className="bg-white rounded-3xl shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
+              <div className="bg-white rounded-[2rem] shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
                 <div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>

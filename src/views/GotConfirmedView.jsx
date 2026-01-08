@@ -3,11 +3,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Car, X, MapPin } from 'lucide-react';
+import { Car, X } from 'lucide-react';
 import { createPortal } from "react-dom";
 import { doc, onSnapshot } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import PremiumParksDeltaToast from '../components/PremiumParksDeltaToast';
+import BottomNav from '../components/BottomNav';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
@@ -597,82 +598,29 @@ const GotConfirmedView = ({
         </div>
       )}
 
-      {/* Bottom glass card (Apple-like) */}
-      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none p-4">
-        <div
-          className="
-            pointer-events-auto mx-auto w-full max-w-[420px]
-            rounded-[28px] border border-white/35
-            bg-white/55 backdrop-blur-2xl backdrop-saturate-200
-            shadow-[0_20px_60px_rgba(15,23,42,0.20)]
-            p-4
-          "
-          style={{
-            WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-            paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/60 border border-white/60 shadow-inner flex items-center justify-center text-orange-700">
-              <MapPin className="w-6 h-6" />
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.18em] font-semibold text-gray-500">
-                {t('distanceLabel', { defaultValue: 'Distance' })}
-              </p>
-              <p className="text-xl font-extrabold text-slate-900">
-                {typeof distanceText === 'string' && distanceText.trim() && distanceText !== '--'
-                  ? distanceText
-                  : distanceMeters != null
-                    ? `${distanceMeters} m`
-                    : '—'}
-              </p>
-            </div>
-
-            {distanceMeters != null &&
-              typeof distanceText === 'string' &&
-              distanceText.includes('km') && (
-                <span className="inline-flex items-center rounded-full bg-orange-50 border border-orange-100 px-3 py-1 text-xs font-bold text-orange-700">
-                  {distanceMeters} m
-                </span>
-              )}
-          </div>
-
-          <div className={`mt-4 grid gap-3 ${onCancel ? 'grid-cols-2' : 'grid-cols-1'}`}>
-	            {onCancel && (
-	              <button
-	                onClick={openCancelModal}
-                className="
-                  h-12 rounded-2xl border border-white/50 bg-white/60
-                  text-red-600 font-semibold shadow-sm
-                  transition active:scale-[0.99]
-                  hover:bg-white/80
-                "
-	              >
-	                <span className="inline-flex items-center justify-center gap-2">
-	                  <X className="w-4 h-4" />
-	                  {t('cancel', { defaultValue: 'Cancel' })}
-	                </span>
-	              </button>
-	            )}
-            <button
-              onClick={openPlateModal}
-              className="
-                h-12 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500
-                text-white font-bold shadow-[0_10px_30px_rgba(249,115,22,0.35)]
-                transition active:scale-[0.99]
-                hover:brightness-110
-              "
-            >
-              <span className="inline-flex items-center justify-center gap-2">
-                <Car className="w-4 h-4" />
-                {t('arrivedQuestion', 'Arrived ?')}
-              </span>
-            </button>
+      {distanceMeters != null && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom,0px)+110px)] z-10 pointer-events-none">
+          <div
+            className="
+              px-4 py-2 rounded-full
+              bg-white/80 backdrop-blur-2xl border border-white/60
+              shadow-[0_10px_28px_rgba(15,23,42,0.18)]
+              text-slate-900 text-sm font-semibold
+            "
+            style={{ WebkitBackdropFilter: 'blur(18px) saturate(160%)' }}
+          >
+            {t('distanceLabel', { defaultValue: 'Distance' })}: {distanceMeters} m
           </div>
         </div>
-      </div>
+      )}
+
+      <BottomNav
+        customActions={{
+          activeTab: 'propose',
+          left: { label: t('cancel', { defaultValue: 'Cancel' }), icon: X, onClick: openCancelModal },
+          right: { label: t('arrivedQuestion', 'Arrived ?'), icon: Car, onClick: openPlateModal },
+        }}
+      />
 
       {showCancelModal && (
         <div className="fixed inset-0 z-20 flex items-center justify-center px-6">

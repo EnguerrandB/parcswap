@@ -1814,8 +1814,8 @@ export default function ParkSwapApp() {
 	      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
 	      const spot = myActiveSpot?.id === spotId ? myActiveSpot : null;
 
-	      if (spot?.bookerId) {
-	        await updateDoc(spotRef, {
+      if (spot?.bookerId) {
+        await updateDoc(spotRef, {
 	          status: 'cancelled',
 	          cancelledAt: serverTimestamp(),
 	          cancelledBy: user?.uid || null,
@@ -1851,11 +1851,15 @@ export default function ParkSwapApp() {
 	          plateConfirmed: false,
 	          completedAt: null,
 	        });
-	      } else {
-	        await deleteDoc(spotRef);
-	      }
+      } else {
+        await deleteDoc(spotRef);
+      }
 
       setMyActiveSpot(null);
+      setBookedSpot(null);
+      setSelectedSearchSpot(null);
+      saveSelectionStep('cleared', null);
+      setActiveTab('search');
     } catch (err) {
       console.error('Error deleting spot:', err);
     }
@@ -2532,30 +2536,32 @@ export default function ParkSwapApp() {
           </div>
         </div>
         <div className="transition-opacity duration-300 opacity-100 z-[70]" style={{ '--bottom-nav-height': 'auto' }}>
-          <BottomNav
-            activeTab={activeTab}
-            setActiveTab={changeTab}
-            waitingMode={activeTab === 'propose' && !!myActiveSpot}
-            canPublish={vehicles.length > 0}
-            onPublishDisabledPress={openAddVehicle}
-            onCancelPress={() => {
-              if (!myActiveSpot?.id) return;
-              handleCancelSpot(myActiveSpot.id);
-            }}
-            onRenewPress={() => {
-              if (!myActiveSpot?.id) return;
-              setRenewFeedbackId((v) => v + 1);
-              launchRenewWave();
-              handleRenewSpot(myActiveSpot.id);
-            }}
-            onProposePress={() => {
-              if (activeTab !== 'propose') {
-                changeTab('propose');
-                return;
-              }
-              proposeViewRef.current?.publish?.();
-            }}
-          />
+      {!(activeTab === 'propose' && myActiveSpot?.status === 'booked') && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={changeTab}
+          waitingMode={activeTab === 'propose' && !!myActiveSpot}
+          canPublish={vehicles.length > 0}
+          onPublishDisabledPress={openAddVehicle}
+          onCancelPress={() => {
+            if (!myActiveSpot?.id) return;
+            handleCancelSpot(myActiveSpot.id);
+          }}
+          onRenewPress={() => {
+            if (!myActiveSpot?.id) return;
+            setRenewFeedbackId((v) => v + 1);
+            launchRenewWave();
+            handleRenewSpot(myActiveSpot.id);
+          }}
+          onProposePress={() => {
+            if (activeTab !== 'propose') {
+              changeTab('propose');
+              return;
+            }
+            proposeViewRef.current?.publish?.();
+          }}
+        />
+      )}
         </div>
       </div>
       {selectedSearchSpot && getRemainingMs(selectedSearchSpot) > 0 && (

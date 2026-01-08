@@ -275,10 +275,10 @@ export default function ParkSwapApp() {
 		  const [menuNudgeActive, setMenuNudgeActive] = useState(false);
 		  const menuNudgeTimerRef = useRef(null);
 		  const pendingVehicleOnboardingRef = useRef(false);
-		  const [highlightVehiclesRequestId, setHighlightVehiclesRequestId] = useState(0);
+  const [highlightVehiclesRequestId, setHighlightVehiclesRequestId] = useState(0);
 
-      const lastAuthNameKey = 'parkswap_last_auth_name';
-      const consumeLastAuthName = () => {
+  const lastAuthNameKey = 'parkswap_last_auth_name';
+  const consumeLastAuthName = () => {
         try {
           const raw = window.sessionStorage?.getItem(lastAuthNameKey);
           if (!raw) return '';
@@ -298,12 +298,12 @@ export default function ParkSwapApp() {
 	    };
 	  }, []);
 
-	  useEffect(() => {
-	    userUidRef.current = user?.uid || null;
-	  }, [user?.uid]);
+  useEffect(() => {
+    userUidRef.current = user?.uid || null;
+  }, [user?.uid]);
 
-	  // Try to lock orientation to portrait (best-effort) + block landscape UX-wise.
-	  useEffect(() => {
+  // Try to lock orientation to portrait (best-effort) + block landscape UX-wise.
+  useEffect(() => {
     const isMobileLike = () => {
       try {
         const coarse = window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -2179,6 +2179,13 @@ export default function ParkSwapApp() {
     setSlideDir(nextIndex > currentIndex ? 'left' : 'right');
     setActiveTab(nextTab);
   };
+
+  useEffect(() => {
+    if (!showAccountSheet) return;
+    setShowInvite(false);
+    setCancelledNotice(null);
+    setSearchFiltersOpen(false);
+  }, [showAccountSheet]);
 
   useEffect(() => {
     prevTabRef.current = activeTab;

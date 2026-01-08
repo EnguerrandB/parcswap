@@ -66,27 +66,13 @@ const computeBearing = (from, to) => {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 };
 
-const offsetCenter = (coord, bearingDeg, meters) => {
-  const R = 6378137;
-  const δ = meters / R;
-  const θ = (bearingDeg * Math.PI) / 180;
-
-  const φ1 = (coord[1] * Math.PI) / 180;
-  const λ1 = (coord[0] * Math.PI) / 180;
-
-  const φ2 = Math.asin(
-    Math.sin(φ1) * Math.cos(δ) +
-    Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
-  );
-
-  const λ2 =
-    λ1 +
-    Math.atan2(
-      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
-      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
-    );
-
-  return [(λ2 * 180) / Math.PI, (φ2 * 180) / Math.PI];
+const getUserAnchorPadding = () => {
+  if (typeof window === 'undefined') {
+    return { top: 200, bottom: 0, left: 0, right: 0 };
+  }
+  const h = window.innerHeight || 800;
+  const top = Math.round(Math.min(340, Math.max(240, h * 0.42)));
+  return { top, bottom: 0, left: 0, right: 0 };
 };
 
 
@@ -1327,10 +1313,14 @@ useEffect(() => {
 
            // FlyTo initial pour se placer
            const startPoint = navGeometry[0] || [spot.lng, spot.lat];
+           const startBearing =
+             navGeometry.length > 1 ? computeBearing(navGeometry[0], navGeometry[1]) : 0;
            map.flyTo({ 
                center: startPoint, 
-               zoom: 17, 
+               zoom: 19.2, 
                pitch: 50,
+               bearing: startBearing,
+               padding: getUserAnchorPadding(),
                duration: 2000 
             });
 
@@ -1350,6 +1340,10 @@ useEffect(() => {
       const p1 = navGeometry[closestIdx];
       const p2 = navGeometry[closestIdx + 1];
       // On calcule l'angle du segment actuel vers le prochain point
+      routeBearing = computeBearing(p1, p2);
+    } else if (navGeometry.length > 1) {
+      const p1 = navGeometry[navGeometry.length - 2];
+      const p2 = navGeometry[navGeometry.length - 1];
       routeBearing = computeBearing(p1, p2);
     }
 
@@ -1386,7 +1380,7 @@ useEffect(() => {
                    
                    // 1. Priorité au Heading GPS natif si disponible et qu'on bouge un peu
                    // (Le heading GPS est souvent null à l'arrêt ou imprécis)
-                   if (routeBearing !== null) {
+    if (routeBearing !== null) {
       // CAS 1 (Le plus important) : On force l'alignement sur la ligne de la route
       // Cela donne l'effet "Rail" fluide comme sur Waze/Google Maps
       currentBearing = routeBearing;
@@ -1401,19 +1395,13 @@ useEffect(() => {
     }
     // Sinon on garde le dernier currentBearing connu pour éviter que la carte ne tourne à l'arrêt.
 
-    // Décalage de la caméra pour voir "devant" (Chase Mode)
-    const shiftedCenter = offsetCenter(
-      newCoords,
-      currentBearing, // Maintenant, c'est aligné avec la route !
-      100
-    );
-
+    const mapBearing = routeBearing !== null ? routeBearing : currentBearing;
     map.easeTo({
-      center: shiftedCenter,
-      zoom: 17.5,
+      center: newCoords,
+      zoom: 19.4,
       pitch: 55,
-      bearing: currentBearing, // La carte s'orientera selon la route
-      padding: { top: 0, bottom: 0, left: 0, right: 0 },
+      bearing: mapBearing, // Aligne la caméra sur l'axe de la route
+      padding: getUserAnchorPadding(),
       duration: 1000,
       easing: (t) => t,
     });
@@ -1423,7 +1411,7 @@ useEffect(() => {
       // Optionnel : Vous pouvez laisser la voiture tourner selon le GPS (heading) 
       // même si la carte suit la route, pour voir si la voiture "drifte".
       // Mais pour un rendu propre, utilisez aussi currentBearing :
-      markerRef.current.setRotation(currentBearing);
+      markerRef.current.setRotation(mapBearing);
                     
                     if (markerPopupRef.current) {
                       markerPopupRef.current.setHTML(
@@ -2050,6 +2038,7 @@ useEffect(() => {
           pitch: 55,     // On remet la vue 3D inclinée
           zoom: 17.5,
           bearing: 0,    // Optionnel : remet le nord ou le cap
+          padding: getUserAnchorPadding(),
           essential: true,
           easing: (t) => t * (2 - t) // Ease-out quad plus naturel
         });

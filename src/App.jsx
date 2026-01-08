@@ -2119,8 +2119,12 @@ export default function ParkSwapApp() {
 	    setLoggingOut(false);
 	  };
 
+  const isSearchInProgress =
+    !!myActiveSpot && myActiveSpot.status !== 'completed' && myActiveSpot.status !== 'cancelled';
+
   const changeTab = (nextTab) => {
     if (!nextTab || nextTab === activeTab) return;
+    if (isSearchInProgress && nextTab !== 'propose') return;
     const currentIndex = tabOrder.indexOf(activeTab);
     const nextIndex = tabOrder.indexOf(nextTab);
     setSlideDir(nextIndex > currentIndex ? 'left' : 'right');
@@ -2130,6 +2134,13 @@ export default function ParkSwapApp() {
   useEffect(() => {
     prevTabRef.current = activeTab;
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!isSearchInProgress) return;
+    if (activeTab === 'propose') return;
+    setSlideDir('right');
+    setActiveTab('propose');
+  }, [isSearchInProgress, activeTab]);
 
   const inviteLink = typeof window !== 'undefined' ? window.location.origin : 'https://parkswap.app';
   const handleInviteShare = async () => {

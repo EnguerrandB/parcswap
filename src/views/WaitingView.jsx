@@ -1,5 +1,5 @@
 // src/views/WaitingView.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -34,11 +34,18 @@ const WaitingView = ({
   const [optimisticRenew, setOptimisticRenew] = useState(null);
   const [optimisticNow, setOptimisticNow] = useState(() => Date.now());
   const [timerPulse, setTimerPulse] = useState(false);
+  const adTimerRef = useRef(null);
+  const hasScheduledAdRef = useRef(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const carMotionStyle = {
     animation: 'waiting-car-slide 9s ease-in-out infinite',
     animationFillMode: 'forwards',
   };
+  const bookerAccepted = !!myActiveSpot?.bookerAccepted;
+  const isReservedPendingAccept = !!myActiveSpot && myActiveSpot.status === 'booked' && !bookerAccepted;
+  const isExpired = !!myActiveSpot && !optimisticRenew && (
+    myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0)
+  );
 
   // Prevent background scrolling while waiting overlay is shown
   useEffect(() => {
@@ -93,6 +100,39 @@ const WaitingView = ({
     const id = setInterval(() => setOptimisticNow(Date.now()), 250);
     return () => clearInterval(id);
   }, [optimisticRenew]);
+
+  useEffect(() => {
+    if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) {
+      setShowAd(false);
+      hasScheduledAdRef.current = false;
+      if (adTimerRef.current) {
+        window.clearTimeout(adTimerRef.current);
+        adTimerRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (!hasScheduledAdRef.current) {
+      hasScheduledAdRef.current = true;
+      adTimerRef.current = window.setTimeout(() => {
+        setShowAd(true);
+        adTimerRef.current = null;
+      }, 5000);
+    }
+
+    return () => {
+      if (adTimerRef.current) {
+        window.clearTimeout(adTimerRef.current);
+        adTimerRef.current = null;
+      }
+    };
+  }, [myActiveSpot?.id, myActiveSpot?.status, isExpired]);
+
+  useEffect(() => {
+    if (remainingMs != null && remainingMs <= 5000) {
+      setShowAd(false);
+    }
+  }, [remainingMs]);
 
   const displayRemainingMs = (() => {
     if (!myActiveSpot || !optimisticRenew) return remainingMs;
@@ -176,48 +216,6 @@ const WaitingView = ({
 
   // Host/propose waiting states
   if (myActiveSpot) {
-    const bookerAccepted = !!myActiveSpot.bookerAccepted;
-    const isReservedPendingAccept = myActiveSpot.status === 'booked' && !bookerAccepted;
-    // On ajoute "!optimisticRenew &&" au début
-    // Remplacez la définition de isExpired (vers la ligne 160) par ceci :
-    const isExpired = !optimisticRenew && (myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0));
-
-    // Plan the sponsored card timing: appear 5s after start, disappear 5s before end
-    // Gestion de l'affichage de la Pub
-   // Dans le useEffect qui gère renewFeedbackId :
-
-    const tWave = window.setTimeout(() => {
-      const now = Date.now();
-      const endAt = now + durationMin * 60_000;
-
-      // 1. On lance le POP visuel
-      setTimerPulse(true);
-
-      // 2. On attend la fin du POP (220ms) pour mettre à jour les chiffres
-      window.setTimeout(() => {
-        setTimerPulse(false);
-        // AJOUT DE "- 1000" ICI pour éviter le bug du "00:00" la première fois
-        setOptimisticRenew({ startAt: now - 1000, endAt, spotId: myActiveSpot.id });
-      }, 220);
-
-      window.setTimeout(() => setOptimisticRenew(null), 4500);
-
-    }, renewWaveDurationMs);
-
-    // Gestion de la disparition de la Pub (quand il reste peu de temps)
-    useEffect(() => {
-      if (remainingMs != null && remainingMs <= 5000) {
-        setShowAd(false);
-      }
-    }, [remainingMs]);
-
-    useEffect(() => {
-      if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) return;
-      if (remainingMs != null && remainingMs <= 5000) {
-        setShowAd(false);
-      }
-    }, [remainingMs, myActiveSpot?.status, isExpired, myActiveSpot]);
-
     if (myActiveSpot.status === 'booked') {
       const distanceKm = bookerCoords && isValidCoord(bookerCoords.lng, bookerCoords.lat)
         ? getDistanceFromLatLonInKm(myActiveSpot.lat, myActiveSpot.lng, bookerCoords.lat, bookerCoords.lng)

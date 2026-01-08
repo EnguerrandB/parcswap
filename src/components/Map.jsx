@@ -1441,30 +1441,27 @@ useEffect(() => {
 
            watchIdRef.current = navigator.geolocation.watchPosition(
   (pos) => {
-    const { latitude, longitude } = pos.coords; // On ignore heading et speed du GPS
+    // 1. AJOUT : Récupérer heading et speed ici
+    const { latitude, longitude, heading, speed } = pos.coords;
     const newCoords = [longitude, latitude];
-    
-    // 1. Trouver où on est sur la ligne orange/blanche
-    // (On utilise ta fonction existante findClosestPointIndex)
+
     const { index: closestIdx } = findClosestPointIndex(navGeometry, longitude, latitude);
 
-    // 2. Calculer l'angle "idéal" de la route
-    // On regarde le segment actuel : du point le plus proche vers le suivant
+    // Variable temporaire pour stocker l'angle de la route
+    let routeBearing = null;
+
+    // 2. Calculer l'angle "idéal" de la route (Lignée de la route)
     if (closestIdx < navGeometry.length - 1) {
       const p1 = navGeometry[closestIdx];
       const p2 = navGeometry[closestIdx + 1];
-      
-      // On force l'angle à être celui de la route tracée
-      currentBearing = computeBearing(p1, p2);
-    } 
-    // Fallback : si on est à la toute fin, on garde le dernier angle connu
+      // On calcule l'angle du segment actuel vers le prochain point
+      routeBearing = computeBearing(p1, p2);
+    }
 
     updateRouteProgress(longitude, latitude);
-                   
-                   // Initialisation au premier point
-                   if (!prevCoords) 
-                    {
-                       prevCoords = newCoords;
+
+    if (!prevCoords) {
+      prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
                        if (markerPopupRef.current) {
                          markerPopupRef.current.setHTML(
@@ -1480,9 +1477,8 @@ useEffect(() => {
                        persistUserLocation(coordObj);
                        
                        // Si on a déjà un heading GPS valide au démarrage, on l'utilise
-                       if (heading !== null && !isNaN(heading)) {
-                           currentBearing = heading;
-                       }
+                       if (routeBearing !== null) currentBearing = routeBearing;
+      else if (heading !== null && !isNaN(heading)) currentBearing = heading;
                        return;
                    }
 
@@ -1493,37 +1489,44 @@ useEffect(() => {
                    
                    // 1. Priorité au Heading GPS natif si disponible et qu'on bouge un peu
                    // (Le heading GPS est souvent null à l'arrêt ou imprécis)
-                   if (heading !== null && !isNaN(heading) && (speed === null || speed > 1)) {
-                       currentBearing = heading;
-                   } 
-                   // 2. Sinon, on calcule l'angle par rapport au mouvement précédent (si > 3 mètres)
-                   else if (distMoved > 0.003) {
-                       currentBearing = computeBearing(prevCoords, newCoords);
-                   }
-                   // 3. Sinon (à l'arrêt), on garde le `currentBearing` précédent pour ne pas que la carte tourne sur elle-même.
+                   if (routeBearing !== null) {
+      // CAS 1 (Le plus important) : On force l'alignement sur la ligne de la route
+      // Cela donne l'effet "Rail" fluide comme sur Waze/Google Maps
+      currentBearing = routeBearing;
+    } 
+    else if (heading !== null && !isNaN(heading) && (speed === null || speed > 1)) {
+      // CAS 2 : Fallback GPS (si on est hors route ou à la toute fin)
+      currentBearing = heading;
+    } 
+    else if (distMoved > 0.003) {
+      // CAS 3 : Fallback Mouvement calculé
+      currentBearing = computeBearing(prevCoords, newCoords);
+    }
+    // Sinon on garde le dernier currentBearing connu pour éviter que la carte ne tourne à l'arrêt.
 
-                   // Décalage de la caméra pour voir "devant" (effet Chase Mode)
-                   const CAMERA_OFFSET_METERS = 100; // Ajustez cette valeur pour placer la voiture plus ou moins bas
-                   const shiftedCenter = offsetCenter(
+    // Décalage de la caméra pour voir "devant" (Chase Mode)
+    const shiftedCenter = offsetCenter(
       newCoords,
-      currentBearing, // Ici on utilise l'angle de la route, c'est super fluide
-      100 
+      currentBearing, // Maintenant, c'est aligné avec la route !
+      100
     );
 
-                    map.easeTo({
-                      center: shiftedCenter,
-                      zoom: 17.5,      // Zoom plus serré style GPS
-                      pitch: 55,       // Vue plus inclinée (3D)
-                      bearing: currentBearing, // La carte tourne selon VOTRE direction
-                      padding: { top: 0, bottom: 0, left: 0, right: 0 }, // Le décalage est géré par offsetCenter
-                      duration: 1000,  // Animation fluide (1s correspond souvent à l'intervalle GPS)
-                      easing: t => t,  // Linéaire pour la fluidité continue
-                    });
+    map.easeTo({
+      center: shiftedCenter,
+      zoom: 17.5,
+      pitch: 55,
+      bearing: currentBearing, // La carte s'orientera selon la route
+      padding: { top: 0, bottom: 0, left: 0, right: 0 },
+      duration: 1000,
+      easing: (t) => t,
+    });
 
-                  if (markerRef.current) {
-                    markerRef.current.getElement().style.zIndex = '10';
-                    markerRef.current.setLngLat(newCoords);
-                    markerRef.current.setRotation(currentBearing); // La voiture tourne aussi selon le cap
+    if (markerRef.current) {
+      markerRef.current.setLngLat(newCoords);
+      // Optionnel : Vous pouvez laisser la voiture tourner selon le GPS (heading) 
+      // même si la carte suit la route, pour voir si la voiture "drifte".
+      // Mais pour un rendu propre, utilisez aussi currentBearing :
+      markerRef.current.setRotation(currentBearing);
                     
                     if (markerPopupRef.current) {
                       markerPopupRef.current.setHTML(
@@ -1537,13 +1540,13 @@ useEffect(() => {
                   }
                    
                    const coordObj = { lat: latitude, lng: longitude };
-                   setUserLoc(coordObj);
-                   persistUserLocation(coordObj);
-                   prevCoords = newCoords;
-               },
-               (err) => console.warn('GPS Watch Error', err),
-               options
-           );
+    setUserLoc(coordObj);
+    persistUserLocation(coordObj);
+    prevCoords = newCoords;
+  },
+  (err) => console.warn('GPS Watch Error', err),
+  options
+);
        }
 
        return () => {

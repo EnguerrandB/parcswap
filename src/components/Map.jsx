@@ -15,6 +15,7 @@ import userCar2 from '../assets/user-car-2.png';
 import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
 import userDirectionArrow from '../assets/user-direction-arrow.svg';
+import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 
 // --- Helpers ---
 
@@ -259,7 +260,6 @@ const MapInner = ({
   const [navError, setNavError] = useState('');
   const routeAnimRef = useRef(null);
   const [navIndex, setNavIndex] = useState(0);
-  const [isUserFocus, setIsUserFocus] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
@@ -301,8 +301,6 @@ const MapInner = ({
   const OTHER_USERS_MAX_DISTANCE_KM = 5;
   const OTHER_USERS_MAX_VISIBLE = 25;
   const viewerCoordsRef = useRef(null);
-  const userFocusRef = useRef(false);
-  const userLocRef = useRef(null);
 
   useEffect(() => {
     const candidate = userLoc || userCoords;
@@ -310,13 +308,6 @@ const MapInner = ({
       candidate && isValidCoord(candidate.lng, candidate.lat) ? { lng: candidate.lng, lat: candidate.lat } : null;
   }, [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
 
-  useEffect(() => {
-    userFocusRef.current = isUserFocus;
-  }, [isUserFocus]);
-
-  useEffect(() => {
-    userLocRef.current = userLoc;
-  }, [userLoc]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -645,104 +636,6 @@ useEffect(() => {
     otherUserProfileFetchRef.current.set(uid, fetchPromise);
   };
 
-  const buildOtherUserPopupHTML = (name, lastSeen, opts = {}) => {
-    const { showBadge = true } = opts;
-    const lastSeenText = typeof lastSeen === 'string' ? lastSeen : lastSeen?.text;
-    const online = typeof lastSeen === 'object' ? !!lastSeen?.isOnline : false;
-    const cardBg = isDark ? 'rgba(11, 17, 27, 0.94)' : 'rgba(255,255,255,0.94)';
-    const border = isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.08)';
-    const textColor = isDark ? '#e2e8f0' : '#0f172a';
-    const muted = isDark ? '#94a3b8' : '#64748b';
-    const badgeBg = online
-      ? (isDark ? 'rgba(34, 197, 94, 0.18)' : 'rgba(16, 185, 129, 0.16)')
-      : (isDark ? 'rgba(249, 115, 22, 0.18)' : 'rgba(249, 115, 22, 0.16)');
-    const badgeText = online ? '#16a34a' : '#c2410c';
-    const pulseColor = online ? 'rgba(34,197,94,0.25)' : 'rgba(249,115,22,0.25)';
-
-    return `
-      <div style="
-        font-family:'Inter', system-ui, -apple-system, sans-serif;
-        min-width:220px;
-        color:${textColor};
-      ">
-        <div style="
-          padding:14px 16px;
-          border-radius:18px;
-          background:${cardBg};
-          border:${border};
-          box-shadow:0 22px 60px -22px rgba(0,0,0,0.55);
-          backdrop-filter: blur(18px) saturate(150%);
-        ">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <div style="min-width:0;">
-              <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name || t('user', 'User')}</div>
-            </div>
-            ${
-              showBadge && online
-                ? `<span style="
-                    display:inline-flex;
-                    align-items:center;
-                    padding:6px 12px;
-                    border-radius:999px;
-                    background:${badgeBg};
-                    color:${badgeText};
-                    font-size:11px;
-                    font-weight:800;
-                    box-shadow:0 12px 22px -12px ${pulseColor};
-                    white-space:nowrap;
-                  ">
-	                    ${t('online', 'Online')}
-	                  </span>`
-	                : ''
-	            }
-          </div>
-          <div style="margin-top:12px;display:flex;align-items:center;gap:10px;color:${textColor};">
-            <div style="
-              width:10px;
-              height:10px;
-              border-radius:999px;
-              background:${online ? '#22c55e' : '#f97316'};
-              box-shadow:0 0 0 8px ${pulseColor};
-              flex-shrink:0;
-            "></div>
-            <div style="font-size:13px;font-weight:700;line-height:1.3;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-	              ${lastSeenText || t('lastSeenUnknown', 'Last seen unknown')}
-	            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  };
-
-  // Adds a quick pop-in/out animation on all popups
-  const enhancePopupAnimation = (popup) => {
-    if (!popup || popup.__animated) return popup;
-    const originalAddTo = popup.addTo.bind(popup);
-    popup.addTo = (mapInstance) => {
-      const res = originalAddTo(mapInstance);
-      const el = popup.getElement();
-      const content = el?.querySelector('.mapboxgl-popup-content');
-      if (content) {
-        content.classList.remove('popup-exit');
-        content.classList.add('popup-enter');
-      }
-      return res;
-    };
-    const originalRemove = popup.remove.bind(popup);
-    popup.remove = () => {
-      const el = popup.getElement();
-      const content = el?.querySelector('.mapboxgl-popup-content');
-      if (content) {
-        content.classList.remove('popup-enter');
-        content.classList.add('popup-exit');
-        setTimeout(() => originalRemove(), 170);
-        return popup;
-      }
-      return originalRemove();
-    };
-    popup.__animated = true;
-    return popup;
-  };
 
   const instructionCardStyle = useMemo(
     () => ({
@@ -1388,32 +1281,6 @@ useEffect(() => {
          el.style.height = '52px';
          el.style.transformOrigin = 'center center';
          el.draggable = false;
-         const handleUserMarkerClick = (event) => {
-           event?.stopPropagation?.();
-           setIsUserFocus((prev) => {
-             const next = !prev;
-             const mapInstance = mapRef.current;
-             const loc = userLocRef.current;
-             const center =
-               loc && isValidCoord(loc.lng, loc.lat)
-                 ? [loc.lng, loc.lat]
-                 : navGeometry?.[0];
-             if (mapInstance && center && isValidCoord(center[0], center[1])) {
-               mapInstance.easeTo({
-                 center,
-                 zoom: next ? 17.8 : 17.5,
-                 pitch: next ? 0 : 55,
-                 bearing: next ? 0 : mapInstance.getBearing?.() ?? 0,
-                 duration: 700,
-                 essential: true,
-               });
-               setMapMoved(false);
-             }
-             return next;
-           });
-         };
-         el.addEventListener('click', handleUserMarkerClick);
-         el.__userClickHandler = handleUserMarkerClick;
          
          // SVG Flèche Waze
          el.innerHTML = `
@@ -1438,6 +1305,8 @@ useEffect(() => {
 
          const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
            buildOtherUserPopupHTML(
+             t,
+             isDark,
              currentUserName || t('user', 'User'),
              { text: t('online', 'Online'), isOnline: true },
              { showBadge: false },
@@ -1501,13 +1370,15 @@ useEffect(() => {
       prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
                        if (markerPopupRef.current) {
-                         markerPopupRef.current.setHTML(
-                           buildOtherUserPopupHTML(
-                             currentUserName || t('user', 'User'),
-                             { text: t('online', 'Online'), isOnline: true },
-                             { showBadge: false },
-                           ),
-                         );
+                       markerPopupRef.current.setHTML(
+                         buildOtherUserPopupHTML(
+                           t,
+                           isDark,
+                           currentUserName || t('user', 'User'),
+                           { text: t('online', 'Online'), isOnline: true },
+                           { showBadge: false },
+                         ),
+                       );
                        }
                        const coordObj = { lat: latitude, lng: longitude };
                        setUserLoc(coordObj);
@@ -1548,26 +1419,15 @@ useEffect(() => {
       100
     );
 
-    if (userFocusRef.current) {
-      map.easeTo({
-        center: newCoords,
-        zoom: 17.8,
-        pitch: 0,
-        bearing: 0,
-        duration: 700,
-        easing: (t) => t,
-      });
-    } else {
-      map.easeTo({
-        center: shiftedCenter,
-        zoom: 17.5,
-        pitch: 55,
-        bearing: currentBearing, // La carte s'orientera selon la route
-        padding: { top: 0, bottom: 0, left: 0, right: 0 },
-        duration: 1000,
-        easing: (t) => t,
-      });
-    }
+    map.easeTo({
+      center: shiftedCenter,
+      zoom: 17.5,
+      pitch: 55,
+      bearing: currentBearing, // La carte s'orientera selon la route
+      padding: { top: 0, bottom: 0, left: 0, right: 0 },
+      duration: 1000,
+      easing: (t) => t,
+    });
 
     if (markerRef.current) {
       markerRef.current.setLngLat(newCoords);
@@ -1579,6 +1439,8 @@ useEffect(() => {
                     if (markerPopupRef.current) {
                       markerPopupRef.current.setHTML(
                         buildOtherUserPopupHTML(
+                          t,
+                          isDark,
                           currentUserName || t('user', 'User'),
                           { text: t('online', 'Online'), isOnline: true },
                           { showBadge: false },
@@ -1608,12 +1470,6 @@ useEffect(() => {
           watchIdRef.current = null;
        }
 
-        const userMarkerEl = markerRef.current?.getElement?.();
-        if (userMarkerEl?.__userClickHandler) {
-          userMarkerEl.removeEventListener('click', userMarkerEl.__userClickHandler);
-          delete userMarkerEl.__userClickHandler;
-        }
-        
         // Nettoyage des layers/sources si nécessaire lors du démontage complet
         if (mapRef.current && mapRef.current.getLayer('route-dots-layer')) {
              mapRef.current.removeLayer('route-dots-layer');
@@ -1636,13 +1492,15 @@ useEffect(() => {
 	    if (!mapLoaded || !mapRef.current) return undefined;
 	    const updateSelfPopup = () => {
 	      if (markerPopupRef.current) {
-	        markerPopupRef.current.setHTML(
-	          buildOtherUserPopupHTML(
-	            currentUserName || t('user', 'User'),
-	            { text: t('online', 'Online'), isOnline: true },
-	            { showBadge: false },
-	          ),
-	        );
+            markerPopupRef.current.setHTML(
+              buildOtherUserPopupHTML(
+                t,
+                isDark,
+                currentUserName || t('user', 'User'),
+                { text: t('online', 'Online'), isOnline: true },
+                { showBadge: false },
+              ),
+            );
 	      }
 	    };
     const locRef = collection(db, 'artifacts', appId, 'public', 'data', 'userLocations');
@@ -1724,7 +1582,7 @@ useEffect(() => {
             const popup = existing.getPopup();
             if (popup) {
               enhancePopupAnimation(popup);
-	              popup.setHTML(buildOtherUserPopupHTML(displayName, lastSeen));
+              popup.setHTML(buildOtherUserPopupHTML(t, isDark, displayName, lastSeen));
 	            }
             const statusDot = existing.getElement()?.querySelector('.user-marker-presence-dot');
             if (statusDot) {
@@ -1791,9 +1649,9 @@ useEffect(() => {
           imgWrapper.appendChild(presenceDot);
           el.appendChild(imgWrapper);
 
-	         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
-	            buildOtherUserPopupHTML(displayName, lastSeen),
-	          );
+         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
+            buildOtherUserPopupHTML(t, isDark, displayName, lastSeen),
+          );
           enhancePopupAnimation(popup);
           const marker = new mapboxgl.Marker({
             element: el,
@@ -1858,16 +1716,8 @@ useEffect(() => {
             border-top-color: #ffffff !important;
             margin-bottom: -1px;
           }
-          .user-presence-popup .mapboxgl-popup-content {
-            padding: 0 !important;
-            background: transparent !important;
-            box-shadow: none !important;
-            border: none !important;
-          }
-          .user-presence-popup .mapboxgl-popup-tip {
-            display: none;
-          }
         `}</style>
+        <PopUpUsersStyles />
         
         {/* The Map */}
         <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />

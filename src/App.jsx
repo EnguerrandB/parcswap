@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	  collection,
 	  addDoc,

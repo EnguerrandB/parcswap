@@ -259,6 +259,7 @@ const MapInner = ({
   const [navError, setNavError] = useState('');
   const routeAnimRef = useRef(null);
   const [navIndex, setNavIndex] = useState(0);
+  const [isUserFocus, setIsUserFocus] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
@@ -300,12 +301,22 @@ const MapInner = ({
   const OTHER_USERS_MAX_DISTANCE_KM = 5;
   const OTHER_USERS_MAX_VISIBLE = 25;
   const viewerCoordsRef = useRef(null);
+  const userFocusRef = useRef(false);
+  const userLocRef = useRef(null);
 
   useEffect(() => {
     const candidate = userLoc || userCoords;
     viewerCoordsRef.current =
       candidate && isValidCoord(candidate.lng, candidate.lat) ? { lng: candidate.lng, lat: candidate.lat } : null;
   }, [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
+
+  useEffect(() => {
+    userFocusRef.current = isUserFocus;
+  }, [isUserFocus]);
+
+  useEffect(() => {
+    userLocRef.current = userLoc;
+  }, [userLoc]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1377,6 +1388,32 @@ useEffect(() => {
          el.style.height = '52px';
          el.style.transformOrigin = 'center center';
          el.draggable = false;
+         const handleUserMarkerClick = (event) => {
+           event?.stopPropagation?.();
+           setIsUserFocus((prev) => {
+             const next = !prev;
+             const mapInstance = mapRef.current;
+             const loc = userLocRef.current;
+             const center =
+               loc && isValidCoord(loc.lng, loc.lat)
+                 ? [loc.lng, loc.lat]
+                 : navGeometry?.[0];
+             if (mapInstance && center && isValidCoord(center[0], center[1])) {
+               mapInstance.easeTo({
+                 center,
+                 zoom: next ? 17.8 : 17.5,
+                 pitch: next ? 0 : 55,
+                 bearing: next ? 0 : mapInstance.getBearing?.() ?? 0,
+                 duration: 700,
+                 essential: true,
+               });
+               setMapMoved(false);
+             }
+             return next;
+           });
+         };
+         el.addEventListener('click', handleUserMarkerClick);
+         el.__userClickHandler = handleUserMarkerClick;
          
          // SVG Flèche Waze
          el.innerHTML = `
@@ -1511,15 +1548,26 @@ useEffect(() => {
       100
     );
 
-    map.easeTo({
-      center: shiftedCenter,
-      zoom: 17.5,
-      pitch: 55,
-      bearing: currentBearing, // La carte s'orientera selon la route
-      padding: { top: 0, bottom: 0, left: 0, right: 0 },
-      duration: 1000,
-      easing: (t) => t,
-    });
+    if (userFocusRef.current) {
+      map.easeTo({
+        center: newCoords,
+        zoom: 17.8,
+        pitch: 0,
+        bearing: 0,
+        duration: 700,
+        easing: (t) => t,
+      });
+    } else {
+      map.easeTo({
+        center: shiftedCenter,
+        zoom: 17.5,
+        pitch: 55,
+        bearing: currentBearing, // La carte s'orientera selon la route
+        padding: { top: 0, bottom: 0, left: 0, right: 0 },
+        duration: 1000,
+        easing: (t) => t,
+      });
+    }
 
     if (markerRef.current) {
       markerRef.current.setLngLat(newCoords);
@@ -1555,9 +1603,15 @@ useEffect(() => {
           routeAnimRef.current = null;
         }
         // ... (votre nettoyage existant GPS)
-        if (watchIdRef.current) {
-           navigator.geolocation.clearWatch(watchIdRef.current);
-           watchIdRef.current = null;
+       if (watchIdRef.current) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+       }
+
+        const userMarkerEl = markerRef.current?.getElement?.();
+        if (userMarkerEl?.__userClickHandler) {
+          userMarkerEl.removeEventListener('click', userMarkerEl.__userClickHandler);
+          delete userMarkerEl.__userClickHandler;
         }
         
         // Nettoyage des layers/sources si nécessaire lors du démontage complet

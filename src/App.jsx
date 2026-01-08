@@ -471,12 +471,6 @@ export default function ParkSwapApp() {
 	    }
 	  };
 
-  const findSpotById = (spotId) => {
-    if (myActiveSpot?.id === spotId) return myActiveSpot;
-    if (bookedSpot?.id === spotId) return bookedSpot;
-    return spots.find((s) => s.id === spotId);
-  };
-
   const logCurrentLocation = async (contextLabel = 'location') => {
     if (!navigator?.geolocation) {
       console.log(`[${contextLabel}] Geolocation API not available`);
@@ -528,6 +522,17 @@ export default function ParkSwapApp() {
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
+
+  const visibleSpots = useMemo(
+    () => spots.filter((spot) => getRemainingMs(spot) > 0),
+    [spots],
+  );
+
+  const findSpotById = (spotId) => {
+    if (myActiveSpot?.id === spotId) return myActiveSpot;
+    if (bookedSpot?.id === spotId) return bookedSpot;
+    return visibleSpots.find((s) => s.id === spotId);
+  };
 	  const [showAccountSheet, setShowAccountSheet] = useState(false);
 	  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
 		  const [isSheetDragging, setIsSheetDragging] = useState(false);
@@ -2174,7 +2179,7 @@ export default function ParkSwapApp() {
       return (
         <div className="h-full w-full">
           <SearchView
-            spots={spots}
+            spots={visibleSpots}
             bookedSpot={bookedSpot}
             onCompleteSwap={handleCompleteSwap}
             onBookSpot={handleBookSpot}
@@ -2553,7 +2558,7 @@ export default function ParkSwapApp() {
           />
         </div>
       </div>
-      {selectedSearchSpot && (
+      {selectedSearchSpot && getRemainingMs(selectedSearchSpot) > 0 && (
         <Map
           spot={selectedSearchSpot}
           onClose={closeMap}

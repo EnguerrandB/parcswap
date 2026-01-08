@@ -102,7 +102,12 @@ const WaitingView = ({
   }, [optimisticRenew]);
 
   useEffect(() => {
-    if (!myActiveSpot || myActiveSpot.status === 'booked' || isExpired) {
+    const isWaitingForAccept =
+      !!myActiveSpot &&
+      myActiveSpot.status === 'available' &&
+      myActiveSpot.status !== 'expired';
+
+    if (!isWaitingForAccept) {
       setShowAd(false);
       hasScheduledAdRef.current = false;
       if (adTimerRef.current) {
@@ -126,11 +131,16 @@ const WaitingView = ({
         adTimerRef.current = null;
       }
     };
-  }, [myActiveSpot?.id, myActiveSpot?.status, isExpired]);
+  }, [myActiveSpot?.id, myActiveSpot?.status]);
 
   useEffect(() => {
-    if (remainingMs != null && remainingMs <= 5000) {
+    if (remainingMs != null && remainingMs <= 0) {
       setShowAd(false);
+      hasScheduledAdRef.current = false;
+      if (adTimerRef.current) {
+        window.clearTimeout(adTimerRef.current);
+        adTimerRef.current = null;
+      }
     }
   }, [remainingMs]);
 

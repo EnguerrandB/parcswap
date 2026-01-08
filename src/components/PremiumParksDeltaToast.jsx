@@ -37,6 +37,7 @@ const PremiumParksDeltaToast = ({
 
   return (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center pointer-events-none">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-md pointer-events-none" />
       <div className={`pp-toast ${phase === 'exit' ? 'pp-toast-exit' : 'pp-toast-enter'}`}>
         <div className="flex items-center justify-between gap-3">
           <div className="text-white/90 text-sm font-semibold tracking-tight">{title}</div>

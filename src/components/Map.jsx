@@ -2060,27 +2060,15 @@ useEffect(() => {
         flex items-center justify-center
         w-12 h-12
         rounded-full
-        
-        /* Design Apple Glass : Fond blanc/noir translucide + Blur puissant */
-        bg-white/80 dark:bg-gray-800/80
-        backdrop-blur-xl
-        
-        /* Bordure subtile pour la définition */
-        border border-white/40 dark:border-white/10
-        
-        /* Ombre douce et diffuse (pas de noir pur) */
-        shadow-[0_8px_20px_-6px_rgba(0,0,0,0.15)]
-        
-        /* Couleur de l'icône */
-        text-orange-500
-        
-        /* Animation au clic (effet ressort) */
+        bg-slate-900/80 backdrop-blur-xl
+        border border-white/10
+        shadow-[0_8px_20px_-6px_rgba(0,0,0,0.25)]
+        text-white
         transition-all duration-300 cubic-bezier(0.34, 1.56, 0.64, 1)
         hover:scale-110
-        active:scale-90 active:bg-white/95
+        active:scale-90 active:bg-slate-900/90
       "
     >
-      {/* Icône flèche de navigation (style iOS) */}
       <svg 
         className="w-6 h-6 drop-shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" 
         viewBox="0 0 24 24" 

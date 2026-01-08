@@ -35,6 +35,7 @@ import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
 	import Map from './components/Map';
+import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
 import { Menu } from 'lucide-react';
 import { newId } from './utils/ids';
 
@@ -519,6 +520,7 @@ export default function ParkSwapApp() {
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
   const [renewFeedbackId, setRenewFeedbackId] = useState(0);
   const [renewWave, setRenewWave] = useState(null);
+  const [premiumParksDeltaToast, setPremiumParksDeltaToast] = useState(null);
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
@@ -1814,52 +1816,90 @@ export default function ParkSwapApp() {
 	      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
 	      const spot = myActiveSpot?.id === spotId ? myActiveSpot : null;
 
-      if (spot?.bookerId) {
-        await updateDoc(spotRef, {
-	          status: 'cancelled',
-	          cancelledAt: serverTimestamp(),
-	          cancelledBy: user?.uid || null,
-	          cancelledByRole: 'host',
-	          cancelledFor: spot.bookerId,
-	          cancelledForName: spot.bookerName || null,
-	          bookingSessionId: null,
-	          bookedAt: null,
-	          bookOpId: null,
-	          bookOpAt: null,
-	          navOpId: null,
-	          navOpAt: null,
-	          bookerId: null,
-	          bookerName: null,
-	          bookerAccepted: false,
-	          bookerAcceptedAt: null,
-	          bookerVehiclePlate: null,
-	          bookerVehicleId: null,
-	          premiumParksAppliedAt: null,
-	          premiumParksAppliedBy: null,
-	          premiumParksBookerDelta: null,
-	          premiumParksBookerAfter: null,
-	          premiumParksHostDelta: null,
-	          premiumParksHostAfter: null,
-	          hostVerifiedBookerPlate: false,
-	          hostVerifiedBookerPlateAt: null,
-	          hostConfirmedBookerPlate: null,
-	          hostConfirmedBookerPlateNorm: null,
-	          bookerVerifiedHostPlate: false,
-	          bookerVerifiedHostPlateAt: null,
-	          bookerConfirmedHostPlate: null,
-	          bookerConfirmedHostPlateNorm: null,
-	          plateConfirmed: false,
-	          completedAt: null,
+	      if (spot?.bookerId) {
+	        await runTransaction(db, async (tx) => {
+	          const snap = await tx.get(spotRef);
+	          if (!snap.exists()) return;
+	          const liveSpot = { id: spotId, ...snap.data() };
+	          const hostId = liveSpot.hostId || user?.uid || null;
+	          const cancelPayload = {
+	            status: 'cancelled',
+	            cancelledAt: serverTimestamp(),
+	            cancelledBy: user?.uid || null,
+	            cancelledByRole: 'host',
+	            cancelledFor: liveSpot.bookerId || spot.bookerId,
+	            cancelledForName: liveSpot.bookerName || spot.bookerName || null,
+	            bookingSessionId: null,
+	            bookedAt: null,
+	            bookOpId: null,
+	            bookOpAt: null,
+	            navOpId: null,
+	            navOpAt: null,
+	            bookerId: null,
+	            bookerName: null,
+	            bookerAccepted: false,
+	            bookerAcceptedAt: null,
+	            bookerVehiclePlate: null,
+	            bookerVehicleId: null,
+	            hostVerifiedBookerPlate: false,
+	            hostVerifiedBookerPlateAt: null,
+	            hostConfirmedBookerPlate: null,
+	            hostConfirmedBookerPlateNorm: null,
+	            bookerVerifiedHostPlate: false,
+	            bookerVerifiedHostPlateAt: null,
+	            bookerConfirmedHostPlate: null,
+	            bookerConfirmedHostPlateNorm: null,
+	            plateConfirmed: false,
+	            completedAt: null,
+	          };
+
+	          if (hostId) {
+	            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', hostId);
+	            const userSnap = await tx.get(userRef);
+	            const currentHeartsRaw = Number(userSnap?.data()?.premiumParks);
+	            const currentHearts = Number.isFinite(currentHeartsRaw) ? currentHeartsRaw : PREMIUM_PARKS_MAX;
+	            const nextHearts = Math.max(0, Math.min(PREMIUM_PARKS_MAX, currentHearts - 1));
+	            const delta = nextHearts - currentHearts;
+	            tx.set(
+	              userRef,
+	              { premiumParks: nextHearts, premiumParksInitialized: true },
+	              { merge: true },
+	            );
+	            cancelPayload.premiumParksAppliedAt = serverTimestamp();
+	            cancelPayload.premiumParksAppliedBy = hostId;
+	            cancelPayload.premiumParksHostDelta = delta;
+	            cancelPayload.premiumParksHostAfter = nextHearts;
+	            cancelPayload.premiumParksBookerDelta = null;
+	            cancelPayload.premiumParksBookerAfter = null;
+	          } else {
+	            cancelPayload.premiumParksAppliedAt = null;
+	            cancelPayload.premiumParksAppliedBy = null;
+	            cancelPayload.premiumParksHostDelta = null;
+	            cancelPayload.premiumParksHostAfter = null;
+	            cancelPayload.premiumParksBookerDelta = null;
+	            cancelPayload.premiumParksBookerAfter = null;
+	          }
+
+	          tx.update(spotRef, cancelPayload);
 	        });
-      } else {
-        await deleteDoc(spotRef);
-      }
+	      } else {
+	        await deleteDoc(spotRef);
+	      }
 
       setMyActiveSpot(null);
       setBookedSpot(null);
       setSelectedSearchSpot(null);
       saveSelectionStep('cleared', null);
       setActiveTab('search');
+      if (spot?.bookerId && user?.uid) {
+        const fromCount = Number.isFinite(Number(user?.premiumParks))
+          ? Number(user?.premiumParks)
+          : PREMIUM_PARKS_MAX;
+        const toCount = Math.max(0, Math.min(PREMIUM_PARKS_MAX, fromCount - 1));
+        if (toCount !== fromCount) {
+          setPremiumParksDeltaToast({ from: fromCount, to: toCount });
+        }
+      }
     } catch (err) {
       console.error('Error deleting spot:', err);
     }
@@ -2280,6 +2320,7 @@ export default function ParkSwapApp() {
     );
   }
 
+  const isDark = theme === 'dark';
   const prevTab = prevTabRef.current;
   const shouldTabSlide =
     (prevTab === 'search' || prevTab === 'propose') &&
@@ -2340,6 +2381,13 @@ export default function ParkSwapApp() {
             }}
           />
         </div>
+      ) : null}
+      {premiumParksDeltaToast ? (
+        <PremiumParksDeltaToast
+          fromCount={premiumParksDeltaToast.from}
+          toCount={premiumParksDeltaToast.to}
+          onDone={() => setPremiumParksDeltaToast(null)}
+        />
       ) : null}
 	      {activeTab === 'search' && !searchFiltersOpen && !isHostSelectionFlow && (
 	        <div
@@ -2445,29 +2493,35 @@ export default function ParkSwapApp() {
     </div>
   </div>
 	)}
-	      {cancelledNotice && (
-	        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
-          <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={() => setCancelledNotice(null)} />
+      {cancelledNotice && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
+          <div
+            className={`absolute inset-0 backdrop-blur-sm ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
+            onClick={() => setCancelledNotice(null)}
+          />
           <div
             className="
               relative w-full max-w-md
-              rounded-[28px] border border-white/25
-              bg-white/60 backdrop-blur-2xl backdrop-saturate-200
+              rounded-[28px] border
               shadow-[0_30px_90px_rgba(15,23,42,0.35)]
               p-6 text-center
             "
-            style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+            style={
+              isDark
+                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.78)', borderColor: 'rgba(255,255,255,0.12)' }
+                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.85)', borderColor: 'rgba(255,255,255,0.6)' }
+            }
             role="dialog"
             aria-modal="true"
             aria-label="Cancellation notice"
           >
-            <p className="text-xs uppercase tracking-[0.18em] font-semibold text-orange-600 mb-2">
+            <p className={`text-xs uppercase tracking-[0.18em] font-semibold mb-2 ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
               {i18n.t('update', 'Mise à jour')}
             </p>
-            <h3 className="text-2xl font-extrabold text-slate-900">
+            <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
               {i18n.t('offerCancelledTitle', 'Proposition annulée')}
             </h3>
-            <p className="mt-3 text-sm text-slate-700">
+            <p className={`mt-3 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
               {i18n.t(
                 'offerCancelledBody',
                 "L'utilisateur a annulé sa proposition. Tu es de retour à l'accueil.",
@@ -2476,18 +2530,18 @@ export default function ParkSwapApp() {
             <button
               type="button"
               onClick={() => setCancelledNotice(null)}
-              className="
+              className={`
                 mt-5 w-full h-12 rounded-2xl
-                bg-gradient-to-r from-orange-500 to-amber-500
                 text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
                 hover:brightness-110 transition active:scale-[0.99]
-              "
+                ${isDark ? 'bg-gradient-to-r from-orange-400 to-amber-400' : 'bg-gradient-to-r from-orange-500 to-amber-500'}
+              `}
             >
               OK
             </button>
           </div>
-	        </div>
-	      )}
+        </div>
+      )}
 	      {celebration && <ConfettiOverlay seedKey={`${celebration.spotId}:${user?.uid || 'user'}`} />}
 	      {showInvite && (
 	        <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">

@@ -14,7 +14,35 @@ import BottomNav from '../components/BottomNav';
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
 const ROUTE_SOURCE_ID = 'parkswap-route';
 const ROUTE_LAYER_ID = 'parkswap-route-line';
-const APP_ROUTE_COLOR = '#f97316'; // app orange
+const ROUTE_GLOW_ID = 'parkswap-route-glow';
+const ROUTE_OUTLINE_ID = 'parkswap-route-outline';
+const ROUTE_DOTS_SOURCE_ID = 'parkswap-route-dots';
+const ROUTE_DOTS_LAYER_ID = 'parkswap-route-dots-layer';
+const ROUTE_DOTS_GLOW_ID = 'parkswap-route-dots-glow';
+
+const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
+  const points = [];
+  let accumulatedDist = 0;
+  let nextPointDist = offsetMeters;
+
+  for (let i = 0; i < geometry.length - 1; i += 1) {
+    const start = geometry[i];
+    const end = geometry[i + 1];
+    const dLat = end[1] - start[1];
+    const dLng = (end[0] - start[0]) * Math.cos((start[1] * Math.PI) / 180);
+    const dist = Math.sqrt(dLat * dLat + dLng * dLng) * 111000;
+
+    while (nextPointDist <= accumulatedDist + dist) {
+      const ratio = (nextPointDist - accumulatedDist) / dist;
+      const lng = start[0] + (end[0] - start[0]) * ratio;
+      const lat = start[1] + (end[1] - start[1]) * ratio;
+      points.push([lng, lat]);
+      nextPointDist += spacingMeters;
+    }
+    accumulatedDist += dist;
+  }
+  return points;
+};
 
 const GotConfirmedView = ({
   spot,
@@ -42,11 +70,12 @@ const GotConfirmedView = ({
   }, []);
   const miniMapInstanceRef = useRef(null);
   const bookerMarkerRef = useRef(null);
-  const bookerPopupRef = useRef(null);
-  const bookerPopupContentElRef = useRef(null);
-  const bookerPopupUiRef = useRef(null);
   const spotMarkerRef = useRef(null);
   const routeAbortRef = useRef(null);
+  const routeAnimRef = useRef(null);
+  const routeCoordsRef = useRef([]);
+  const routeCoordsReverseRef = useRef([]);
+  const [mapMoved, setMapMoved] = useState(false);
   const [showPlateModal, setShowPlateModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [plateError, setPlateError] = useState(null);
@@ -71,10 +100,19 @@ const GotConfirmedView = ({
     transactions: spot?.bookerTransactions ?? spot?.bookerTx ?? null,
   }));
 
+  const applyDayNightPreset = useCallback((map) => {
+    if (!map || typeof map.setConfigProperty !== 'function') return;
+    try {
+      map.setConfigProperty('basemap', 'lightPreset', isDark ? 'dusk' : 'day');
+    } catch {
+      // ignore: style might not support config properties
+    }
+  }, [isDark]);
+
   useEffect(() => {
     const hostDelta = Number(spot?.premiumParksHostDelta);
     const hostAfterRaw = Number(spot?.premiumParksHostAfter);
-    if (hostDelta !== 1 || !Number.isFinite(hostAfterRaw)) return;
+    if (!Number.isFinite(hostDelta) || hostDelta === 0 || !Number.isFinite(hostAfterRaw)) return;
 
     const appliedAt = spot?.premiumParksAppliedAt;
     const appliedAtKey = appliedAt?.toMillis ? String(appliedAt.toMillis()) : appliedAt ? String(appliedAt) : '';
@@ -82,33 +120,8 @@ const GotConfirmedView = ({
     if (!key) return;
     if (premiumParksToastKeyRef.current === key) return;
     premiumParksToastKeyRef.current = key;
-    setPremiumParksToast({ from: hostAfterRaw - 1, to: hostAfterRaw });
+    setPremiumParksToast({ from: hostAfterRaw - hostDelta, to: hostAfterRaw });
   }, [spot?.id, spot?.premiumParksAppliedAt, spot?.premiumParksHostDelta, spot?.premiumParksHostAfter]);
-
-  const ensureBookerPopupContentElement = useCallback(() => {
-    if (bookerPopupContentElRef.current) return bookerPopupContentElRef.current;
-    if (typeof document === 'undefined') return null;
-
-    const root = document.createElement('div');
-    root.className = 'pointer-events-none select-none min-w-[200px] max-w-[260px]';
-
-    const nameEl = document.createElement('div');
-    nameEl.className = 'text-base font-extrabold text-slate-900 truncate max-w-[240px]';
-
-    const txRow = document.createElement('div');
-    txRow.className = 'mt-1 flex items-center justify-between gap-3';
-    const txLabelEl = document.createElement('span');
-    txLabelEl.className = 'text-xs font-semibold text-slate-700';
-    const txValueEl = document.createElement('span');
-    txValueEl.className = 'text-xs font-extrabold text-slate-900';
-
-    txRow.append(txLabelEl, txValueEl);
-    root.append(nameEl, txRow);
-
-    bookerPopupContentElRef.current = root;
-    bookerPopupUiRef.current = { nameEl, txLabelEl, txValueEl };
-    return root;
-  }, []);
 
   const upsertRoute = useCallback((map, routeFeature) => {
       if (!map) return;
@@ -118,6 +131,8 @@ const GotConfirmedView = ({
         existing.setData(routeFeature);
       } else {
         if (map.getLayer?.(ROUTE_LAYER_ID)) map.removeLayer?.(ROUTE_LAYER_ID);
+        if (map.getLayer?.(ROUTE_GLOW_ID)) map.removeLayer?.(ROUTE_GLOW_ID);
+        if (map.getLayer?.(ROUTE_OUTLINE_ID)) map.removeLayer?.(ROUTE_OUTLINE_ID);
         if (map.getSource?.(ROUTE_SOURCE_ID)) map.removeSource?.(ROUTE_SOURCE_ID);
         map.addSource?.(ROUTE_SOURCE_ID, { type: 'geojson', data: routeFeature });
       }
@@ -132,9 +147,116 @@ const GotConfirmedView = ({
             'line-join': 'round',
           },
           paint: {
-            'line-color': APP_ROUTE_COLOR,
-            'line-width': 5,
-            'line-opacity': 0.9,
+            'line-color': '#ffffff',
+            'line-width': 6,
+            'line-opacity': 0.45,
+            'line-emissive-strength': 1,
+          },
+        });
+      }
+
+      if (!map.getLayer?.(ROUTE_GLOW_ID)) {
+        map.addLayer?.({
+          id: ROUTE_GLOW_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 14,
+            'line-opacity': 0.25,
+            'line-blur': 12,
+            'line-emissive-strength': 1,
+          },
+        }, ROUTE_LAYER_ID);
+      }
+
+      if (!map.getLayer?.(ROUTE_OUTLINE_ID)) {
+        map.addLayer?.({
+          id: ROUTE_OUTLINE_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': 'rgba(0, 0, 0, 0.35)',
+            'line-width': 10,
+            'line-opacity': 1,
+            'line-emissive-strength': 1,
+          },
+        }, ROUTE_LAYER_ID);
+      }
+
+      if (!map.hasImage?.('3d-sphere')) {
+        const size = 64;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const grad = ctx.createRadialGradient(
+            size * 0.35, size * 0.35, size * 0.05,
+            size * 0.5, size * 0.5, size * 0.5
+          );
+          grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+          grad.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
+          grad.addColorStop(1, 'rgba(200, 200, 200, 1)');
+
+          ctx.beginPath();
+          ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          map.addImage('3d-sphere', ctx.getImageData(0, 0, size, size));
+        }
+      }
+
+      if (!map.getSource?.(ROUTE_DOTS_SOURCE_ID)) {
+        map.addSource?.(ROUTE_DOTS_SOURCE_ID, {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] },
+        });
+      }
+
+      if (!map.getLayer?.(ROUTE_DOTS_GLOW_ID)) {
+        map.addLayer?.({
+          id: ROUTE_DOTS_GLOW_ID,
+          type: 'circle',
+          source: ROUTE_DOTS_SOURCE_ID,
+          paint: {
+            'circle-color': '#ff7a00',
+            'circle-radius': [
+              'interpolate', ['linear'], ['zoom'],
+              10, 2,
+              15, 6,
+              22, 15
+            ],
+            'circle-opacity': 0.55,
+            'circle-blur': 1,
+            'circle-pitch-alignment': 'map',
+            'circle-emissive-strength': 1,
+          },
+        });
+      }
+
+      if (!map.getLayer?.(ROUTE_DOTS_LAYER_ID)) {
+        map.addLayer?.({
+          id: ROUTE_DOTS_LAYER_ID,
+          type: 'symbol',
+          source: ROUTE_DOTS_SOURCE_ID,
+          layout: {
+            'icon-image': '3d-sphere',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-pitch-alignment': 'viewport',
+            'icon-size': [
+              'interpolate', ['linear'], ['zoom'],
+              13, 0.1,
+              16, 0.25,
+              20, 0.6
+            ],
+          },
+          paint: {
+            'icon-opacity': 1,
+            'icon-emissive-strength': 1,
           },
         });
       }
@@ -144,6 +266,17 @@ const GotConfirmedView = ({
 
   const removeRoute = useCallback((map) => {
     if (!map) return;
+    if (routeAnimRef.current) {
+      cancelAnimationFrame(routeAnimRef.current);
+      routeAnimRef.current = null;
+    }
+    routeCoordsRef.current = [];
+    routeCoordsReverseRef.current = [];
+    if (map.getLayer?.(ROUTE_DOTS_LAYER_ID)) map.removeLayer?.(ROUTE_DOTS_LAYER_ID);
+    if (map.getLayer?.(ROUTE_DOTS_GLOW_ID)) map.removeLayer?.(ROUTE_DOTS_GLOW_ID);
+    if (map.getSource?.(ROUTE_DOTS_SOURCE_ID)) map.removeSource?.(ROUTE_DOTS_SOURCE_ID);
+    if (map.getLayer?.(ROUTE_OUTLINE_ID)) map.removeLayer?.(ROUTE_OUTLINE_ID);
+    if (map.getLayer?.(ROUTE_GLOW_ID)) map.removeLayer?.(ROUTE_GLOW_ID);
     if (map.getLayer?.(ROUTE_LAYER_ID)) map.removeLayer?.(ROUTE_LAYER_ID);
     if (map.getSource?.(ROUTE_SOURCE_ID)) map.removeSource?.(ROUTE_SOURCE_ID);
   }, []);
@@ -175,15 +308,6 @@ const GotConfirmedView = ({
       geometry: { type: 'LineString', coordinates: [startLngLat, endLngLat] },
     };
   }, []);
-
-  useEffect(() => {
-    const ui = bookerPopupUiRef.current;
-    if (!ui) return;
-    ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
-    ui.txLabelEl.textContent = t('transactionsLabel', { defaultValue: 'Transactions' });
-    ui.txValueEl.textContent =
-      bookerProfile.transactions == null ? '—' : String(Number(bookerProfile.transactions) || 0);
-  }, [bookerProfile, fallbackBookerName, t]);
 
   const distanceMeters = (() => {
     if (!hasSpotCoords || !hasBookerCoords) return null;
@@ -308,22 +432,33 @@ const GotConfirmedView = ({
 
       const map = new mapboxgl.Map({
         container: miniMapEl,
-        style: 'mapbox://styles/mapbox/streets-v12',
+        style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
         center: initialCenter,
         zoom: 15,
         pitch: 0,
+        bearing: 0,
         interactive: true,
         attributionControl: false,
       });
 
       miniMapInstanceRef.current = map;
 
-      const handleLoad = () => markReady(map);
-      const handleStyleLoad = () => markReady(map);
+      const handleLoad = () => {
+        applyDayNightPreset(map);
+        markReady(map);
+      };
+      const handleStyleLoad = () => {
+        applyDayNightPreset(map);
+        markReady(map);
+      };
 
       map.on('load', handleLoad);
       map.on('style.load', handleStyleLoad);
       map.on('error', handleError);
+      const handleMoveStart = (e) => {
+        if (e?.originalEvent) setMapMoved(true);
+      };
+      map.on('movestart', handleMoveStart);
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => {
@@ -353,18 +488,12 @@ const GotConfirmedView = ({
         map.off('load', handleLoad);
         map.off('style.load', handleStyleLoad);
         map.off('error', handleError);
+        map.off('movestart', handleMoveStart);
 
-        removeRoute(map);
-        if (bookerPopupRef.current) {
-          bookerPopupRef.current.remove();
-          bookerPopupRef.current = null;
-        }
         if (bookerMarkerRef.current) {
           bookerMarkerRef.current.remove();
           bookerMarkerRef.current = null;
         }
-        bookerPopupContentElRef.current = null;
-        bookerPopupUiRef.current = null;
         if (spotMarkerRef.current) {
           spotMarkerRef.current.remove();
           spotMarkerRef.current = null;
@@ -379,7 +508,13 @@ const GotConfirmedView = ({
       setMapError(msg);
       return undefined;
     }
-  }, [mapboxToken, miniMapEl, hasSpotCoords, spotLng, spotLat]);
+  }, [mapboxToken, miniMapEl, hasSpotCoords, spotLng, spotLat, applyDayNightPreset]);
+
+  useEffect(() => {
+    const map = miniMapInstanceRef.current;
+    if (!map) return;
+    applyDayNightPreset(map);
+  }, [applyDayNightPreset]);
 
   // Route (Directions API)
   useEffect(() => {
@@ -402,10 +537,17 @@ const GotConfirmedView = ({
       try {
         const feature = await getDirectionsRouteFeature(startLngLat, endLngLat, mapboxToken, controller.signal);
         if (controller.signal.aborted) return;
+        const coords = feature.geometry?.coordinates || [];
+        routeCoordsRef.current = coords;
+        routeCoordsReverseRef.current = coords.length > 1 ? [...coords].reverse() : [];
         upsertRoute(map, feature);
       } catch (err) {
         if (controller.signal.aborted) return;
-        upsertRoute(map, getFallbackLineFeature(startLngLat, endLngLat));
+        const fallback = getFallbackLineFeature(startLngLat, endLngLat);
+        const coords = fallback.geometry?.coordinates || [];
+        routeCoordsRef.current = coords;
+        routeCoordsReverseRef.current = coords.length > 1 ? [...coords].reverse() : [];
+        upsertRoute(map, fallback);
       }
     })();
 
@@ -427,6 +569,51 @@ const GotConfirmedView = ({
     getFallbackLineFeature,
   ]);
 
+  useEffect(() => {
+    const map = miniMapInstanceRef.current;
+    if (!map || !mapReady) return undefined;
+
+    const speed = 25;
+    const spacing = 14;
+    let startTimestamp = null;
+
+    const animateDots = (timestamp) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const coords = routeCoordsReverseRef.current.length
+        ? routeCoordsReverseRef.current
+        : routeCoordsRef.current;
+      if (!Array.isArray(coords) || coords.length < 2) {
+        routeAnimRef.current = requestAnimationFrame(animateDots);
+        return;
+      }
+      const progress = (timestamp - startTimestamp) / 1000;
+      const currentOffset = (progress * speed) % spacing;
+      const dotCoords = getPathPoints(coords, spacing, currentOffset);
+      const source = map.getSource?.(ROUTE_DOTS_SOURCE_ID);
+      if (source && typeof source.setData === 'function') {
+        source.setData({
+          type: 'FeatureCollection',
+          features: dotCoords.map((coord) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: coord },
+          })),
+        });
+      }
+      routeAnimRef.current = requestAnimationFrame(animateDots);
+    };
+
+    if (!routeAnimRef.current) {
+      routeAnimRef.current = requestAnimationFrame(animateDots);
+    }
+
+    return () => {
+      if (routeAnimRef.current) {
+        cancelAnimationFrame(routeAnimRef.current);
+        routeAnimRef.current = null;
+      }
+    };
+  }, [mapReady]);
+
   // Update markers & camera (no re-init)
   useEffect(() => {
     const map = miniMapInstanceRef.current;
@@ -447,51 +634,38 @@ const GotConfirmedView = ({
 
     if (hasBookerCoords) {
       if (!bookerMarkerRef.current) {
-        const dot = document.createElement('div');
-        dot.className =
-          'pointer-events-none w-4 h-4 rounded-full bg-blue-600 ring-4 ring-white shadow-[0_10px_25px_rgba(37,99,235,0.35)]';
-        bookerMarkerRef.current = new mapboxgl.Marker({ element: dot, anchor: 'center' })
+        const el = document.createElement('div');
+        el.className = 'car-marker-container';
+        el.style.width = '52px';
+        el.style.height = '52px';
+        el.innerHTML = `
+            <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" style="transform-origin: center;">
+              <defs>
+                <filter id="wazeGlow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="rgba(0, 0, 0, 0.3)" />
+                </filter>
+              </defs>
+              <g filter="url(#wazeGlow)">
+                <path
+                  d="M26 6L44 46L26 36L8 46L26 6Z"
+                  fill="#33CCFF"
+                  stroke="white"
+                  stroke-width="4"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              </g>
+            </svg>
+          `;
+        bookerMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
           .setLngLat([bookerLng, bookerLat])
           .addTo(map);
       } else {
         bookerMarkerRef.current.setLngLat([bookerLng, bookerLat]);
       }
-
-      if (!bookerPopupRef.current) {
-        const contentEl = ensureBookerPopupContentElement();
-        if (contentEl) {
-          bookerPopupRef.current = new mapboxgl.Popup({
-            closeButton: false,
-            closeOnClick: false,
-            focusAfterOpen: false,
-            offset: 18,
-            maxWidth: '260px',
-            className: 'driver-info-popup pointer-events-none',
-          })
-            .setDOMContent(contentEl)
-            .setLngLat([bookerLng, bookerLat])
-            .addTo(map);
-
-          const ui = bookerPopupUiRef.current;
-          if (ui) {
-            ui.nameEl.textContent = bookerProfile.name || fallbackBookerName;
-            ui.txLabelEl.textContent = t('transactionsLabel', { defaultValue: 'Transactions' });
-            ui.txValueEl.textContent =
-              bookerProfile.transactions == null ? '—' : String(Number(bookerProfile.transactions) || 0);
-          }
-        }
-      } else {
-        bookerPopupRef.current.setLngLat([bookerLng, bookerLat]);
-      }
     } else if (bookerMarkerRef.current) {
-      if (bookerPopupRef.current) {
-        bookerPopupRef.current.remove();
-        bookerPopupRef.current = null;
-      }
       bookerMarkerRef.current.remove();
       bookerMarkerRef.current = null;
-      bookerPopupContentElRef.current = null;
-      bookerPopupUiRef.current = null;
     }
 
     if (hasSpotCoords && hasBookerCoords) {
@@ -503,6 +677,8 @@ const GotConfirmedView = ({
         duration: 500,
         essential: true,
       });
+      map.setPitch(0);
+      map.setBearing(0);
       return;
     }
     if (hasSpotCoords) {
@@ -524,7 +700,6 @@ const GotConfirmedView = ({
     bookerLat,
     hasSpotCoords,
     hasBookerCoords,
-    ensureBookerPopupContentElement,
   ]);
 
   // Auto-open plate modal when close to destination
@@ -539,37 +714,12 @@ const GotConfirmedView = ({
   const content = (
     <div className="fixed inset-0 overflow-hidden bg-white" style={{ zIndex: 2147483647 }}>
       <style>{`
-        .driver-info-popup {
-          pointer-events: none;
-        }
-        .driver-info-popup .mapboxgl-popup-content {
-          padding: 10px 12px;
-          border-radius: 22px;
-          border: 1px solid rgba(255, 255, 255, 0.55);
-          background: rgba(255, 255, 255, 0.82);
-          color: #0f172a;
-          box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
-          backdrop-filter: blur(18px) saturate(180%);
-          -webkit-backdrop-filter: blur(18px) saturate(180%);
-        }
-        .driver-info-popup .mapboxgl-popup-tip {
-          filter: drop-shadow(0 10px 25px rgba(15, 23, 42, 0.12));
-        }
-        .driver-info-popup.mapboxgl-popup-anchor-top .mapboxgl-popup-tip,
-        .driver-info-popup.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip,
-        .driver-info-popup.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
-          border-bottom-color: rgba(255, 255, 255, 0.82);
-        }
-        .driver-info-popup.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip,
-        .driver-info-popup.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
-        .driver-info-popup.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
-          border-top-color: rgba(255, 255, 255, 0.82);
-        }
-        .driver-info-popup.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
-          border-right-color: rgba(255, 255, 255, 0.82);
-        }
-        .driver-info-popup.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
-          border-left-color: rgba(255, 255, 255, 0.82);
+        .car-marker-container {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 52px;
+          height: 52px;
         }
       `}</style>
       {premiumParksToast ? (
@@ -614,6 +764,53 @@ const GotConfirmedView = ({
         </div>
       )}
 
+      {mapMoved && (
+        <div
+          className="absolute right-6 z-30 pointer-events-auto"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 128px)' }}
+        >
+          <button
+            type="button"
+            aria-label="Recenter on me"
+            onClick={() => {
+              const target =
+                hasBookerCoords
+                  ? [bookerLng, bookerLat]
+                  : hasSpotCoords
+                    ? [spotLng, spotLat]
+                    : null;
+              const map = miniMapInstanceRef.current;
+              if (!map || !target || !isValidCoord(target[0], target[1])) return;
+              map.easeTo({
+                center: target,
+                duration: 600,
+                pitch: 0,
+                zoom: 16,
+                bearing: 0,
+                essential: true,
+              });
+              setMapMoved(false);
+            }}
+            className="
+              group
+              flex items-center justify-center
+              w-12 h-12 rounded-full
+              bg-slate-900/80 backdrop-blur-xl
+              border border-white/10
+              shadow-[0_8px_20px_-6px_rgba(0,0,0,0.25)]
+              text-white
+              transition-all duration-300 cubic-bezier(0.34, 1.56, 0.64, 1)
+              hover:scale-110
+              active:scale-90 active:bg-slate-900/90
+            "
+          >
+            <svg className="w-6 h-6 drop-shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4.414 10.866a2 2 0 0 1 .463-2.618l9.16-7.073c1.378-1.063 3.327.18 2.96 1.886l-2.628 12.228a2 2 0 0 1-2.64 1.488l-3.326-.95-3.088 2.872a1 1 0 0 1-1.636-.98l1.014-4.884-1.226-.922a1 1 0 0 1 .943-1.047Z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       <BottomNav
         customActions={{
           activeTab: 'propose',
@@ -623,27 +820,31 @@ const GotConfirmedView = ({
       />
 
       {showCancelModal && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center px-6">
+        <div className="fixed inset-0 z-[10050] flex items-center justify-center px-6">
           <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={closeCancelModal} />
           <div
             className="
               relative w-full max-w-md
-              rounded-[28px] border border-white/25
-              bg-white/60 backdrop-blur-2xl backdrop-saturate-200
+              rounded-[28px] border
+              backdrop-blur-2xl backdrop-saturate-200
               shadow-[0_30px_90px_rgba(15,23,42,0.35)]
               p-6
             "
-            style={{ WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+            style={
+              isDark
+                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.78)', borderColor: 'rgba(255,255,255,0.12)' }
+                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.85)', borderColor: 'rgba(255,255,255,0.6)' }
+            }
             role="dialog"
             aria-modal="true"
             aria-label={t('cancelConfirmationTitle', { defaultValue: 'Confirm cancellation' })}
           >
             <div className="flex items-start justify-between gap-4 mb-3">
               <div>
-                <h3 className="text-2xl font-extrabold text-slate-900">
+                <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                   {t('cancelConfirmationTitle', { defaultValue: 'Confirm cancellation' })}
                 </h3>
-                <p className="mt-2 text-sm text-slate-700">
+                <p className={`mt-2 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
                   {t('cancelReputationWarning', {
                     defaultValue:
                       "Canceling now may hurt your reputation: the other user is already on the way.",
@@ -655,12 +856,13 @@ const GotConfirmedView = ({
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 onClick={closeCancelModal}
-                className="
-                  h-12 rounded-2xl border border-white/50 bg-white/60
-                  text-slate-700 font-semibold shadow-sm
+                className={`
+                  h-12 rounded-2xl border font-semibold shadow-sm
                   transition active:scale-[0.99]
-                  hover:bg-white/80
-                "
+                  ${isDark
+                    ? 'border-white/10 bg-white/10 text-slate-100 hover:bg-white/15'
+                    : 'border-white/60 bg-white/70 text-slate-700 hover:bg-white/90'}
+                `}
               >
                 {t('keepTransaction', { defaultValue: 'Keep' })}
               </button>

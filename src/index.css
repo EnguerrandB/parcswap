@@ -634,6 +634,23 @@ body[data-theme="dark"] .app-surface {
   }
 }
 
+.search-gradient-motion {
+  background-size: 180% 180%;
+  animation: searchGradientDrift 16s ease-in-out infinite;
+}
+
+@keyframes searchGradientDrift {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 100%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
 body[data-theme="dark"] .price-card-surface {
   background: rgba(15, 23, 42, 0.82);
   border-color: #1f2937;

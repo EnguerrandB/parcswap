@@ -482,6 +482,7 @@ const SearchView = ({
   selectedSpot: controlledSelectedSpot,
   setSelectedSpot: setControlledSelectedSpot,
   onSelectionStep,
+  onOpenSearchMap,
   leaderboard = [],
   userCoords = null,
   currentUserId = null,
@@ -767,6 +768,17 @@ const SearchView = ({
     });
     return uniqueSpotsByHost(filtered).length;
   };
+  const spotsAvailableWith = (radiusKmOverride, priceMaxOverride) => {
+    const filtered = sortedSpots.filter((spot) => {
+      const withinRadius =
+        radiusKmOverride == null ? true : getDistanceMeters(spot, userCoords) <= radiusKmOverride * 1000;
+      if (!withinRadius) return false;
+      if (priceMaxOverride == null) return true;
+      const p = Number(spot?.price ?? 0);
+      return Number.isFinite(p) ? p <= priceMaxOverride : true;
+    });
+    return uniqueSpotsByHost(filtered);
+  };
 
   const filteredSpots = sortedSpots.filter((spot) => {
     const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
@@ -792,6 +804,8 @@ const SearchView = ({
     noSpots &&
     (radius != null || priceMax != null) &&
     (relaxedRadiusCount > 0 || relaxedPriceCount > 0);
+  const relaxedRadiusValue = radius != null ? Math.min(RADIUS_MAX_KM, Number(radius) + 0.5) : radius;
+  const relaxedPriceValue = priceMax != null ? Number(priceMax) + 1 : priceMax;
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
   const isActiveFreeSpot = isFreeSpot(activeSpot);
@@ -990,6 +1004,50 @@ const SearchView = ({
     }
   };
 
+  const handleRelaxFilters = () => {
+    if (!showRelaxHint) return;
+    const nextRadius = relaxedRadiusCount > 0 ? relaxedRadiusValue : radius;
+    const nextPrice = relaxedPriceCount > 0 ? relaxedPriceValue : priceMax;
+    if (relaxedRadiusCount > 0 && Number.isFinite(nextRadius)) {
+      setRadiusFromRange(nextRadius);
+    }
+    if (relaxedPriceCount > 0 && Number.isFinite(nextPrice)) {
+      setPriceMaxFromRange(nextPrice);
+    }
+    const candidates = spotsAvailableWith(nextRadius, nextPrice);
+    const target = candidates[0];
+    if (!target) return;
+    const bookingSessionId = newId();
+    const spotWithSession = { ...target, bookingSessionId };
+    onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
+    setSelectedSpot(spotWithSession);
+  };
+  const handleOpenMap = () => {
+    if (onOpenSearchMap) {
+      onOpenSearchMap();
+      return;
+    }
+    const targetSpot = activeSpot || availableSpots[0] || null;
+    if (!targetSpot) {
+      const safeLng = Number.isFinite(Number(userCoords?.lng)) ? Number(userCoords.lng) : undefined;
+      const safeLat = Number.isFinite(Number(userCoords?.lat)) ? Number(userCoords.lat) : undefined;
+      setSelectedSpot({
+        id: 'map-only',
+        mapOnly: true,
+        lng: safeLng,
+        lat: safeLat,
+      });
+      return;
+    }
+    if (!activeSpot && availableSpots.length > 0) {
+      setCurrentIndex(0);
+    }
+    const bookingSessionId = newId();
+    const spotWithSession = { ...targetSpot, bookingSessionId };
+    onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
+    setSelectedSpot(spotWithSession);
+  };
+
   useEffect(() => {
     onFiltersOpenChange?.(showRadiusPicker);
     return () => onFiltersOpenChange?.(false);
@@ -998,12 +1056,14 @@ const SearchView = ({
   return (
     <div
       ref={viewRef}
-      className={`h-full w-full flex flex-col relative overflow-hidden font-sans app-surface ${
-        isDark ? 'bg-gradient-to-br from-slate-900 via-slate-950 to-black' : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
-      }`}
+      className="h-full w-full flex flex-col relative overflow-hidden font-sans search-gradient-motion"
       style={{
         touchAction: 'pan-x',
         paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
+        backgroundColor: isDark ? '#020617' : '#fff7ed',
+        backgroundImage: isDark
+          ? 'linear-gradient(135deg, #0f172a 0%, #020617 55%, #000000 100%)'
+          : 'linear-gradient(135deg, #fff1db 0%, #ffe2b8 32%, #fff7ed 68%, #ffffff 100%), radial-gradient(circle at 18% 18%, rgba(255, 149, 0, 0.18), transparent 55%), radial-gradient(circle at 82% 85%, rgba(255, 193, 7, 0.18), transparent 55%)',
       }}
     >
       {isOnline && isPoorConnection && (
@@ -1177,7 +1237,26 @@ const SearchView = ({
       )}
       {/* Header */}
 	      {!selectedSpot && (
-	        <div className="px-6 pt-5 pb-2 relative flex items-center justify-end z-0">
+	        <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-0">
+            <div className="flex-1 flex justify-center">
+              <button
+                type="button"
+                onClick={handleOpenMap}
+                className={`px-4 py-2 rounded-full text-sm font-semibold border shadow-sm transition flex items-center gap-2 ${
+                  isDark
+                    ? 'bg-gradient-to-r from-slate-900/90 to-slate-800/90 border-white/10 text-slate-100 [@media(hover:hover)]:from-slate-900 [@media(hover:hover)]:to-slate-800'
+                    : 'bg-white/90 border-white/70 text-slate-900 [@media(hover:hover)]:bg-white'
+                }`}
+                style={{ boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.35)' : '0 12px 28px rgba(15,23,42,0.12)' }}
+              >
+                <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
+                  isDark ? 'bg-white/10 text-orange-200' : 'bg-orange-50 text-orange-500'
+                }`}>
+                  <MapPin size={16} strokeWidth={2.5} />
+                </span>
+                {t('openMap', { defaultValue: 'Carte' })}
+              </button>
+            </div>
 	          <button
 	            type="button"
 	            ref={filtersButtonRef}
@@ -1240,40 +1319,38 @@ const SearchView = ({
                 </p>
               </div>
               {showRelaxHint ? (
-                <div
-                  className={`mx-auto w-full rounded-[24px] border px-4 py-3 text-left shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl ${
+                <button
+                  type="button"
+                  onClick={handleRelaxFilters}
+                  className={`mx-auto w-full rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl transition active:scale-[0.99] ${
                     isDark ? 'bg-slate-900/70 border-white/10' : 'bg-white/80 border-white/60'
                   }`}
                 >
-                  <div className={`text-[11px] font-extrabold uppercase tracking-[0.18em] ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
-                    {t('relaxFilters', { defaultValue: 'Relax filters' })}
-                  </div>
-                  <div className={`mt-1 text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                    {t('relaxFiltersHint', { defaultValue: 'More spots are available with:' })}
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    {relaxedRadiusCount > 0 ? (
-                      <div className={`flex items-center justify-between rounded-2xl px-3 py-2 ${isDark ? 'bg-white/5' : 'bg-orange-50/60'}`}>
-                        <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                          {t('relaxRadiusStep', { defaultValue: '+500 m radius' })}
-                        </span>
-                        <span className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-600'}`}>
-                          {t('spotsCount', { defaultValue: '{{count}} spots', count: relaxedRadiusCount })}
-                        </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className={`text-[11px] font-extrabold uppercase tracking-[0.18em] ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
+                        {t('relaxFilters', { defaultValue: 'Relax filters' })}
                       </div>
-                    ) : null}
-                    {relaxedPriceCount > 0 ? (
-                      <div className={`flex items-center justify-between rounded-2xl px-3 py-2 ${isDark ? 'bg-white/5' : 'bg-orange-50/60'}`}>
-                        <span className={`text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>
-                          {t('relaxPriceStep', { defaultValue: '+1 € max price' })}
-                        </span>
-                        <span className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-600'}`}>
-                          {t('spotsCount', { defaultValue: '{{count}} spots', count: relaxedPriceCount })}
-                        </span>
+                      <div className={`mt-1 text-sm font-semibold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {t('relaxFiltersHint', { defaultValue: 'Tap to open a nearby spot' })}
                       </div>
-                    ) : null}
+                      <div className={`mt-1 text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                        {[
+                          relaxedRadiusCount > 0 ? t('relaxRadiusStep', { defaultValue: '+500 m radius' }) : null,
+                          relaxedPriceCount > 0 ? t('relaxPriceStep', { defaultValue: '+1 € max price' }) : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' • ')}
+                      </div>
+                    </div>
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center border ${
+                      isDark ? 'bg-white/5 border-white/10 text-orange-200' : 'bg-orange-50 border-orange-100 text-orange-500'
+                    }`}
+                    >
+                      <MapPin size={20} strokeWidth={2.5} />
+                    </div>
                   </div>
-                </div>
+                </button>
               ) : null}
             </div>
           ) : (

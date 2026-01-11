@@ -34,7 +34,8 @@ import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
 import i18n from './i18n/i18n';
-	import Map from './components/Map';
+import Map from './components/Map';
+import MapSearchView from './components/MapSearchView';
 import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
 import { Menu } from 'lucide-react';
 import { newId } from './utils/ids';
@@ -272,10 +273,11 @@ export default function ParkSwapApp() {
 		  const initializingRef = useRef(true);
 		  const loginOverlayTimerRef = useRef(null);
 		  const [orientationBlocked, setOrientationBlocked] = useState(false);
-		  const [menuNudgeActive, setMenuNudgeActive] = useState(false);
-		  const menuNudgeTimerRef = useRef(null);
-		  const pendingVehicleOnboardingRef = useRef(false);
+  const [menuNudgeActive, setMenuNudgeActive] = useState(false);
+  const menuNudgeTimerRef = useRef(null);
+  const pendingVehicleOnboardingRef = useRef(false);
   const [highlightVehiclesRequestId, setHighlightVehiclesRequestId] = useState(0);
+  const cancelledNoticeTimerRef = useRef(null);
 
   const lastAuthNameKey = 'parkswap_last_auth_name';
   const consumeLastAuthName = () => {
@@ -289,14 +291,18 @@ export default function ParkSwapApp() {
         }
       };
 
-	  useEffect(() => {
-	    return () => {
-	      if (menuNudgeTimerRef.current) {
-	        window.clearTimeout(menuNudgeTimerRef.current);
-	        menuNudgeTimerRef.current = null;
-	      }
-	    };
-	  }, []);
+  useEffect(() => {
+    return () => {
+      if (menuNudgeTimerRef.current) {
+        window.clearTimeout(menuNudgeTimerRef.current);
+        menuNudgeTimerRef.current = null;
+      }
+      if (cancelledNoticeTimerRef.current) {
+        window.clearTimeout(cancelledNoticeTimerRef.current);
+        cancelledNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     userUidRef.current = user?.uid || null;
@@ -516,6 +522,7 @@ export default function ParkSwapApp() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
+  const [searchMapOpen, setSearchMapOpen] = useState(false);
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
   const [renewFeedbackId, setRenewFeedbackId] = useState(0);
@@ -1068,7 +1075,7 @@ export default function ParkSwapApp() {
 	      return;
 	    }
     // If no selection persists and no booking, clear local selection
-    if (!selectionSnapshot?.spotId && !bookedSpot && selectedSearchSpot) {
+    if (!selectionSnapshot?.spotId && !bookedSpot && selectedSearchSpot && !selectedSearchSpot?.mapOnly) {
       setSelectedSearchSpot(null);
     }
   }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
@@ -2188,6 +2195,23 @@ export default function ParkSwapApp() {
   }, [showAccountSheet]);
 
   useEffect(() => {
+    if (!cancelledNotice) {
+      if (cancelledNoticeTimerRef.current) {
+        window.clearTimeout(cancelledNoticeTimerRef.current);
+        cancelledNoticeTimerRef.current = null;
+      }
+      return;
+    }
+    if (cancelledNoticeTimerRef.current) {
+      window.clearTimeout(cancelledNoticeTimerRef.current);
+    }
+    cancelledNoticeTimerRef.current = window.setTimeout(() => {
+      setCancelledNotice(null);
+      cancelledNoticeTimerRef.current = null;
+    }, 5_000);
+  }, [cancelledNotice]);
+
+  useEffect(() => {
     prevTabRef.current = activeTab;
   }, [activeTab]);
 
@@ -2238,6 +2262,7 @@ export default function ParkSwapApp() {
             selectedSpot={selectedSearchSpot}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
+            onOpenSearchMap={() => setSearchMapOpen(true)}
 	            leaderboard={leaderboard}
 	            userCoords={userCoords}
 	            currentUserId={user?.uid || null}
@@ -2625,7 +2650,7 @@ export default function ParkSwapApp() {
       )}
         </div>
       </div>
-      {selectedSearchSpot && getRemainingMs(selectedSearchSpot) > 0 && (
+      {selectedSearchSpot && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0) && (
         <Map
           spot={selectedSearchSpot}
           onClose={closeMap}
@@ -2637,6 +2662,13 @@ export default function ParkSwapApp() {
           currentUserId={user?.uid || null}
           currentUserName={user?.displayName || 'User'}
           userCoords={userCoords}
+        />
+      )}
+      {searchMapOpen && (
+        <MapSearchView
+          spots={visibleSpots}
+          userCoords={userCoords}
+          onClose={() => setSearchMapOpen(false)}
         />
       )}
       <TapDebugOverlay />

@@ -250,6 +250,7 @@ const MapInner = ({
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
   const [destInfo, setDestInfo] = useState(null);
+  const isBrowseOnly = !!spot?.mapOnly;
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
       const domTheme = document.body?.dataset?.theme;
@@ -1719,6 +1720,8 @@ useEffect(() => {
           </div>
         ) : null}
 
+        {!isBrowseOnly && (
+          <>
         {/* --- STEP 1: PREVIEW --- */}
         {!showSteps && (
           <div
@@ -1888,9 +1891,27 @@ useEffect(() => {
             </div>
           </>
         )}
+          </>
+        )}
+
+        {isBrowseOnly && (
+          <div className="absolute top-5 left-5 z-30 pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => {
+                onSelectionStep?.('cleared', null);
+                onClose?.();
+              }}
+              className="flex items-center justify-center w-11 h-11 rounded-full bg-black/50 text-white border border-white/20 backdrop-blur-md shadow-lg transition hover:scale-105 active:scale-95"
+              aria-label={t('close', 'Close')}
+            >
+              <XIcon size={20} strokeWidth={2.5} />
+            </button>
+          </div>
+        )}
 
         {/* Exit Modal */}
-        {confirming && (
+        {!isBrowseOnly && confirming && (
           <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
             {/* Removed custom animate-[scaleIn] and used standard Tailwind scale transition */}
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 transform transition-all animate-none scale-100">
@@ -1929,7 +1950,7 @@ useEffect(() => {
           </div>
         )}
 
-        {showPlateNotice && (
+        {!isBrowseOnly && showPlateNotice && (
           <div className="absolute inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center px-6">
             <div
               className="

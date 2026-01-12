@@ -523,6 +523,7 @@ export default function ParkSwapApp() {
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [searchMapOpen, setSearchMapOpen] = useState(false);
+  const searchMapPrefRef = useRef('list');
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
   const [renewFeedbackId, setRenewFeedbackId] = useState(0);
@@ -2187,6 +2188,54 @@ export default function ParkSwapApp() {
     setActiveTab(nextTab);
   };
 
+  const persistSearchViewMode = async (mode) => {
+    if (!user?.uid) return;
+    try {
+      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', user.uid);
+      await setDoc(ref, { viewMode: mode, updatedAt: serverTimestamp() }, { merge: true });
+      searchMapPrefRef.current = mode;
+    } catch (err) {
+      console.error('Error persisting search view mode:', err);
+    }
+  };
+
+  const openSearchMap = () => {
+    setSearchMapOpen(true);
+    if (searchMapPrefRef.current !== 'map') {
+      persistSearchViewMode('map');
+    }
+  };
+
+  const closeSearchMap = () => {
+    setSearchMapOpen(false);
+    if (searchMapPrefRef.current !== 'list') {
+      persistSearchViewMode('list');
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', user.uid);
+        const snap = await getDoc(ref);
+        if (cancelled) return;
+        const data = snap.exists() ? snap.data() : null;
+        const mode = data?.viewMode;
+        if (mode === 'map') setSearchMapOpen(true);
+        if (mode === 'list') setSearchMapOpen(false);
+        if (mode) searchMapPrefRef.current = mode;
+      } catch (err) {
+        console.error('Error loading search view mode:', err);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
   useEffect(() => {
     if (!showAccountSheet) return;
     setShowInvite(false);
@@ -2262,7 +2311,7 @@ export default function ParkSwapApp() {
             selectedSpot={selectedSearchSpot}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
-            onOpenSearchMap={() => setSearchMapOpen(true)}
+            onOpenSearchMap={openSearchMap}
 	            leaderboard={leaderboard}
 	            userCoords={userCoords}
 	            currentUserId={user?.uid || null}
@@ -2664,11 +2713,17 @@ export default function ParkSwapApp() {
           userCoords={userCoords}
         />
       )}
-      {searchMapOpen && (
+      {activeTab === 'search' && searchMapOpen && (
         <MapSearchView
           spots={visibleSpots}
           userCoords={userCoords}
-          onClose={() => setSearchMapOpen(false)}
+          currentUserId={user?.uid || null}
+          onFiltersOpenChange={setSearchFiltersOpen}
+          onBookSpot={handleBookSpot}
+          onSelectionStep={handleSelectionStep}
+          setSelectedSpot={setSelectedSearchSpot}
+          premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
+          onClose={closeSearchMap}
         />
       )}
       <TapDebugOverlay />

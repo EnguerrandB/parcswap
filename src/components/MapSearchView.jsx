@@ -3,12 +3,25 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { X as XIcon } from 'lucide-react';
+import { List } from 'lucide-react';
 import userCar1 from '../assets/user-car-1.png';
 import userCar2 from '../assets/user-car-2.png';
 import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
+import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
+import { newId } from '../utils/ids';
+import {
+  CARD_COLOR_SALT,
+  colorForSpot,
+  colorsForOrderedSpots,
+  getCreatedMs,
+  isFreeSpot,
+  hostKeyForSpot,
+  uniqueSpotsByHost,
+} from '../utils/spotColors';
+import { appId, db } from '../firebase';
+import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const isValidCoord = (lng, lat) =>
   typeof lng === 'number' &&
@@ -19,64 +32,81 @@ const isValidCoord = (lng, lat) =>
   Math.abs(lat) <= 90;
 
 const CAR_ICONS = [userCar1, userCar2, userCar3, userCar4];
+const RADIUS_MIN_KM = 0.1;
+const RADIUS_MAX_KM = 5000;
+const DEFAULT_RADIUS_KM = 2000;
 
-const formatPrice = (price) => {
-  const n = Number(price);
-  if (!Number.isFinite(n)) return '--';
-  return n <= 0 ? 'Free' : `${n.toFixed(2)} €`;
+const formatEuro = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n * 100) / 100;
+  return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
 };
 
-const getRemainingMinutes = (spot) => {
-  if (!spot) return null;
-  const { createdAt, time } = spot;
-  if (time == null) return null;
-  let createdMs = null;
-  if (createdAt?.toMillis) createdMs = createdAt.toMillis();
-  else if (typeof createdAt === 'number') createdMs = createdAt;
-  else if (typeof createdAt === 'string') {
-    const parsed = Date.parse(createdAt);
-    createdMs = Number.isNaN(parsed) ? null : parsed;
+const getSpotMarkerId = (spot, idx) => spot?.id || `spot-${idx}`;
+
+const getDistanceMeters = (spot, userPosition = null) => {
+  if (!spot) return Infinity;
+  if (userPosition && spot.lat != null && spot.lng != null) {
+    const R = 6371e3;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(spot.lat - userPosition.lat);
+    const dLon = toRad(spot.lng - userPosition.lng);
+    const lat1 = toRad(userPosition.lat);
+    const lat2 = toRad(spot.lat);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   }
-  if (!createdMs) return null;
-  const remainingMs = createdMs + Number(time) * 60_000 - Date.now();
-  if (!Number.isFinite(remainingMs)) return null;
-  return Math.max(0, Math.round(remainingMs / 60_000));
+  if (spot.distanceMeters != null) return Number(spot.distanceMeters);
+  if (spot.distance != null) return Number(spot.distance);
+  if (spot.distanceKm != null) return Number(spot.distanceKm) * 1000;
+  return 0;
 };
 
-const buildSpotPopupHTML = (t, isDark, spot) => {
-  const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
-  const remainingMin = getRemainingMinutes(spot);
-  const priceLabel = formatPrice(spot?.price);
-  const cardBg = isDark ? 'rgba(11, 17, 27, 0.94)' : 'rgba(255,255,255,0.96)';
-  const border = isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.08)';
-  const textColor = isDark ? '#e2e8f0' : '#0f172a';
-  const muted = isDark ? '#94a3b8' : '#64748b';
-  return `
-    <div style="font-family:'Inter', system-ui, -apple-system, sans-serif; min-width:220px; color:${textColor};">
-      <div style="padding:14px 16px; border-radius:18px; background:${cardBg}; border:${border};
-        box-shadow:0 22px 60px -22px rgba(0,0,0,0.55); backdrop-filter: blur(18px) saturate(150%);">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-          <div style="min-width:0;">
-            <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
-            <div style="margin-top:2px;font-size:12px;font-weight:600;color:${muted};">
-              ${t('spotLabel', 'Spot available')}
-            </div>
-          </div>
-          <span style="display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;
-            background:${isDark ? 'rgba(34,197,94,0.16)' : 'rgba(16,185,129,0.16)'}; color:#16a34a;
-            font-size:11px;font-weight:800;white-space:nowrap;">
-            ${t('price', 'Price')}: ${priceLabel}
-          </span>
-        </div>
-        <div style="margin-top:12px;display:flex;align-items:center;gap:10px;color:${textColor};">
-          <div style="width:10px;height:10px;border-radius:999px;background:#22c55e;box-shadow:0 0 0 8px rgba(34,197,94,0.2);"></div>
-          <div style="font-size:13px;font-weight:700;line-height:1.3;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-            ${t('timeRemaining', 'Time left')}: ${remainingMin == null ? '--' : `${remainingMin} min`}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+const spreadSpotPositions = (spots = []) => {
+  const grouped = new Map();
+  const precision = 5;
+  spots.forEach((spot, idx) => {
+    const lng = Number(spot?.lng);
+    const lat = Number(spot?.lat);
+    if (!isValidCoord(lng, lat)) return;
+    const id = getSpotMarkerId(spot, idx);
+    const key = `${lng.toFixed(precision)}:${lat.toFixed(precision)}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ id, lng, lat });
+  });
+
+  const results = new Map();
+  const metersPerDegLat = 111111;
+  const baseRadius = 8;
+  const ringStep = 6;
+  const pointsPerRing = 6;
+
+  grouped.forEach((items) => {
+    if (items.length === 1) {
+      const only = items[0];
+      results.set(only.id, { lng: only.lng, lat: only.lat });
+      return;
+    }
+
+    const sorted = [...items].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    sorted.forEach((item, index) => {
+      const ring = Math.floor(index / pointsPerRing);
+      const ringCount = Math.min(pointsPerRing, sorted.length - ring * pointsPerRing);
+      const angle = (2 * Math.PI * (index - ring * pointsPerRing)) / Math.max(1, ringCount);
+      const radius = baseRadius + ring * ringStep;
+      const latRad = (item.lat * Math.PI) / 180;
+      const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos(latRad));
+      const dLat = (radius / metersPerDegLat) * Math.cos(angle);
+      const dLng = (radius / metersPerDegLng) * Math.sin(angle);
+      results.set(item.id, { lng: item.lng + dLng, lat: item.lat + dLat });
+    });
+  });
+
+  return results;
 };
 
 const iconForKey = (key) => {
@@ -88,15 +118,53 @@ const iconForKey = (key) => {
   return CAR_ICONS[Math.abs(hash) % CAR_ICONS.length];
 };
 
-const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
+const MapSearchView = ({
+  spots = [],
+  userCoords = null,
+  onClose,
+  currentUserId = null,
+  onBookSpot,
+  onSelectionStep,
+  setSelectedSpot,
+  premiumParks = 0,
+  onFiltersOpenChange,
+}) => {
   const { t } = useTranslation('common');
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
+  const viewRef = useRef(null);
+  const filtersButtonRef = useRef(null);
+  const filtersPanelRef = useRef(null);
+  const filtersRailRef = useRef(null);
+const [filtersRailRect, setFiltersRailRect] = useState(null);
+const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
+  const radiusSliderRef = useRef(null);
+  const priceSliderRef = useRef(null);
   const markersRef = useRef(new Map());
   const userMarkerRef = useRef(null);
   const popupRef = useRef(null);
+  const popupModeRef = useRef(new Map());
+  const colorSaltRef = useRef(CARD_COLOR_SALT);
+  const [nowMs, setNowMs] = useState(Date.now());
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
+  const [priceMax, setPriceMax] = useState(null);
+  const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+  const kmValueRef = useRef(null);
+  const [kmShift, setKmShift] = useState({ x: 0, y: 0 });
+  const [kmFloatPos, setKmFloatPos] = useState(null);
+  const [kmFloatVisible, setKmFloatVisible] = useState(false);
+  const kmBasePosRef = useRef(null);
+  const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
+  const prefsHydratedRef = useRef(false);
+  const prefsTouchedRef = useRef(false);
+  const prefsWriteInFlightRef = useRef(false);
+  const prefsWriteQueuedRef = useRef(null);
+  const prefsFlushRequestedRef = useRef(false);
+  const priceValueRef = useRef(null);
+  const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
+  const [actionToast, setActionToast] = useState('');
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
       const domTheme = document.body?.dataset?.theme;
@@ -111,6 +179,352 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
     }
     return false;
   });
+  const anyLabel = t('any', { defaultValue: 'Any' });
+  const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
+  const canAcceptFreeSpot = premiumParksCount > 0;
+  const maxSpotPrice = useMemo(() => {
+    const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
+    const max = values.length ? Math.max(...values) : 0;
+    return Math.max(10, Math.ceil(max));
+  }, [spots]);
+
+  const setRadiusFromRange = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    prefsTouchedRef.current = true;
+    if (n >= RADIUS_MAX_KM - 1e-6) {
+      setRadius(null);
+    } else {
+      setRadius(n);
+    }
+  };
+
+  const setPriceMaxFromRange = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    prefsTouchedRef.current = true;
+    if (n >= maxSpotPrice - 1e-6) {
+      setPriceMax(null);
+    } else {
+      setPriceMax(n);
+    }
+  };
+
+  const showPremiumToast = () => {
+    const msg = t('premiumParksEmpty', { defaultValue: 'No Premium Parks left.' });
+    setActionToast(msg);
+  };
+
+  const handleReserveSpot = async (spot) => {
+    if (!spot) return;
+    if (isFreeSpot(spot) && !canAcceptFreeSpot) {
+      showPremiumToast();
+      return;
+    }
+    const bookingSessionId = newId();
+    const spotWithSession = { ...spot, bookingSessionId };
+    onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
+    setSelectedSpot?.(spotWithSession);
+    const bookRes = await onBookSpot?.(spot, { bookingSessionId, opId: bookingSessionId });
+    if (bookRes && bookRes.ok === false) {
+      if (bookRes.code === 'no_premium_parks') {
+        showPremiumToast();
+      } else if (bookRes.code === 'spot_not_available') {
+        setActionToast(t('spotNotAvailable', { defaultValue: 'Spot no longer available.' }));
+      } else {
+        setActionToast(t('somethingWentWrong', { defaultValue: 'Something went wrong.' }));
+      }
+      return;
+    }
+    const resolvedSessionId = bookRes?.bookingSessionId || bookingSessionId;
+    const navRes = await onSelectionStep?.('nav_started', spotWithSession, {
+      bookingSessionId: resolvedSessionId,
+      opId: newId(),
+    });
+    if (navRes && navRes.ok === false) {
+      if (navRes.code === 'no_premium_parks') {
+        showPremiumToast();
+      } else if (navRes.code === 'spot_not_booked') {
+        setActionToast(t('spotNotReady', { defaultValue: 'Just a sec…' }));
+      } else {
+        setActionToast(t('somethingWentWrong', { defaultValue: 'Something went wrong.' }));
+      }
+      return;
+    }
+  };
+
+  const startRangeDrag = (e, ref, min, max, step, setter) => {
+    if (!ref?.current) return;
+    e.preventDefault();
+    const updateValue = (clientX) => {
+      const rect = ref.current.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const raw = min + pct * (max - min);
+      const value = Math.round(raw / step) * step;
+      setter(value);
+      ref.current.value = value;
+    };
+    updateValue(e.clientX);
+    const onMove = (ev) => updateValue(ev.clientX);
+    const onEnd = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  };
+
+  const computeFiltersPanelTop = () => {
+    if (!viewRef.current || !filtersButtonRef.current) return null;
+    const viewRect = viewRef.current.getBoundingClientRect();
+    const buttonRect = filtersButtonRef.current.getBoundingClientRect();
+    const top = buttonRect.bottom - viewRect.top + 10;
+    return Math.max(0, Math.round(top));
+  };
+
+  useEffect(() => {
+    if (!showRadiusPicker) return undefined;
+    const update = () => setFiltersPanelTopPx(computeFiltersPanelTop());
+    const rafUpdate = () => window.requestAnimationFrame(update);
+
+    rafUpdate();
+    window.addEventListener('resize', rafUpdate);
+    window.addEventListener('orientationchange', rafUpdate);
+
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', rafUpdate);
+    viewport?.addEventListener('scroll', rafUpdate);
+
+    return () => {
+      window.removeEventListener('resize', rafUpdate);
+      window.removeEventListener('orientationchange', rafUpdate);
+      viewport?.removeEventListener('resize', rafUpdate);
+      viewport?.removeEventListener('scroll', rafUpdate);
+    };
+  }, [showRadiusPicker]);
+
+  useEffect(() => {
+    onFiltersOpenChange?.(showRadiusPicker);
+    return () => onFiltersOpenChange?.(false);
+  }, [showRadiusPicker, onFiltersOpenChange]);
+
+  useEffect(() => {
+    if (showRadiusPicker) {
+      setKmFloatVisible(true);
+    }
+}, [showRadiusPicker]);
+
+  useEffect(() => {
+  const PRICE_LIFT_PX = -4;
+  const desiredLeft =
+    (viewRef.current?.getBoundingClientRect?.().left ?? 0) + 24;
+
+  let raf1 = null;
+  let raf2 = null;
+
+  const computeTargetShift = () => {
+    const kmRect = kmValueRef.current?.getBoundingClientRect();
+    if (!kmRect) return null;
+
+    // base = position "fermée"
+    if (!showRadiusPicker) {
+      kmBasePosRef.current = { top: kmRect.top, left: kmRect.left };
+      setKmFloatPos({ top: kmRect.top, left: kmRect.left });
+    }
+
+    const base = kmBasePosRef.current || { top: kmRect.top, left: kmRect.left };
+
+    const x = showRadiusPicker ? desiredLeft - base.left : 0;
+    const y = showRadiusPicker ? PRICE_LIFT_PX : 0;
+
+    return { x, y };
+  };
+
+  const update = () => {
+    const target = computeTargetShift();
+    if (!target) return;
+
+    if (showRadiusPicker) {
+      // 1) frame 0: on reset (point de départ)
+      setKmShift({ x: 0, y: 0 });
+
+      // 2) frame 1: on applique la cible -> transition visible
+      raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(() => {
+          setKmShift(target);
+        });
+      });
+    } else {
+      // fermeture: retour direct (transition ok)
+      setKmShift(target);
+    }
+  };
+
+  update();
+  window.addEventListener('resize', update);
+  return () => {
+    if (raf1) window.cancelAnimationFrame(raf1);
+    if (raf2) window.cancelAnimationFrame(raf2);
+    window.removeEventListener('resize', update);
+  };
+}, [showRadiusPicker, radius, priceMax]);
+
+  // Restore + persist user preferences (radius + price filter)
+  useEffect(() => {
+    if (!currentUserId) return undefined;
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', currentUserId);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        if (!data) {
+          prefsHydratedRef.current = true;
+          return;
+        }
+        const nextRadiusRaw = data.radiusKm == null ? null : Number(data.radiusKm);
+        const nextRadius =
+          nextRadiusRaw == null || !Number.isFinite(nextRadiusRaw)
+            ? null
+            : nextRadiusRaw >= RADIUS_MAX_KM - 1e-6
+              ? null
+              : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw));
+        const nextPriceMax = data.priceMax == null ? null : Number(data.priceMax);
+
+        if (!prefsTouchedRef.current) {
+          if (nextRadius == null || (Number.isFinite(nextRadius) && nextRadius > 0)) {
+            setRadius(nextRadius);
+          }
+          if (nextPriceMax == null || Number.isFinite(nextPriceMax)) {
+            setPriceMax(nextPriceMax);
+          }
+        }
+
+        prefsLastSavedRef.current = {
+          radius: nextRadius == null || Number.isFinite(nextRadius) ? nextRadius : prefsLastSavedRef.current.radius,
+          priceMax: nextPriceMax,
+        };
+        prefsHydratedRef.current = true;
+      },
+      (err) => {
+        console.error('Error watching search prefs:', err);
+        prefsHydratedRef.current = true;
+      },
+    );
+    return () => unsub();
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) return undefined;
+    if (!prefsHydratedRef.current && !prefsTouchedRef.current) return undefined;
+
+    const safeRadius =
+      radius == null
+        ? null
+        : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, Number(radius) || DEFAULT_RADIUS_KM));
+    const safePriceMax = priceMax == null ? null : Number(priceMax);
+
+    const last = prefsLastSavedRef.current;
+    if (last.radius === safeRadius && last.priceMax === safePriceMax) return undefined;
+
+    prefsWriteQueuedRef.current = { radiusKm: safeRadius, priceMax: safePriceMax };
+    prefsFlushRequestedRef.current = true;
+
+    const flush = async () => {
+      if (prefsWriteInFlightRef.current) return;
+      prefsWriteInFlightRef.current = true;
+      try {
+        while (prefsWriteQueuedRef.current) {
+          const next = prefsWriteQueuedRef.current;
+          prefsWriteQueuedRef.current = null;
+          try {
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', currentUserId);
+            await setDoc(
+              ref,
+              { ...next, updatedAt: serverTimestamp() },
+              { merge: true },
+            );
+            prefsLastSavedRef.current = { radius: next.radiusKm ?? null, priceMax: next.priceMax ?? null };
+          } catch (err) {
+            console.error('Error persisting search prefs:', err);
+            if (!prefsWriteQueuedRef.current) prefsWriteQueuedRef.current = next;
+            break;
+          }
+        }
+      } finally {
+        prefsWriteInFlightRef.current = false;
+        if (prefsWriteQueuedRef.current || prefsFlushRequestedRef.current) {
+          prefsFlushRequestedRef.current = false;
+          Promise.resolve().then(() => flush());
+        }
+      }
+    };
+    flush();
+
+    return undefined;
+  }, [currentUserId, radius, priceMax]);
+
+  const sortedSpots = useMemo(
+    () => [...(spots || [])].sort((a, b) => getCreatedMs(a) - getCreatedMs(b)),
+    [spots],
+  );
+  const filteredSpots = useMemo(() => {
+    return sortedSpots.filter((spot) => {
+      const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
+      if (!withinRadius) return false;
+      if (priceMax == null) return true;
+      const p = Number(spot?.price ?? 0);
+      return Number.isFinite(p) ? p <= priceMax : true;
+    });
+  }, [sortedSpots, radius, priceMax, userCoords]);
+  const availableSpots = useMemo(
+    () => uniqueSpotsByHost(filteredSpots).sort((a, b) => getCreatedMs(a) - getCreatedMs(b)),
+    [filteredSpots],
+  );
+  const availableColors = useMemo(
+    () => colorsForOrderedSpots(availableSpots, colorSaltRef.current),
+    [availableSpots],
+  );
+  const popupAccentByHost = useMemo(() => {
+    const map = new Map();
+    availableSpots.forEach((spot, idx) => {
+      const key = hostKeyForSpot(spot);
+      if (!key) return;
+      map.set(key, availableColors[idx]);
+    });
+    return map;
+  }, [availableSpots, availableColors]);
+  const spreadPositions = useMemo(() => spreadSpotPositions(filteredSpots), [filteredSpots]);
+
+  const buildSpotPopup = (spot, accentColor, mode) =>
+    mode === 'action'
+      ? buildSpotActionPopupHTML(t, isDark, spot, accentColor)
+      : buildSpotPopupHTML(t, isDark, spot, nowMs, accentColor);
+
+  const bindSpotPopupHandlers = (popup, spotId, spot, accentColor) => {
+    const el = popup?.getElement?.();
+    if (!el) return;
+    const root = el.querySelector('[data-spot-popup-root]');
+    if (root && root.getAttribute('data-spot-popup-root') === 'info') {
+      root.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (popupModeRef.current.get(spotId) === 'action') return;
+        popupModeRef.current.set(spotId, 'action');
+        popup.setHTML(buildSpotPopup(spot, accentColor, 'action'));
+        bindSpotPopupHandlers(popup, spotId, spot, accentColor);
+      };
+    }
+    const actionBtn = el.querySelector('[data-spot-popup-action]');
+    if (actionBtn) {
+      actionBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleReserveSpot(spot);
+      };
+    }
+  };
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -139,11 +553,22 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
     };
   }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!actionToast) return undefined;
+    const id = window.setTimeout(() => setActionToast(''), 2200);
+    return () => window.clearTimeout(id);
+  }, [actionToast]);
+
   const getSafeCenter = () => {
     if (userCoords && isValidCoord(userCoords.lng, userCoords.lat)) {
       return [userCoords.lng, userCoords.lat];
     }
-    const first = spots.find((spot) => isValidCoord(spot?.lng, spot?.lat));
+    const first = filteredSpots.find((spot) => isValidCoord(spot?.lng, spot?.lat));
     if (first) return [first.lng, first.lat];
     return [2.295, 48.8738];
   };
@@ -214,13 +639,18 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
     const nextIds = new Set();
-    spots.forEach((spot, idx) => {
+    filteredSpots.forEach((spot, idx) => {
       const lng = Number(spot?.lng);
       const lat = Number(spot?.lat);
       if (!isValidCoord(lng, lat)) return;
-      const id = spot?.id || `spot-${idx}`;
+      const id = getSpotMarkerId(spot, idx);
       nextIds.add(id);
-      const popupHtml = buildSpotPopupHTML(t, isDark, spot);
+      const displayPos = spreadPositions.get(id) || { lng, lat };
+      const hostKey = hostKeyForSpot(spot);
+      const accentColor =
+        (hostKey ? popupAccentByHost.get(hostKey) : null) || colorForSpot(spot, colorSaltRef.current);
+      const popupMode = popupModeRef.current.get(id) || 'info';
+      const popupHtml = buildSpotPopup(spot, accentColor, popupMode);
       if (!markersRef.current.has(id)) {
         const el = document.createElement('div');
         el.style.display = 'flex';
@@ -270,23 +700,28 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
           popupHtml,
         );
         enhancePopupAnimation(popup);
+        popup.on('close', () => {
+          popupModeRef.current.delete(id);
+        });
+        bindSpotPopupHandlers(popup, id, spot, accentColor);
         const marker = new mapboxgl.Marker({
           element: el,
           rotationAlignment: 'viewport',
           pitchAlignment: 'viewport',
           anchor: 'bottom',
         })
-          .setLngLat([lng, lat])
+          .setLngLat([displayPos.lng, displayPos.lat])
           .setPopup(popup)
           .addTo(mapRef.current);
         markersRef.current.set(id, marker);
       } else {
         const marker = markersRef.current.get(id);
-        marker.setLngLat([lng, lat]);
+        marker.setLngLat([displayPos.lng, displayPos.lat]);
         const popup = marker.getPopup();
         if (popup) {
           enhancePopupAnimation(popup);
           popup.setHTML(popupHtml);
+          bindSpotPopupHandlers(popup, id, spot, accentColor);
         }
       }
     });
@@ -294,9 +729,10 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
       if (!nextIds.has(id)) {
         marker.remove();
         markersRef.current.delete(id);
+        popupModeRef.current.delete(id);
       }
     }
-  }, [mapLoaded, spots, isDark, t]);
+  }, [mapLoaded, filteredSpots, spreadPositions, popupAccentByHost, isDark, t, nowMs]);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
@@ -362,7 +798,7 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
   }, [mapLoaded, userCoords?.lng, userCoords?.lat, isDark, t]);
 
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div ref={viewRef} className="fixed inset-0 z-[60]">
       <PopUpUsersStyles />
       <style>{`
         @keyframes searchSpotPulse {
@@ -371,42 +807,253 @@ const MapSearchView = ({ spots = [], userCoords = null, onClose }) => {
         }
       `}</style>
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
+      {actionToast ? (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[130] pointer-events-none">
+          <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">
+            {actionToast}
+          </div>
+        </div>
+      ) : null}
+      <div className="absolute inset-0 z-[120] pointer-events-none">
+        <div
+          className={`absolute inset-0 transition-opacity duration-200 ${
+            showRadiusPicker ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={() => setShowRadiusPicker(false)}
+        />
+        <div
+          ref={filtersPanelRef}
+          className={`absolute left-6 right-6 transition-all duration-200 origin-top ${
+            showRadiusPicker ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
+          }`}
+          style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
+        >
+          <div className="flex flex-col space-y-4">
+            <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                    <span className="text-lg font-bold">↔</span>
+                  </div>
+                  <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                    {t('searchRadius', 'Search radius')}
+                  </label>
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                    {radius == null ? anyLabel : radius.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                    {radius == null ? '' : 'km'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="relative h-10 flex items-center px-1">
+                <input
+                  ref={radiusSliderRef}
+                  type="range"
+                  min={RADIUS_MIN_KM}
+                  max={RADIUS_MAX_KM}
+                  step="0.1"
+                  value={radius == null ? RADIUS_MAX_KM : radius}
+                  onPointerDown={(e) =>
+                    startRangeDrag(e, radiusSliderRef, RADIUS_MIN_KM, RADIUS_MAX_KM, 0.1, setRadiusFromRange)
+                  }
+                  onChange={(e) => setRadiusFromRange(parseFloat(e.target.value))}
+                  style={{
+                    backgroundSize: `${
+                      ((Number((radius == null ? RADIUS_MAX_KM : radius)) - RADIUS_MIN_KM) * 100) /
+                      (RADIUS_MAX_KM - RADIUS_MIN_KM)
+                    }% 100%`,
+                  }}
+                  className="
+                    relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                    bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                    focus:outline-none focus:ring-0
+
+                    [&::-webkit-slider-thumb]:appearance-none
+                    [&::-webkit-slider-thumb]:w-7
+                    [&::-webkit-slider-thumb]:h-7
+                    [&::-webkit-slider-thumb]:bg-white
+                    [&::-webkit-slider-thumb]:rounded-full
+                    [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                    [&::-webkit-slider-thumb]:border-0
+                    [&::-webkit-slider-thumb]:transition-transform
+                    [&::-webkit-slider-thumb]:duration-150
+                    [&::-webkit-slider-thumb]:ease-out
+                    [&::-webkit-slider-thumb]:hover:scale-110
+                    [&::-webkit-slider-thumb]:active:scale-95
+                  "
+                />
+                <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  100 m
+                </div>
+                <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  {anyLabel}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                    <span className="text-lg font-bold">€</span>
+                  </div>
+                  <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                    {t('priceFilter', { defaultValue: 'Max price' })}
+                  </label>
+                </div>
+
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                    {priceMax == null ? anyLabel : formatEuro(priceMax)}
+                  </span>
+                  <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                    {priceMax == null ? '' : '€'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="relative h-10 flex items-center px-1">
+                <input
+                  ref={priceSliderRef}
+                  type="range"
+                  min="0"
+                  max={maxSpotPrice}
+                  step="0.5"
+                  value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
+                  onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
+                  style={{
+                    backgroundSize: `${
+                      ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
+                      Math.max(1, maxSpotPrice)
+                    }% 100%`,
+                  }}
+                  className="
+                    relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                    bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                    focus:outline-none focus:ring-0
+
+                    [&::-webkit-slider-thumb]:appearance-none
+                    [&::-webkit-slider-thumb]:w-7
+                    [&::-webkit-slider-thumb]:h-7
+                    [&::-webkit-slider-thumb]:bg-white
+                    [&::-webkit-slider-thumb]:rounded-full
+                    [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                    [&::-webkit-slider-thumb]:border-0
+                    [&::-webkit-slider-thumb]:transition-transform
+                    [&::-webkit-slider-thumb]:duration-150
+                    [&::-webkit-slider-thumb]:ease-out
+                    [&::-webkit-slider-thumb]:hover:scale-110
+                    [&::-webkit-slider-thumb]:active:scale-95
+                  "
+                />
+                <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  0 €
+                </div>
+                <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  {formatEuro(maxSpotPrice)} €
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       {!mapboxToken && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
           Missing Mapbox Token
         </div>
       )}
       <div
-        className="absolute left-0 right-0 z-10 px-6 pt-5 pb-2 flex items-center justify-between"
+        className="absolute left-0 right-0 z-30 px-6 pt-5 pb-2 pointer-events-auto"
         style={{ top: 'env(safe-area-inset-top)' }}
       >
-        <div className="w-10" />
-        <div
-          className={`px-4 py-2 rounded-full text-sm font-semibold border shadow-sm flex items-center gap-2 ${
-            isDark
-              ? 'bg-gradient-to-r from-slate-900/90 to-slate-800/90 border-white/10 text-slate-100'
-              : 'bg-white/90 border-white/70 text-slate-900'
-          }`}
-          style={{ boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.35)' : '0 12px 28px rgba(15,23,42,0.12)' }}
-        >
-          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
-            isDark ? 'bg-white/10 text-orange-200' : 'bg-orange-50 text-orange-500'
-          }`}>
-            <XIcon size={14} strokeWidth={2.5} />
-          </span>
-          {t('mapTitle', { defaultValue: 'Carte' })}
+       <div className="flex items-center justify-end">
+  <button
+    type="button"
+    ref={filtersButtonRef}
+    onClick={() => setShowRadiusPicker((s) => !s)}
+    className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col items-end leading-tight gap-0.5 relative ${
+      isDark
+        ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+        : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
+    }`}
+  >
+    {/* KM (texte simple, disparaît quand panel ouvert) */}
+    <span
+      ref={kmValueRef}
+      className={`block leading-tight font-semibold transition-opacity duration-200 ${
+        showRadiusPicker || kmFloatVisible ? 'absolute opacity-0 pointer-events-none' : 'relative'
+      } ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+    >
+      {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
+    </span>
+
+    {/* PRIX (texte simple, monte légèrement) */}
+    <span
+      ref={priceValueRef}
+      className={`block leading-tight font-semibold transition-transform duration-300 ease-out ${
+        isDark ? 'text-slate-50' : 'text-slate-900'
+      }`}
+      style={{
+        transform: showRadiusPicker
+          ? 'translate3d(0,-4px,0)'
+          : 'translate3d(0,0,0)',
+      }}
+    >
+      {priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`}
+    </span>
+  </button>
+</div>
+        {kmFloatVisible && kmFloatPos ? (
+          <div
+            className="fixed z-[200] pointer-events-none will-change-transform"
+            style={{
+              top: kmFloatPos.top,
+              left: kmFloatPos.left,
+              transform: `translate3d(${kmShift.x}px, ${kmShift.y}px, 0)`,
+              transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
+            }}
+            onTransitionEnd={() => {
+              if (!showRadiusPicker) setKmFloatVisible(false);
+            }}
+          >
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full border shadow-sm text-sm font-semibold ${
+                isDark
+                  ? 'bg-slate-800/80 border-white/10 text-slate-50'
+                  : 'bg-white/70 border-white/60 text-slate-900'
+              }`}
+            >
+              {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
+            </span>
+          </div>
+        ) : null}
+        <div className="mt-2 flex justify-center">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`px-4 py-2 rounded-full text-sm font-semibold border shadow-sm flex items-center gap-2 transition ${
+              isDark
+                ? 'bg-gradient-to-r from-slate-900/90 to-slate-800/90 border-white/10 text-slate-100 [@media(hover:hover)]:from-slate-900 [@media(hover:hover)]:to-slate-800'
+                : 'bg-white/90 border-white/70 text-slate-900 [@media(hover:hover)]:bg-white'
+            } ${showRadiusPicker ? 'opacity-0 pointer-events-none' : ''}`}
+            style={{ boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.35)' : '0 12px 28px rgba(15,23,42,0.12)' }}
+            aria-hidden={showRadiusPicker ? 'true' : undefined}
+            tabIndex={showRadiusPicker ? -1 : 0}
+          >
+            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
+              isDark ? 'bg-white/10 text-orange-200' : 'bg-orange-50 text-orange-500'
+            }`}>
+              <List size={16} strokeWidth={2.5} />
+            </span>
+            {t('listView', { defaultValue: 'Liste' })}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
-            isDark
-              ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
-              : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
-          }`}
-        >
-          {t('close', 'Close')}
-        </button>
       </div>
     </div>
   );

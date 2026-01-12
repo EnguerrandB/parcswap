@@ -6,56 +6,18 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 import { newId } from '../utils/ids';
+import {
+  CARD_COLOR_SALT,
+  colorForSpot,
+  colorsForOrderedSpots,
+  getCreatedMs,
+  isFreeSpot,
+  uniqueSpotsByHost,
+} from '../utils/spotColors';
 
 // --- UTILITAIRES ---
 const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
-const CARD_COLORS = [
-  '#ff3b30', // vivid red
-  '#ffcc00', // vivid yellow
-  '#007aff', // vivid blue
-  '#34c759', // vivid green
-  '#5856d6', // vivid indigo
-  '#ff9500', // vivid orange
-  '#af52de', // vivid purple
-  '#0fb9b1', // vivid teal
-]; // bright primary-inspired palette for each card
-const FREE_CARD_COLOR = '#d4af37'; // gold
-// Stable salt for color selection (module-level to avoid changes on remount/switch)
-const CARD_COLOR_SALT = Math.floor(Math.random() * 10_000);
 const CARD_EXIT_ROTATION = 90; // degrés d'arc pour l'animation de sortie
-const isFreeSpot = (spot) => {
-  const price = Number(spot?.price ?? 0);
-  return Number.isFinite(price) && price <= 0;
-};
-const colorForSpot = (spot, salt = 0) => {
-  if (isFreeSpot(spot)) return FREE_CARD_COLOR;
-  if (!spot?.id) return CARD_COLORS[0];
-  let hash = 0;
-  for (let i = 0; i < spot.id.length; i += 1) {
-    hash = (hash * 31 + spot.id.charCodeAt(i)) | 0;
-  }
-  const idx = Math.abs(hash + salt) % CARD_COLORS.length;
-  return CARD_COLORS[idx];
-};
-const colorsForOrderedSpots = (spots, salt = 0) => {
-  const assigned = [];
-  let lastColor = null;
-  spots.forEach((spot) => {
-    if (isFreeSpot(spot)) {
-      assigned.push(FREE_CARD_COLOR);
-      lastColor = FREE_CARD_COLOR;
-      return;
-    }
-    let color = colorForSpot(spot, salt);
-    if (color === lastColor) {
-      const rotated = CARD_COLORS.slice(1).concat(CARD_COLORS[0]);
-      color = rotated.find((c) => c !== lastColor) || color;
-    }
-    assigned.push(color);
-    lastColor = color;
-  });
-  return assigned;
-};
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
 const getDistanceMeters = (spot, userPosition = null) => {
   if (!spot) return Infinity;
@@ -101,50 +63,6 @@ const getRemainingMs = (spot, nowMs = Date.now()) => {
 
   const remainingMs = createdMs + Number(time) * 60_000 - nowMs;
   return remainingMs;
-};
-const getCreatedMs = (spot) => {
-  const createdAt = spot?.createdAt;
-  if (createdAt?.toMillis) return createdAt.toMillis();
-  if (typeof createdAt === 'number') return createdAt;
-  if (typeof createdAt === 'string') {
-    const parsed = Date.parse(createdAt);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
-};
-
-const hostKeyForSpot = (spot) => spot?.hostId || spot?.hostName || spot?.id;
-
-const uniqueSpotsByHost = (spots = []) => {
-  const byHost = new Map();
-
-  spots.forEach((spot) => {
-    const key = hostKeyForSpot(spot);
-    if (!key) return;
-
-    const prev = byHost.get(key);
-    if (!prev) {
-      byHost.set(key, spot);
-      return;
-    }
-
-    const prevCreated = getCreatedMs(prev);
-    const nextCreated = getCreatedMs(spot);
-    if (nextCreated > prevCreated) {
-      byHost.set(key, spot);
-      return;
-    }
-
-    if (nextCreated === prevCreated) {
-      const prevPrice = Number(prev?.price);
-      const nextPrice = Number(spot?.price);
-      if (Number.isFinite(prevPrice) && Number.isFinite(nextPrice) && nextPrice < prevPrice) {
-        byHost.set(key, spot);
-      }
-    }
-  });
-
-  return Array.from(byHost.values());
 };
 
 const formatDuration = (ms) => {
@@ -510,6 +428,11 @@ const SearchView = ({
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null); // null => any price
   const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+  const kmValueRef = useRef(null);
+  const [kmShift, setKmShift] = useState({ x: 0, y: 0 });
+  const [kmFloatPos, setKmFloatPos] = useState(null);
+  const [kmFloatVisible, setKmFloatVisible] = useState(false);
+  const kmBasePosRef = useRef(null);
   const filtersButtonRef = useRef(null);
   const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
   const [distanceOverrides, setDistanceOverrides] = useState({});
@@ -1053,6 +976,55 @@ const SearchView = ({
     return () => onFiltersOpenChange?.(false);
   }, [showRadiusPicker, onFiltersOpenChange]);
 
+  useEffect(() => {
+    if (showRadiusPicker) {
+      setKmFloatVisible(true);
+    }
+  }, [showRadiusPicker]);
+
+  useEffect(() => {
+    const PRICE_LIFT_PX = -4;
+    const desiredLeft = (viewRef.current?.getBoundingClientRect?.().left ?? 0) + 24;
+    let raf1 = null;
+    let raf2 = null;
+
+    const computeTargetShift = () => {
+      const rect = kmValueRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      if (!showRadiusPicker) {
+        kmBasePosRef.current = { top: rect.top, left: rect.left };
+        setKmFloatPos({ top: rect.top, left: rect.left });
+      }
+      const base = kmBasePosRef.current || { top: rect.top, left: rect.left };
+      const x = showRadiusPicker ? desiredLeft - base.left : 0;
+      const y = showRadiusPicker ? PRICE_LIFT_PX : 0;
+      return { x, y };
+    };
+
+    const update = () => {
+      const target = computeTargetShift();
+      if (!target) return;
+      if (showRadiusPicker) {
+        setKmShift({ x: 0, y: 0 });
+        raf1 = window.requestAnimationFrame(() => {
+          raf2 = window.requestAnimationFrame(() => {
+            setKmShift(target);
+          });
+        });
+      } else {
+        setKmShift(target);
+      }
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    return () => {
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+      window.removeEventListener('resize', update);
+    };
+  }, [showRadiusPicker, radius, priceMax]);
+
   return (
     <div
       ref={viewRef}
@@ -1099,7 +1071,7 @@ const SearchView = ({
 	            }`}
 	            style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
 	          >
-            <div className="space-y-4">
+            <div className="flex flex-col space-y-4">
               <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
                 <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center gap-3">
@@ -1237,8 +1209,65 @@ const SearchView = ({
       )}
       {/* Header */}
 	      {!selectedSpot && (
-	        <div className="px-6 pt-5 pb-2 relative flex items-center justify-between z-0">
-            <div className="flex-1 flex justify-center">
+	        <div className="px-6 pt-5 pb-2 relative z-0">
+            <div className="flex items-center justify-end">
+	          <button
+	            type="button"
+	            ref={filtersButtonRef}
+	            onClick={() => setShowRadiusPicker((s) => !s)}
+	            className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col items-end leading-tight gap-0.5 relative ${
+	              isDark
+	                ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+	                : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
+	            }`}
+	          >
+            <span
+              ref={kmValueRef}
+              className={`block leading-tight font-semibold transition-opacity duration-200 ${
+                showRadiusPicker || kmFloatVisible ? 'absolute opacity-0 pointer-events-none' : 'relative'
+              } ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+            >
+              {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
+            </span>
+            <span
+              className={`block leading-tight font-semibold transition-transform duration-300 ease-out ${
+                isDark ? 'text-slate-50' : 'text-slate-900'
+              }`}
+              style={{
+                transform: showRadiusPicker
+                  ? 'translate3d(0,-4px,0)'
+                  : 'translate3d(0,0,0)',
+              }}
+            >
+              {priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`}
+            </span>
+	            </button>
+            </div>
+            {kmFloatVisible && kmFloatPos ? (
+              <div
+                className="fixed z-[200] pointer-events-none will-change-transform"
+                style={{
+                  top: kmFloatPos.top,
+                  left: kmFloatPos.left,
+                  transform: `translate3d(${kmShift.x}px, ${kmShift.y}px, 0)`,
+                  transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
+                }}
+                onTransitionEnd={() => {
+                  if (!showRadiusPicker) setKmFloatVisible(false);
+                }}
+              >
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full border shadow-sm text-sm font-semibold ${
+                    isDark
+                      ? 'bg-slate-800/80 border-white/10 text-slate-50'
+                      : 'bg-white/70 border-white/60 text-slate-900'
+                  }`}
+                >
+                  {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
+                </span>
+              </div>
+            ) : null}
+            <div className="mt-2 flex justify-center">
               <button
                 type="button"
                 onClick={handleOpenMap}
@@ -1246,8 +1275,10 @@ const SearchView = ({
                   isDark
                     ? 'bg-gradient-to-r from-slate-900/90 to-slate-800/90 border-white/10 text-slate-100 [@media(hover:hover)]:from-slate-900 [@media(hover:hover)]:to-slate-800'
                     : 'bg-white/90 border-white/70 text-slate-900 [@media(hover:hover)]:bg-white'
-                }`}
+                } ${showRadiusPicker ? 'opacity-0 pointer-events-none' : ''}`}
                 style={{ boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.35)' : '0 12px 28px rgba(15,23,42,0.12)' }}
+                aria-hidden={showRadiusPicker ? 'true' : undefined}
+                tabIndex={showRadiusPicker ? -1 : 0}
               >
                 <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
                   isDark ? 'bg-white/10 text-orange-200' : 'bg-orange-50 text-orange-500'
@@ -1257,22 +1288,6 @@ const SearchView = ({
                 {t('openMap', { defaultValue: 'Carte' })}
               </button>
             </div>
-	          <button
-	            type="button"
-	            ref={filtersButtonRef}
-	            onClick={() => setShowRadiusPicker((s) => !s)}
-	            className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition ${
-	              isDark
-	                ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
-	                : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
-	            }`}
-	          >
-	            {t('filtersHeader', {
-	              defaultValue: '{{radius}} • {{price}}',
-	              radius: radius == null ? anyLabel : `${radius.toFixed(1)} km`,
-	              price: priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`,
-	            })}
-	          </button>
 	        </div>
 	      )}
 

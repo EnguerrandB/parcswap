@@ -231,6 +231,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const popupRef = useRef(null);
   const popupModeRef = useRef(new Map());
   const parkingPopupModeRef = useRef(new Map());
+  const activePopupRef = useRef(null);
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const parkingFetchInFlightRef = useRef(false);
   const parkingFetchQueuedRef = useRef(null);
@@ -247,6 +248,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const [kmFloatPos, setKmFloatPos] = useState(null);
   const [kmFloatVisible, setKmFloatVisible] = useState(false);
   const kmBasePosRef = useRef(null);
+  const bottomNavEdgeOffset = 'calc((100% - min(90%, 320px)) / 2)';
   const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
   const prefsHydratedRef = useRef(false);
   const prefsTouchedRef = useRef(false);
@@ -616,12 +618,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       : buildPublicParkingPopupHTML(t, isDark, parking);
 
   const bindSpotPopupHandlers = (popup, spotId, spot, accentColor, options = {}) => {
-    const {
-      buildPopup = buildSpotPopup,
-      onAction = handleReserveSpot,
-      modeRef = popupModeRef,
-      debugLabel,
-    } = options;
+    const { buildPopup = buildSpotPopup, onAction = handleReserveSpot, modeRef = popupModeRef } = options;
     const el = popup?.getElement?.();
     if (!el) {
       if (!popup.__bindOnOpen) {
@@ -631,49 +628,47 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
         });
       }
-      if (debugLabel) console.log(`[${debugLabel}] popup element missing`, spotId);
       return;
     }
     const root = el.querySelector('[data-spot-popup-root]');
-    if (debugLabel) {
-      console.log(`[${debugLabel}] bind`, {
-        spotId,
-        hasRoot: !!root,
-        rootAttr: root?.getAttribute?.('data-spot-popup-root'),
-        mode: modeRef.current.get(spotId),
-      });
-    }
     if (root && root.getAttribute('data-spot-popup-root') === 'info') {
       root.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (modeRef.current.get(spotId) === 'action') return;
-        if (debugLabel) console.log(`[${debugLabel}] root click`, { spotId, target: e.target?.tagName });
         modeRef.current.set(spotId, 'action');
         const nextHtml = buildPopup(spot, accentColor, 'action');
-        if (debugLabel) console.log(`[${debugLabel}] set action html`, { spotId, length: nextHtml?.length });
         popup.setHTML(nextHtml);
         bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
       };
-    } else if (debugLabel) {
-      console.log(`[${debugLabel}] root not info`, {
-        spotId,
-        rootAttr: root?.getAttribute?.('data-spot-popup-root'),
-      });
     }
     const actionBtn = el.querySelector('[data-spot-popup-action]');
-    if (debugLabel) console.log(`[${debugLabel}] action button`, { spotId, hasAction: !!actionBtn });
     if (actionBtn) {
       actionBtn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (debugLabel) console.log(`[${debugLabel}] action click`, spotId);
         onAction(spot);
       };
     }
   };
 
   const buildParkingPopupForBind = (parking, _accent, mode) => buildParkingPopup(parking, mode);
+
+  const registerSinglePopup = useCallback((popup) => {
+    if (!popup || popup.__singlePopupRegistered) return;
+    popup.__singlePopupRegistered = true;
+    popup.on('open', () => {
+      const current = activePopupRef.current;
+      if (current && current !== popup) {
+        current.__skipExitAnimation = true;
+        current.remove();
+      }
+      activePopupRef.current = popup;
+    });
+    popup.on('close', () => {
+      if (activePopupRef.current === popup) activePopupRef.current = null;
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1041,6 +1036,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           popupHtml,
         );
         enhancePopupAnimation(popup);
+        registerSinglePopup(popup);
         popup.on('close', () => {
           popupModeRef.current.delete(id);
         });
@@ -1061,6 +1057,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = marker.getPopup();
         if (popup) {
           enhancePopupAnimation(popup);
+          registerSinglePopup(popup);
           popup.setHTML(popupHtml);
           bindSpotPopupHandlers(popup, id, spot, accentColor);
         }
@@ -1125,6 +1122,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           popupHtml,
         );
         enhancePopupAnimation(popup);
+        registerSinglePopup(popup);
         popup.on('close', () => {
           parkingPopupModeRef.current.delete(id);
         });
@@ -1164,6 +1162,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = marker.getPopup();
         if (popup) {
           enhancePopupAnimation(popup);
+          registerSinglePopup(popup);
           popup.setHTML(popupHtml);
           bindSpotPopupHandlers(popup, id, parking, null, {
             buildPopup: buildParkingPopupForBind,
@@ -1177,6 +1176,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             className: 'user-presence-popup',
           }).setHTML(popupHtml);
           enhancePopupAnimation(nextPopup);
+          registerSinglePopup(nextPopup);
           nextPopup.on('close', () => {
             parkingPopupModeRef.current.delete(id);
           });
@@ -1244,6 +1244,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           popupHtml,
         );
         enhancePopupAnimation(popup);
+        registerSinglePopup(popup);
         popupRef.current = popup;
         userMarkerRef.current = new mapboxgl.Marker({
           element: el,
@@ -1279,8 +1280,11 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
       {mapLoaded && userCoords && isValidCoord(userCoords.lng, userCoords.lat) && (
         <div
-          className="absolute right-4 z-[80] pointer-events-auto"
-          style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 16px)' }}
+          className="absolute z-[80] pointer-events-auto"
+          style={{
+            right: bottomNavEdgeOffset,
+            bottom: 'calc(env(safe-area-inset-bottom) + 96px + 16px)',
+          }}
         >
           <button
             type="button"

@@ -163,6 +163,14 @@ export const enhancePopupAnimation = (popup) => {
   popup.remove = () => {
     const el = popup.getElement();
     const content = el?.querySelector('.mapboxgl-popup-content');
+    if (popup.__skipExitAnimation) {
+      if (popup.__autoCloseTimer) {
+        clearTimeout(popup.__autoCloseTimer);
+        popup.__autoCloseTimer = null;
+      }
+      popup.__skipExitAnimation = false;
+      return originalRemove();
+    }
     if (content) {
       content.classList.remove('popup-enter');
       content.classList.add('popup-exit');
@@ -195,6 +203,10 @@ export const PopUpUsersStyles = () => (
     }
     .mapboxgl-popup-content.popup-enter { animation: popupEnter 0.18s ease forwards; }
     .mapboxgl-popup-content.popup-exit { animation: popupExit 0.16s ease forwards; }
+    .user-presence-popup {
+      transition: transform 0.16s ease-out;
+      will-change: transform;
+    }
     .user-presence-popup .mapboxgl-popup-content {
       padding: 0 !important;
       background: transparent !important;

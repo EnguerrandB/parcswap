@@ -255,6 +255,7 @@ export default function ParkSwapApp() {
   const prevTabRef = useRef('search');
   // Ajoutez ceci avec vos autres useState
   const [sheetEntryAnim, setSheetEntryAnim] = useState(false);
+  const [sheetExitAnim, setSheetExitAnim] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
 	  const [showInvite, setShowInvite] = useState(false);
 	  const [inviteMessage, setInviteMessage] = useState('');
@@ -553,6 +554,7 @@ export default function ParkSwapApp() {
   
 
 	  const handleMenuClick = () => {
+	    setSheetExitAnim(false);
 	    setSheetEntryAnim(true);
 	    setShowAccountSheet(true);
 	    setAccountSheetOffset(0);
@@ -577,10 +579,26 @@ export default function ParkSwapApp() {
 	  };
 
 	  const openAddVehicle = () => {
+	    setSheetExitAnim(false);
 	    setSheetEntryAnim(true);
 	    setShowAccountSheet(true);
 	    setAccountSheetOffset(0);
 	    setAddVehicleRequestId((v) => v + 1);
+	  };
+
+	  const closeAccountSheet = () => {
+	    if (sheetExitAnim) return;
+	    setSheetEntryAnim(false);
+	    setIsSheetDragging(false);
+	    sheetDragRef.current = false;
+	    setSheetExitAnim(true);
+	    const screenHeight = window.innerHeight;
+	    window.requestAnimationFrame(() => {
+	      setAccountSheetOffset(screenHeight);
+	    });
+	    setTimeout(() => {
+	      setShowAccountSheet(false);
+	    }, 320);
 	  };
 
 		  const handleAccountSheetPointerDown = (e) => {
@@ -679,8 +697,7 @@ export default function ParkSwapApp() {
 	        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
 	        setTimeout(() => {
 	          setShowAccountSheet(false);
-	          setAccountSheetOffset(0); // Reset pour la prochaine ouverture
-	        }, 300);
+        }, 300);
 	      } else {
 	        // Sinon, on remonte (rebond)
 	        setAccountSheetOffset(0);
@@ -2245,7 +2262,13 @@ export default function ParkSwapApp() {
   }, [user?.uid]);
 
   useEffect(() => {
-    if (!showAccountSheet) return;
+    if (!showAccountSheet) {
+      setSheetExitAnim(false);
+      setAccountSheetOffset(0);
+      setIsSheetDragging(false);
+      sheetDragRef.current = false;
+      return;
+    }
     setShowInvite(false);
     setCancelledNotice(null);
     setSearchFiltersOpen(false);
@@ -2541,14 +2564,7 @@ export default function ParkSwapApp() {
     {/* Backdrop */}
     <div
       className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in"
-      onClick={() => {
-          setSheetEntryAnim(false); // <--- Important pour la fermeture fluide via backdrop
-          setAccountSheetOffset(window.innerHeight);
-          setTimeout(() => {
-            setShowAccountSheet(false);
-            setAccountSheetOffset(0);
-          }, 300);
-      }}
+      onClick={closeAccountSheet}
     />
     
     {/* La feuille de compte */}
@@ -2559,8 +2575,6 @@ export default function ParkSwapApp() {
       `}
       style={{ 
         transform: `translateY(${accountSheetOffset}px)`,
-        // L'animation ne s'active que si sheetEntryAnim est TRUE. 
-        // Sinon, c'est 'none', et la transition-transform gère la remontée/descente fluide.
         animation: sheetEntryAnim ? 'slideUp 0.3s ease-out forwards' : 'none'
       }}
       onTouchStart={(e) => handleAccountSheetPointerDown(e)}

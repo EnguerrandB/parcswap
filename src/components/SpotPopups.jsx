@@ -154,7 +154,14 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
   `;
 };
 
-export const buildSpotActionPopupHTML = (t, isDark, spot, accentColor = null, labelOverride = null) => {
+export const buildSpotActionPopupHTML = (
+  t,
+  isDark,
+  spot,
+  accentColor = null,
+  labelOverride = null,
+  sizeKey = 'spot',
+) => {
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
   const priceLabel = formatSpotPrice(spot?.price);
   const accent = accentColor || (isDark ? '#38bdf8' : '#0ea5e9');
@@ -166,10 +173,13 @@ export const buildSpotActionPopupHTML = (t, isDark, spot, accentColor = null, la
   const label = labelOverride || t('takeSpot', { defaultValue: 'Prendre sa place' });
   const sub = isDark ? 'rgba(234,240,255,0.60)' : 'rgba(11,18,32,0.55)';
   const timePlaceholder = '0:00';
+  const minWidth = sizeKey === 'parking' ? '260px' : '240px';
+  const maxWidth = sizeKey === 'parking' ? '260px' : '240px';
   return `
     <div style="
       font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'SF Pro Text', Inter, sans-serif;
-      min-width: 240px;
+      min-width: ${minWidth};
+      max-width: ${maxWidth};
       -webkit-font-smoothing: antialiased;
     ">
       <div data-spot-popup-root="action" style="

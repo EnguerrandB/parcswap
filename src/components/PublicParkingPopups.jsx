@@ -48,7 +48,7 @@ const buildChip = (text, styles) => `
   ">${text}</span>
 `;
 
-export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
+const buildPublicParkingModel = (t, isDark, parking) => {
   const name = parking?.name || t('publicParking', { defaultValue: 'Public parking' });
 
   const distanceLabel = formatDistance(parking?.distanceMeters);
@@ -60,7 +60,7 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
   const price1h = formatEuro(parking?.tarif1h);
 
   // ---- theme tokens (Apple-like glass) ----
-  const cardBg = isDark ? 'rgba(12,16,24,0.78)' : 'rgba(255,255,255,0.74)';
+  const cardBg = isDark ? '#0f172a' : '#ffffff';
   const cardBorder = isDark ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(15,23,42,0.10)';
   const shadow = isDark
     ? '0 18px 50px rgba(0,0,0,0.55)'
@@ -134,51 +134,128 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
       </div>
       `;
 
-  return `
+  return {
+    name,
+    cardBg,
+    cardBorder,
+    shadow,
+    text,
+    muted,
+    priceBlock,
+    metaChips,
+    specChips,
+  };
+};
+
+const buildPublicParkingBodyHTML = (model) => `
+  <!-- header (name) -->
+  <div style="padding: 2px 2px 0;">
     <div style="
+      font-weight: 850;
+      font-size: 14px;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    ">${model.name}</div>
+  </div>
+
+  <!-- meta chips -->
+  ${
+    model.metaChips.length
+      ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${model.metaChips.join('')}</div>`
+      : ''
+  }
+
+  <!-- price range -->
+  ${model.priceBlock}
+
+  <!-- specs -->
+  ${
+    model.specChips.length
+      ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${model.specChips.join('')}</div>`
+      : ''
+  }
+`;
+
+export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
+  const model = buildPublicParkingModel(t, isDark, parking);
+  const body = buildPublicParkingBodyHTML(model);
+  return `
+    <div data-parking-popup-root="info" data-spot-popup-root="info" style="
       font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'SF Pro Text', Inter, sans-serif;
       min-width: 260px;
-      color: ${text};
+      color: ${model.text};
       -webkit-font-smoothing: antialiased;
+      cursor: pointer;
+      pointer-events: auto;
     ">
-      <div data-parking-popup-root="info" style="
+      <div style="
         padding: 12px 12px 12px;
         border-radius: 24px;
-        background: ${cardBg};
-        border: ${cardBorder};
-        box-shadow: ${shadow};
+        background: ${model.cardBg};
+        border: ${model.cardBorder};
+        box-shadow: ${model.shadow};
         backdrop-filter: blur(22px) saturate(170%);
         -webkit-backdrop-filter: blur(22px) saturate(170%);
-        cursor: pointer;
       ">
-        <!-- header (name) -->
-        <div style="padding: 2px 2px 0;">
-          <div style="
-            font-weight: 850;
-            font-size: 14px;
-            letter-spacing: -0.02em;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          ">${name}</div>
+        ${body}
+      </div>
+    </div>
+  `;
+};
+
+export const buildPublicParkingActionPopupHTML = (t, isDark, parking, label = 'Y aller') => {
+  const model = buildPublicParkingModel(t, isDark, parking);
+  const body = buildPublicParkingBodyHTML(model);
+  const accent = '#2563eb';
+  const buttonBg = `linear-gradient(135deg, ${accent} 0%, rgba(37,99,235,0.78) 100%)`;
+  return `
+    <div data-parking-popup-root="action" data-spot-popup-root="action" style="
+      font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'SF Pro Text', Inter, sans-serif;
+      min-width: 260px;
+      color: ${model.text};
+      -webkit-font-smoothing: antialiased;
+      pointer-events: auto;
+    ">
+      <div style="
+        position: relative;
+        padding: 12px 12px 12px;
+        border-radius: 24px;
+        background: ${model.cardBg};
+        border: ${model.cardBorder};
+        box-shadow: ${model.shadow};
+        backdrop-filter: blur(22px) saturate(170%);
+        -webkit-backdrop-filter: blur(22px) saturate(170%);
+        overflow: hidden;
+      ">
+        <div style="visibility: hidden;">
+          ${body}
         </div>
-
-        <!-- meta chips -->
-        ${
-          metaChips.length
-            ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${metaChips.join('')}</div>`
-            : ''
-        }
-
-        <!-- price range -->
-        ${priceBlock}
-
-        <!-- specs -->
-        ${
-          specChips.length
-            ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${specChips.join('')}</div>`
-            : ''
-        }
+        <button data-spot-popup-action type="button" style="
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          border-radius: 24px;
+          border: none;
+          outline: none;
+          cursor: pointer;
+          background: ${buttonBg};
+          color: #ffffff;
+          font-size: 18px;
+          font-weight: 800;
+          letter-spacing: -0.01em;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          box-shadow: 0 18px 40px -22px rgba(37,99,235,0.6);
+        ">
+          ${label}
+        </button>
       </div>
     </div>
   `;

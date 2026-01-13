@@ -185,6 +185,16 @@ export const enhancePopupAnimation = (popup) => {
 
 export const PopUpUsersStyles = () => (
   <style>{`
+    @keyframes popupEnter {
+      from { transform: scale(0.9) translateY(4px); opacity: 0; }
+      to { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    @keyframes popupExit {
+      from { transform: scale(1) translateY(0); opacity: 1; }
+      to { transform: scale(0.92) translateY(4px); opacity: 0; }
+    }
+    .mapboxgl-popup-content.popup-enter { animation: popupEnter 0.18s ease forwards; }
+    .mapboxgl-popup-content.popup-exit { animation: popupExit 0.16s ease forwards; }
     .user-presence-popup .mapboxgl-popup-content {
       padding: 0 !important;
       background: transparent !important;

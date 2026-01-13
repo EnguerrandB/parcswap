@@ -8,7 +8,7 @@ import userCar2 from '../assets/user-car-2.png';
 import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
-import { buildPublicParkingPopupHTML } from './PublicParkingPopups';
+import { buildPublicParkingActionPopupHTML, buildPublicParkingPopupHTML } from './PublicParkingPopups';
 import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
 import { newId } from '../utils/ids';
 import {
@@ -612,62 +612,68 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const buildParkingPopup = (parking, mode) =>
     mode === 'action'
-      ? buildSpotActionPopupHTML(
-          t,
-          isDark,
-          { hostName: parking?.name || t('publicParking', { defaultValue: 'Parking' }) },
-          '#1d4ed8',
-          t('goThere', { defaultValue: 'Y aller' }),
-        )
+      ? buildPublicParkingActionPopupHTML(t, isDark, parking, t('goThere', { defaultValue: 'Y aller' }))
       : buildPublicParkingPopupHTML(t, isDark, parking);
 
-  const bindSpotPopupHandlers = (popup, spotId, spot, accentColor) => {
+  const bindSpotPopupHandlers = (popup, spotId, spot, accentColor, options = {}) => {
+    const {
+      buildPopup = buildSpotPopup,
+      onAction = handleReserveSpot,
+      modeRef = popupModeRef,
+      debugLabel,
+    } = options;
     const el = popup?.getElement?.();
-    if (!el) return;
+    if (!el) {
+      if (!popup.__bindOnOpen) {
+        popup.__bindOnOpen = true;
+        popup.once('open', () => {
+          popup.__bindOnOpen = false;
+          bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
+        });
+      }
+      if (debugLabel) console.log(`[${debugLabel}] popup element missing`, spotId);
+      return;
+    }
     const root = el.querySelector('[data-spot-popup-root]');
+    if (debugLabel) {
+      console.log(`[${debugLabel}] bind`, {
+        spotId,
+        hasRoot: !!root,
+        rootAttr: root?.getAttribute?.('data-spot-popup-root'),
+        mode: modeRef.current.get(spotId),
+      });
+    }
     if (root && root.getAttribute('data-spot-popup-root') === 'info') {
       root.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (popupModeRef.current.get(spotId) === 'action') return;
-        popupModeRef.current.set(spotId, 'action');
-        popup.setHTML(buildSpotPopup(spot, accentColor, 'action'));
-        bindSpotPopupHandlers(popup, spotId, spot, accentColor);
+        if (modeRef.current.get(spotId) === 'action') return;
+        if (debugLabel) console.log(`[${debugLabel}] root click`, { spotId, target: e.target?.tagName });
+        modeRef.current.set(spotId, 'action');
+        const nextHtml = buildPopup(spot, accentColor, 'action');
+        if (debugLabel) console.log(`[${debugLabel}] set action html`, { spotId, length: nextHtml?.length });
+        popup.setHTML(nextHtml);
+        bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
       };
+    } else if (debugLabel) {
+      console.log(`[${debugLabel}] root not info`, {
+        spotId,
+        rootAttr: root?.getAttribute?.('data-spot-popup-root'),
+      });
     }
     const actionBtn = el.querySelector('[data-spot-popup-action]');
+    if (debugLabel) console.log(`[${debugLabel}] action button`, { spotId, hasAction: !!actionBtn });
     if (actionBtn) {
       actionBtn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        handleReserveSpot(spot);
+        if (debugLabel) console.log(`[${debugLabel}] action click`, spotId);
+        onAction(spot);
       };
     }
   };
 
-  const bindParkingPopupHandlers = (popup, parkingId, parking) => {
-    const el = popup?.getElement?.();
-    if (!el) return;
-    const root = el.querySelector('[data-parking-popup-root]');
-    if (root && root.getAttribute('data-parking-popup-root') === 'info') {
-      root.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (parkingPopupModeRef.current.get(parkingId) === 'action') return;
-        parkingPopupModeRef.current.set(parkingId, 'action');
-        popup.setHTML(buildParkingPopup(parking, 'action'));
-        bindParkingPopupHandlers(popup, parkingId, parking);
-      };
-    }
-    const actionBtn = el.querySelector('[data-spot-popup-action]');
-    if (actionBtn) {
-      actionBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        handleGoToParking(parking);
-      };
-    }
-  };
+  const buildParkingPopupForBind = (parking, _accent, mode) => buildParkingPopup(parking, mode);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1122,14 +1128,30 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         popup.on('close', () => {
           parkingPopupModeRef.current.delete(id);
         });
-        bindParkingPopupHandlers(popup, id, parking);
+        bindSpotPopupHandlers(popup, id, parking, null, {
+          buildPopup: buildParkingPopupForBind,
+          onAction: handleGoToParking,
+          modeRef: parkingPopupModeRef,
+        });
         const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
           .setLngLat([lng, lat])
           .setPopup(popup)
           .addTo(map);
+        marker.__parkingData = parking;
         const clickHandler = (e) => {
           e.preventDefault();
           e.stopPropagation();
+          const currentPopup = marker.getPopup();
+          const currentParking = marker.__parkingData || parking;
+          if (currentPopup && !currentPopup.isOpen()) {
+            parkingPopupModeRef.current.set(id, 'info');
+            currentPopup.setHTML(buildParkingPopup(currentParking, 'info'));
+            bindSpotPopupHandlers(currentPopup, id, currentParking, null, {
+              buildPopup: buildParkingPopupForBind,
+              onAction: handleGoToParking,
+              modeRef: parkingPopupModeRef,
+            });
+          }
           marker.togglePopup();
         };
         el.__parkingClickHandler = clickHandler;
@@ -1138,11 +1160,16 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       } else {
         const marker = parkingMarkersRef.current.get(id);
         marker.setLngLat([lng, lat]);
+        marker.__parkingData = parking;
         const popup = marker.getPopup();
         if (popup) {
           enhancePopupAnimation(popup);
           popup.setHTML(popupHtml);
-          bindParkingPopupHandlers(popup, id, parking);
+          bindSpotPopupHandlers(popup, id, parking, null, {
+            buildPopup: buildParkingPopupForBind,
+            onAction: handleGoToParking,
+            modeRef: parkingPopupModeRef,
+          });
         } else {
           const nextPopup = new mapboxgl.Popup({
             offset: 18,
@@ -1153,7 +1180,11 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           nextPopup.on('close', () => {
             parkingPopupModeRef.current.delete(id);
           });
-          bindParkingPopupHandlers(nextPopup, id, parking);
+          bindSpotPopupHandlers(nextPopup, id, parking, null, {
+            buildPopup: buildParkingPopupForBind,
+            onAction: handleGoToParking,
+            modeRef: parkingPopupModeRef,
+          });
           marker.setPopup(nextPopup);
         }
       }

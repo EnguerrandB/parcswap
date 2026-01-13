@@ -1,5 +1,5 @@
 // src/components/MapSearchView.jsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -9,6 +9,7 @@ import userCar2 from '../assets/user-car-2.png';
 import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
+import { buildPublicParkingPopupHTML } from './PublicParkingPopups';
 import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
 import { newId } from '../utils/ids';
 import {
@@ -35,6 +36,8 @@ const CAR_ICONS = [userCar1, userCar2, userCar3, userCar4];
 const RADIUS_MIN_KM = 0.1;
 const RADIUS_MAX_KM = 5000;
 const DEFAULT_RADIUS_KM = 2000;
+const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
+const PARKING_FETCH_MIN_DISTANCE_M = 250;
 
 const formatEuro = (value) => {
   const n = Number(value);
@@ -43,7 +46,90 @@ const formatEuro = (value) => {
   return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
 };
 
+const normalizeParkingText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const extractTimeRanges = (raw) => {
+  const text = String(raw || '');
+  const matches = [...text.matchAll(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/gi)];
+  const minutes = matches
+    .map((match) => {
+      const hour = Number(match[1]);
+      const min = match[2] ? Number(match[2]) : 0;
+      if (!Number.isFinite(hour) || hour < 0 || hour > 24) return null;
+      if (!Number.isFinite(min) || min < 0 || min > 59) return null;
+      return hour === 24 ? 24 * 60 : hour * 60 + min;
+    })
+    .filter((value) => value != null);
+  const ranges = [];
+  for (let i = 0; i + 1 < minutes.length; i += 2) {
+    ranges.push([minutes[i], minutes[i + 1]]);
+  }
+  return ranges;
+};
+
+const isParkingOpenNow = (record, now = new Date()) => {
+  if (!record) return false;
+  const raw = record?.horaire_na ?? record?.horaire ?? record?.horaires ?? '';
+  const text = normalizeParkingText(raw);
+  if (!text) return false;
+  if (text.includes('ferme') || text.includes('fermee')) return false;
+  if (text.includes('24h') || text.includes('24 h') || text.includes('24/24')) return true;
+
+  const ranges = extractTimeRanges(text);
+  if (!ranges.length) return false;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  return ranges.some(([start, end]) => {
+    if (start == null || end == null) return false;
+    if (start === end) return false;
+    if (end > start) return nowMinutes >= start && nowMinutes <= end;
+    return nowMinutes >= start || nowMinutes <= end;
+  });
+};
+
+const isResidentOnlyParking = (record) => {
+  if (!record) return false;
+  const type = normalizeParkingText(record?.type_usagers ?? record?.type_usager ?? '');
+  const hours = normalizeParkingText(record?.horaire_na ?? '');
+  const info = normalizeParkingText(
+    Array.isArray(record?.info) ? record.info.join(' ') : record?.info ?? '',
+  );
+  const isPublic =
+    type.includes('tous') || type.includes('public') || type.includes('visiteur') || type.includes('visitor');
+  if (isPublic) return false;
+  if (type.includes('abonn') || type.includes('resident')) return true;
+  if (hours.includes('abonn')) return true;
+  if (info.includes('abonn')) return true;
+  return false;
+};
+
+const toNumberOrNull = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
 const getSpotMarkerId = (spot, idx) => spot?.id || `spot-${idx}`;
+
+const getDistanceMetersBetween = (a, b) => {
+  if (!a || !b) return Infinity;
+  if (!isValidCoord(a.lng, a.lat) || !isValidCoord(b.lng, b.lat)) return Infinity;
+  const R = 6371e3;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const c =
+    2 *
+    Math.atan2(
+      Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2),
+      Math.sqrt(1 - (Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2)),
+    );
+  return R * c;
+};
 
 const getDistanceMeters = (spot, userPosition = null) => {
   if (!spot) return Infinity;
@@ -142,10 +228,14 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const radiusSliderRef = useRef(null);
   const priceSliderRef = useRef(null);
   const markersRef = useRef(new Map());
+  const parkingMarkersRef = useRef(new Map());
   const userMarkerRef = useRef(null);
   const popupRef = useRef(null);
   const popupModeRef = useRef(new Map());
   const colorSaltRef = useRef(CARD_COLOR_SALT);
+  const parkingFetchInFlightRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const lastParkingFetchRef = useRef({ at: 0, lat: null, lng: null });
   const [nowMs, setNowMs] = useState(Date.now());
   const [mapLoaded, setMapLoaded] = useState(false);
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
@@ -165,6 +255,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const priceValueRef = useRef(null);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
   const [actionToast, setActionToast] = useState('');
+  const [publicParkings, setPublicParkings] = useState([]);
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
       const domTheme = document.body?.dataset?.theme;
@@ -559,10 +650,165 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!actionToast) return undefined;
     const id = window.setTimeout(() => setActionToast(''), 2200);
     return () => window.clearTimeout(id);
   }, [actionToast]);
+
+  const fetchPublicParkings = useCallback(
+    (center, { force = false } = {}) => {
+      const safeLng = Number(center?.lng);
+      const safeLat = Number(center?.lat);
+      if (!center || !isValidCoord(safeLng, safeLat)) return;
+      const now = Date.now();
+      const last = lastParkingFetchRef.current;
+      const moved = last.lat == null ? Infinity : getDistanceMetersBetween(last, { lng: safeLng, lat: safeLat });
+      if (parkingFetchInFlightRef.current) return;
+      if (!force && now - last.at < PARKING_FETCH_MIN_INTERVAL_MS && moved < PARKING_FETCH_MIN_DISTANCE_M) {
+        return;
+      }
+
+      lastParkingFetchRef.current = { at: now, lat: safeLat, lng: safeLng };
+      parkingFetchInFlightRef.current = true;
+      const params = new URLSearchParams();
+      params.set(
+        'where',
+        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', 1000m)`,
+      );
+      params.set(
+        'order_by',
+        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})')`,
+      );
+      params.set('limit', '20');
+      const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
+
+      fetch(url, { mode: 'cors', credentials: 'omit' })
+        .then((res) => {
+          if (!res.ok) throw new Error(`parking_fetch_${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          if (!isMountedRef.current) return;
+          const raw = Array.isArray(data?.results) ? data.results : Array.isArray(data?.records) ? data.records : [];
+          const next = [];
+          raw.forEach((row, idx) => {
+            const record = row?.fields ?? row;
+            if (!record) return;
+            if (isResidentOnlyParking(record)) return;
+            if (!isParkingOpenNow(record)) return;
+            const id = row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
+            const shape = record?.geo_shape || record?.geometry || null;
+            let lng = null;
+            let lat = null;
+            if (shape?.type === 'Point' && Array.isArray(shape.coordinates)) {
+              [lng, lat] = shape.coordinates;
+            } else if (Array.isArray(shape?.coordinates) && typeof shape.coordinates[0] === 'number') {
+              [lng, lat] = shape.coordinates;
+            } else if (shape?.geometry?.type === 'Point' && Array.isArray(shape.geometry.coordinates)) {
+              [lng, lat] = shape.geometry.coordinates;
+            }
+            if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+              const point = record?.geo_point_2d || record?.geo_point || null;
+              const parsePointArray = (arr) => {
+                if (!Array.isArray(arr) || arr.length < 2) return null;
+                const a = Number(arr[0]);
+                const b = Number(arr[1]);
+                if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+                const cand1 = { lat: a, lng: b };
+                const cand2 = { lat: b, lng: a };
+                const d1 = getDistanceMetersBetween(cand1, { lat: safeLat, lng: safeLng });
+                const d2 = getDistanceMetersBetween(cand2, { lat: safeLat, lng: safeLng });
+                return d1 <= d2 ? cand1 : cand2;
+              };
+              if (Array.isArray(point)) {
+                const picked = parsePointArray(point);
+                if (picked) {
+                  lat = picked.lat;
+                  lng = picked.lng;
+                }
+              } else if (typeof point === 'string') {
+                const parts = point.split(/[,\s]+/).filter(Boolean).map((v) => Number(v));
+                const picked = parsePointArray(parts);
+                if (picked) {
+                  lat = picked.lat;
+                  lng = picked.lng;
+                }
+              } else if (point && typeof point === 'object') {
+                lat = Number(point.lat ?? point.latitude ?? point.y);
+                lng = Number(point.lon ?? point.lng ?? point.longitude ?? point.x);
+              }
+            }
+            const parsedLng = Number(lng);
+            const parsedLat = Number(lat);
+            if (!isValidCoord(parsedLng, parsedLat)) return;
+            const name = record?.nom || record?.name || record?.nom_parc || '';
+            const address =
+              record?.adresse ||
+              (Array.isArray(record?.adress_geo_entrees) ? record.adress_geo_entrees[0] : record?.adress_geo_entrees) ||
+              record?.adress ||
+              '';
+            const distanceMeters = getDistanceMetersBetween(
+              { lng: safeLng, lat: safeLat },
+              { lng: parsedLng, lat: parsedLat },
+            );
+            next.push({
+              id,
+              lng: parsedLng,
+              lat: parsedLat,
+              name,
+              address,
+              distanceMeters,
+              typeUsagers: record?.type_usagers ?? record?.type_usager ?? '',
+              hours: record?.horaire_na ?? '',
+              heightMaxCm: toNumberOrNull(record?.hauteur_max),
+              tarif1h: toNumberOrNull(record?.tarif_1h),
+              tarif2h: toNumberOrNull(record?.tarif_2h),
+              tarif24h: toNumberOrNull(record?.tarif_24h),
+              nbPlaces: toNumberOrNull(record?.nb_places),
+              nbPmr: toNumberOrNull(record?.nb_pmr),
+              nbEv: toNumberOrNull(record?.nb_voitures_electriques),
+              url: record?.url ?? '',
+              phone: record?.tel ?? '',
+            });
+          });
+
+          const unique = new Map();
+          next.forEach((item) => {
+            if (!unique.has(item.id)) unique.set(item.id, item);
+          });
+          const list = Array.from(unique.values());
+          if (isMountedRef.current) {
+            setPublicParkings(list);
+          }
+        })
+        .catch((err) => {
+          if (!isMountedRef.current) return;
+          console.error('[MapSearchView] parking fetch error:', err);
+        })
+        .finally(() => {
+          parkingFetchInFlightRef.current = false;
+        });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const safeLng = Number(userCoords?.lng);
+    const safeLat = Number(userCoords?.lat);
+    if (!userCoords || !isValidCoord(safeLng, safeLat)) {
+      setPublicParkings([]);
+      return undefined;
+    }
+    fetchPublicParkings({ lng: safeLng, lat: safeLat });
+    return undefined;
+  }, [userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
 
   const getSafeCenter = () => {
     if (userCoords && isValidCoord(userCoords.lng, userCoords.lat)) {
@@ -635,6 +881,28 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       });
     }
   }, [mapLoaded, userCoords?.lng, userCoords?.lat]);
+
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current) return;
+    const map = mapRef.current;
+    let pending = null;
+    const scheduleFetch = (force = false) => {
+      if (pending) window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        const center = map.getCenter();
+        fetchPublicParkings({ lng: center.lng, lat: center.lat }, { force });
+      }, 120);
+    };
+    const handleMoveEnd = () => scheduleFetch(true);
+    const handleZoomEnd = () => scheduleFetch(true);
+    map.on('moveend', handleMoveEnd);
+    map.on('zoomend', handleZoomEnd);
+    return () => {
+      map.off('moveend', handleMoveEnd);
+      map.off('zoomend', handleZoomEnd);
+      if (pending) window.clearTimeout(pending);
+    };
+  }, [mapLoaded, fetchPublicParkings]);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
@@ -736,6 +1004,111 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
+    const map = mapRef.current;
+    const nextIds = new Set();
+
+    publicParkings.forEach((parking) => {
+      const lng = Number(parking?.lng);
+      const lat = Number(parking?.lat);
+      if (!isValidCoord(lng, lat)) return;
+      const id = parking?.id || `${lng}:${lat}`;
+      nextIds.add(id);
+      const popupHtml = buildPublicParkingPopupHTML(t, isDark, parking);
+
+      if (!parkingMarkersRef.current.has(id)) {
+        const markerSize = 30;
+        const el = document.createElement('div');
+        el.style.width = `${markerSize}px`;
+        el.style.height = `${markerSize}px`;
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.pointerEvents = 'auto';
+        el.style.cursor = 'pointer';
+        el.style.userSelect = 'none';
+        el.style.perspective = '800px';
+        el.style.transformStyle = 'preserve-3d';
+
+        const inner = document.createElement('div');
+        inner.className = 'parking-marker-drop';
+        inner.style.width = `${markerSize}px`;
+        inner.style.height = `${markerSize}px`;
+        inner.style.borderRadius = '999px';
+        inner.style.position = 'relative';
+        inner.style.background =
+          'radial-gradient(circle at 30% 25%, #e0f2ff 0%, #93c5fd 34%, #3b82f6 68%, #1d4ed8 100%)';
+        inner.style.border = '1px solid rgba(255,255,255,0.6)';
+        inner.style.boxShadow =
+          '0 14px 26px rgba(30,64,175,0.45), inset 0 3px 6px rgba(255,255,255,0.6), inset 0 -6px 12px rgba(30,64,175,0.65)';
+        inner.style.display = 'flex';
+        inner.style.alignItems = 'center';
+        inner.style.justifyContent = 'center';
+        inner.style.fontSize = '15px';
+        inner.style.fontWeight = '900';
+        inner.style.color = '#eef6ff';
+        inner.style.textShadow = '0 2px 4px rgba(15,23,42,0.45), 0 -1px 2px rgba(255,255,255,0.45)';
+        inner.style.pointerEvents = 'none';
+        inner.textContent = 'P';
+
+        const gloss = document.createElement('div');
+        gloss.style.position = 'absolute';
+        gloss.style.top = '3px';
+        gloss.style.left = '4px';
+        gloss.style.right = '4px';
+        gloss.style.height = '40%';
+        gloss.style.borderRadius = '999px';
+        gloss.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0))';
+        gloss.style.pointerEvents = 'none';
+
+        const inset = document.createElement('div');
+        inset.style.position = 'absolute';
+        inset.style.inset = '5px';
+        inset.style.borderRadius = '999px';
+        inset.style.boxShadow = 'inset 0 2px 6px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(30,64,175,0.35)';
+        inset.style.pointerEvents = 'none';
+
+        inner.appendChild(gloss);
+        inner.appendChild(inset);
+        el.appendChild(inner);
+
+        const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
+          popupHtml,
+        );
+        enhancePopupAnimation(popup);
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([lng, lat])
+          .setPopup(popup)
+          .addTo(map);
+        parkingMarkersRef.current.set(id, marker);
+      } else {
+        const marker = parkingMarkersRef.current.get(id);
+        marker.setLngLat([lng, lat]);
+        const popup = marker.getPopup();
+        if (popup) {
+          enhancePopupAnimation(popup);
+          popup.setHTML(popupHtml);
+        } else {
+          const nextPopup = new mapboxgl.Popup({
+            offset: 18,
+            closeButton: false,
+            className: 'user-presence-popup',
+          }).setHTML(popupHtml);
+          enhancePopupAnimation(nextPopup);
+          marker.setPopup(nextPopup);
+        }
+      }
+    });
+
+    for (const [id, marker] of parkingMarkersRef.current.entries()) {
+      if (!nextIds.has(id)) {
+        marker.remove();
+        parkingMarkersRef.current.delete(id);
+      }
+    }
+  }, [mapLoaded, publicParkings, isDark, t]);
+
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current) return;
     if (userCoords && isValidCoord(userCoords.lng, userCoords.lat)) {
       const popupHtml = buildOtherUserPopupHTML(
         t,
@@ -805,8 +1178,71 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 6px rgba(34,197,94,0.18); }
           50% { transform: translate(-50%, -50%) scale(1.08); box-shadow: 0 0 0 10px rgba(34,197,94,0.08); }
         }
+        @keyframes parkingDrop {
+          0% {
+            transform: translate3d(0, -140px, 1200px) scale(0.55);
+            opacity: 0;
+            filter: drop-shadow(0 34px 46px rgba(37,99,235,0.35));
+          }
+          60% {
+            opacity: 1;
+          }
+          100% {
+            transform: translate3d(0, 0, 0) scale(1);
+            opacity: 1;
+            filter: drop-shadow(0 8px 18px rgba(15,23,42,0.25));
+          }
+        }
+        .parking-marker-drop {
+          animation: parkingDrop 1600ms cubic-bezier(0.22, 1, 0.36, 1);
+          transform-origin: center bottom;
+          will-change: transform, opacity;
+        }
       `}</style>
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
+      {mapLoaded && userCoords && isValidCoord(userCoords.lng, userCoords.lat) && (
+        <div
+          className="absolute right-4 z-[80] pointer-events-auto"
+          style={{ bottom: 'calc(var(--bottom-safe-offset, 96px) + 16px)' }}
+        >
+          <button
+            type="button"
+            aria-label="Recenter on me"
+            onClick={() => {
+              if (!mapRef.current) return;
+              mapRef.current.easeTo({
+                center: [userCoords.lng, userCoords.lat],
+                duration: 800,
+                pitch: 0,
+                zoom: 15.2,
+                bearing: 0,
+                essential: true,
+              });
+            }}
+            className="
+              group
+              flex items-center justify-center
+              w-12 h-12
+              rounded-full
+              bg-slate-900/80 backdrop-blur-xl
+              border border-white/10
+              shadow-[0_8px_20px_-6px_rgba(0,0,0,0.25)]
+              text-white
+              transition-all duration-300 cubic-bezier(0.34, 1.56, 0.64, 1)
+              hover:scale-110
+              active:scale-90 active:bg-slate-900/90
+            "
+          >
+            <svg
+              className="w-6 h-6 drop-shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M4.414 10.866a2 2 0 0 1 .463-2.618l9.16-7.073c1.378-1.063 3.327.18 2.96 1.886l-2.628 12.228a2 2 0 0 1-2.64 1.488l-3.326-.95-3.088 2.872a1 1 0 0 1-1.636-.98l1.014-4.884-1.226-.922a1 1 0 0 1 .943-1.047Z" />
+            </svg>
+          </button>
+        </div>
+      )}
       {actionToast ? (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[130] pointer-events-none">
           <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">

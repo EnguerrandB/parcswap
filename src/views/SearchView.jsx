@@ -400,7 +400,6 @@ const SearchView = ({
   selectedSpot: controlledSelectedSpot,
   setSelectedSpot: setControlledSelectedSpot,
   onSelectionStep,
-  onOpenSearchMap,
   leaderboard = [],
   userCoords = null,
   currentUserId = null,
@@ -945,32 +944,6 @@ const SearchView = ({
     onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
     setSelectedSpot(spotWithSession);
   };
-  const handleOpenMap = () => {
-    if (onOpenSearchMap) {
-      onOpenSearchMap();
-      return;
-    }
-    const targetSpot = activeSpot || availableSpots[0] || null;
-    if (!targetSpot) {
-      const safeLng = Number.isFinite(Number(userCoords?.lng)) ? Number(userCoords.lng) : undefined;
-      const safeLat = Number.isFinite(Number(userCoords?.lat)) ? Number(userCoords.lat) : undefined;
-      setSelectedSpot({
-        id: 'map-only',
-        mapOnly: true,
-        lng: safeLng,
-        lat: safeLat,
-      });
-      return;
-    }
-    if (!activeSpot && availableSpots.length > 0) {
-      setCurrentIndex(0);
-    }
-    const bookingSessionId = newId();
-    const spotWithSession = { ...targetSpot, bookingSessionId };
-    onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
-    setSelectedSpot(spotWithSession);
-  };
-
   useEffect(() => {
     onFiltersOpenChange?.(showRadiusPicker);
     return () => onFiltersOpenChange?.(false);
@@ -1267,27 +1240,6 @@ const SearchView = ({
                 </span>
               </div>
             ) : null}
-            <div className="mt-2 flex justify-center">
-              <button
-                type="button"
-                onClick={handleOpenMap}
-                className={`px-4 py-2 rounded-full text-sm font-semibold border shadow-sm transition flex items-center gap-2 ${
-                  isDark
-                    ? 'bg-gradient-to-r from-slate-900/90 to-slate-800/90 border-white/10 text-slate-100 [@media(hover:hover)]:from-slate-900 [@media(hover:hover)]:to-slate-800'
-                    : 'bg-white/90 border-white/70 text-slate-900 [@media(hover:hover)]:bg-white'
-                } ${showRadiusPicker ? 'opacity-0 pointer-events-none' : ''}`}
-                style={{ boxShadow: isDark ? '0 10px 24px rgba(0,0,0,0.35)' : '0 12px 28px rgba(15,23,42,0.12)' }}
-                aria-hidden={showRadiusPicker ? 'true' : undefined}
-                tabIndex={showRadiusPicker ? -1 : 0}
-              >
-                <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
-                  isDark ? 'bg-white/10 text-orange-200' : 'bg-orange-50 text-orange-500'
-                }`}>
-                  <MapPin size={16} strokeWidth={2.5} />
-                </span>
-                {t('openMap', { defaultValue: 'Carte' })}
-              </button>
-            </div>
 	        </div>
 	      )}
 

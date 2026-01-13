@@ -37,7 +37,7 @@ import i18n from './i18n/i18n';
 import Map from './components/Map';
 import MapSearchView from './components/MapSearchView';
 import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
-import { Menu } from 'lucide-react';
+import { List, MapPin, Settings } from 'lucide-react';
 import { newId } from './utils/ids';
 
 const hashSeed = (str) => {
@@ -2213,6 +2213,14 @@ export default function ParkSwapApp() {
     }
   };
 
+  const toggleSearchMap = () => {
+    if (searchMapOpen) {
+      closeSearchMap();
+    } else {
+      openSearchMap();
+    }
+  };
+
   useEffect(() => {
     if (!user?.uid) return undefined;
     let cancelled = false;
@@ -2311,7 +2319,6 @@ export default function ParkSwapApp() {
             selectedSpot={selectedSearchSpot}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
-            onOpenSearchMap={openSearchMap}
 	            leaderboard={leaderboard}
 	            userCoords={userCoords}
 	            currentUserId={user?.uid || null}
@@ -2476,33 +2483,49 @@ export default function ParkSwapApp() {
 	            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
 	          }`}
 	        >
-          <button
-            type="button"
-            onClick={handleMenuClick}
-            className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
-              theme === 'dark'
-                ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
-                : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
-            }`}
-            style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
-            aria-label={i18n.t('settings', 'Settings')}
-            title={i18n.t('settings', 'Settings')}
-          >
-            {menuNudgeActive ? (
-              <>
-                <span
-                  className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
-                  aria-hidden="true"
-                />
-                <span
-                  className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
-                  aria-hidden="true"
-                />
-              </>
-            ) : null}
-          <Menu size={22} strokeWidth={2.5} />
-        </button>
-      </div>
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={handleMenuClick}
+              className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                theme === 'dark'
+                  ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+                  : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+              }`}
+              style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+              aria-label={i18n.t('settings', 'Settings')}
+              title={i18n.t('settings', 'Settings')}
+            >
+              {menuNudgeActive ? (
+                <>
+                  <span
+                    className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
+                    aria-hidden="true"
+                  />
+                </>
+              ) : null}
+              <Settings size={22} strokeWidth={2.5} />
+            </button>
+            <button
+              type="button"
+              onClick={toggleSearchMap}
+              className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                theme === 'dark'
+                  ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+                  : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+              }`}
+              style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+              aria-label={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
+              title={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
+            >
+              {searchMapOpen ? <List size={22} strokeWidth={2.5} /> : <MapPin size={22} strokeWidth={2.5} />}
+            </button>
+          </div>
+        </div>
       )}
 
 	{showAccountSheet && (
@@ -2723,7 +2746,6 @@ export default function ParkSwapApp() {
           onSelectionStep={handleSelectionStep}
           setSelectedSpot={setSelectedSearchSpot}
           premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
-          onClose={closeSearchMap}
         />
       )}
       <TapDebugOverlay />

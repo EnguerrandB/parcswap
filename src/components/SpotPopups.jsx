@@ -154,7 +154,7 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
   `;
 };
 
-export const buildSpotActionPopupHTML = (t, isDark, spot, accentColor = null) => {
+export const buildSpotActionPopupHTML = (t, isDark, spot, accentColor = null, labelOverride = null) => {
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
   const priceLabel = formatSpotPrice(spot?.price);
   const accent = accentColor || (isDark ? '#38bdf8' : '#0ea5e9');
@@ -163,7 +163,7 @@ export const buildSpotActionPopupHTML = (t, isDark, spot, accentColor = null) =>
   const accentGlow = toRgba(accent, isDark ? 0.35 : 0.25);
   const buttonText = getContrastText(accent);
   const buttonBg = `linear-gradient(135deg, ${accent} 0%, ${toRgba(accent, 0.8)} 100%)`;
-  const label = t('takeSpot', { defaultValue: 'Prendre sa place' });
+  const label = labelOverride || t('takeSpot', { defaultValue: 'Prendre sa place' });
   const sub = isDark ? 'rgba(234,240,255,0.60)' : 'rgba(11,18,32,0.55)';
   const timePlaceholder = '0:00';
   return `

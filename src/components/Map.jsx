@@ -250,7 +250,8 @@ const MapInner = ({
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const [mapMoved, setMapMoved] = useState(false);
   const [destInfo, setDestInfo] = useState(null);
-  const isBrowseOnly = !!spot?.mapOnly;
+  const isBrowseOnly = !!spot?.mapOnly && !spot?.isPublicParking;
+  const isPublicParking = !!spot?.isPublicParking;
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
       const domTheme = document.body?.dataset?.theme;
@@ -350,6 +351,7 @@ const MapInner = ({
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
 
   useEffect(() => {
+    if (isPublicParking) return undefined;
     if (!spot?.id || !currentUserId) return undefined;
     const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
     const unsub = onSnapshot(
@@ -369,7 +371,7 @@ const MapInner = ({
       () => {},
     );
     return () => unsub();
-  }, [spot?.id, currentUserId]);
+  }, [spot?.id, currentUserId, isPublicParking]);
 
   const closePlateNotice = () => {
     setShowPlateNotice(false);
@@ -532,6 +534,12 @@ useEffect(() => {
   }, [initialStep, spot?.id]);
 
   useEffect(() => {
+    if (!isPublicParking || !spot?.autoStartNav) return;
+    setShowRoute(true);
+    setShowSteps(true);
+  }, [isPublicParking, spot?.autoStartNav, spot?.id]);
+
+  useEffect(() => {
     if (!showRoute) {
       setShowSteps(false);
       setConfirming(false);
@@ -671,6 +679,13 @@ useEffect(() => {
     if (!spot) return;
     if (acceptingNav) return;
     setAcceptingNav(true);
+
+    if (isPublicParking) {
+      setShowRoute(true);
+      setShowSteps(true);
+      setAcceptingNav(false);
+      return;
+    }
 
     const bookingSessionId = typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
     const res = await onSelectionStep?.('nav_started', spot, { bookingSessionId, opId: newId() });
@@ -1873,20 +1888,39 @@ useEffect(() => {
                   </p>
                 </div>
 
-                {/* FIX ADDED HERE: type="button" and explicit click handler */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setConfirming(true);
-                  }}
-                  className="bg-gray-100 hover:bg-red-50 text-red-600 p-3 rounded-full transition-colors border border-gray-200 shadow-md"
-                >
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                {isPublicParking ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onSelectionStep?.('cleared', null);
+                      onClose?.();
+                    }}
+                    className="
+                      px-4 py-2 rounded-full
+                      bg-emerald-500 hover:bg-emerald-600
+                      text-white font-semibold
+                      shadow-md transition-colors
+                    "
+                  >
+                    {t('arrived', { defaultValue: 'Arrivé' })}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setConfirming(true);
+                    }}
+                    className="bg-gray-100 hover:bg-red-50 text-red-600 p-3 rounded-full transition-colors border border-gray-200 shadow-md"
+                  >
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           </>

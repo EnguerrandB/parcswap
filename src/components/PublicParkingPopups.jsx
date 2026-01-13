@@ -100,16 +100,6 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
       ? `
       <div style="margin-top: 10px;">
         <div style="
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.14em;
-          color: ${muted};
-          text-transform: uppercase;
-        ">
-          ${t('firstHour', { defaultValue: '1h' })}
-        </div>
-        <div style="
-          margin-top: 8px;
           padding: 10px 14px;
           border-radius: 16px;
           background: linear-gradient(135deg, rgba(37,99,235,0.98), rgba(59,130,246,0.82));
@@ -122,7 +112,7 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
           justify-content:center;
           box-shadow: 0 18px 36px -18px rgba(37,99,235,0.6);
         ">
-          <span>${price1h}€</span>
+          <span>${price1h}€ / h</span>
         </div>
       </div>
       `
@@ -151,7 +141,7 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
       color: ${text};
       -webkit-font-smoothing: antialiased;
     ">
-      <div style="
+      <div data-parking-popup-root="info" style="
         padding: 12px 12px 12px;
         border-radius: 24px;
         background: ${cardBg};
@@ -159,6 +149,7 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
         box-shadow: ${shadow};
         backdrop-filter: blur(22px) saturate(170%);
         -webkit-backdrop-filter: blur(22px) saturate(170%);
+        cursor: pointer;
       ">
         <!-- header (name) -->
         <div style="padding: 2px 2px 0;">

@@ -827,11 +827,14 @@ export default function ParkSwapApp() {
 		      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
 		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
 		      let language = i18n.language || 'en';
+          let wallet = 0;
 		      try {
 		        const snap = await getDoc(userRef);
 		        if (snap.exists()) {
 		          const data = snap.data();
 		          if (data?.language) language = data.language;
+              const walletValue = Number(data?.wallet);
+              if (Number.isFinite(walletValue)) wallet = walletValue;
 		        }
 		      } catch (err) {
 		        console.error('Error loading user language:', err);
@@ -843,6 +846,7 @@ export default function ParkSwapApp() {
 		        phone: fbUser.phoneNumber || '',
 		        transactions: 0,
 		        premiumParks: PREMIUM_PARKS_MAX,
+            wallet,
 		        language: language || 'en',
 		      };
 		    };
@@ -891,11 +895,14 @@ export default function ParkSwapApp() {
       const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
       const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
       let language = i18n.language || 'en';
+      let wallet = 0;
       try {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
           const data = snap.data();
           if (data?.language) language = data.language;
+          const walletValue = Number(data?.wallet);
+          if (Number.isFinite(walletValue)) wallet = walletValue;
         }
       } catch (err) {
         console.error('Error loading user language:', err);
@@ -907,6 +914,7 @@ export default function ParkSwapApp() {
         phone: fbUser.phoneNumber || '',
         transactions: 0,
         premiumParks: PREMIUM_PARKS_MAX,
+        wallet,
         language: language || 'en',
       };
       setUser((prev) => prev || nextUser);
@@ -1182,11 +1190,14 @@ export default function ParkSwapApp() {
 	      const initialized = data?.premiumParksInitialized === true;
 	      const current = Number(data?.premiumParks);
 	      const hasValue = Number.isFinite(current);
+        const walletRaw = Number(data?.wallet);
+        const hasWallet = Number.isFinite(walletRaw);
+        const walletSeed = hasWallet ? {} : { wallet: 0 };
 
 	      if (!snap.exists()) {
 	        tx.set(
 	          userRef,
-	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true, ...walletSeed },
 	          { merge: true },
 	        );
 	        return;
@@ -1195,15 +1206,20 @@ export default function ParkSwapApp() {
 	      if (!initialized) {
 	        tx.set(
 	          userRef,
-	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true, ...walletSeed },
 	          { merge: true },
 	        );
 	        return;
 	      }
 
 	      if (!hasValue) {
-	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX }, { merge: true });
+	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX, ...walletSeed }, { merge: true });
+        return;
 	      }
+
+        if (!hasWallet) {
+          tx.set(userRef, { wallet: 0 }, { merge: true });
+        }
 	    }).catch((err) => console.error('Error initializing Premium Parks:', err));
 
 	    // Ensure the profile doc exists with basic defaults
@@ -1217,6 +1233,7 @@ export default function ParkSwapApp() {
 		        language: user.language || i18n.language || 'en',
 		        // increment(0) preserves existing transactions and initializes to 0 if missing
 		        transactions: increment(0),
+            wallet: increment(0),
 		        createdAt: serverTimestamp(),
 		      },
 		      { merge: true },
@@ -1236,6 +1253,8 @@ export default function ParkSwapApp() {
 		                ? premiumValue
 		                : prev?.premiumParks ?? PREMIUM_PARKS_MAX
 		              : PREMIUM_PARKS_MAX;
+              const walletValue = Number(data.wallet);
+              const nextWallet = Number.isFinite(walletValue) ? walletValue : prev?.wallet ?? 0;
 		          return {
 		            ...prev,
 		            displayName: data.displayName || prev?.displayName,
@@ -1244,6 +1263,7 @@ export default function ParkSwapApp() {
 		            language: data.language || prev?.language || 'en',
 		            transactions: data.transactions ?? prev?.transactions ?? 0,
 		            premiumParks: nextPremium,
+                wallet: nextWallet,
 		          };
 		        });
 	      },
@@ -1575,6 +1595,18 @@ export default function ParkSwapApp() {
 
 	        const free = isFreeSpot(liveSpot);
 	        const resolvedHostId = liveSpot.hostId || spot.hostId || null;
+	        const priceValue = Number(liveSpot.price ?? spot.price ?? 0);
+	        const amount = Number.isFinite(priceValue) ? priceValue : 0;
+	        const hostRef = resolvedHostId
+	          ? doc(db, 'artifacts', appId, 'public', 'data', 'users', resolvedHostId)
+	          : null;
+
+	        if (amount) {
+	          tx.set(bookerRef, { wallet: increment(-amount) }, { merge: true });
+	          if (hostRef && resolvedHostId !== user.uid) {
+	            tx.set(hostRef, { wallet: increment(amount) }, { merge: true });
+	          }
+	        }
 	        if (free) {
 	          const bookerSnap = await tx.get(bookerRef);
 	          const bookerData = bookerSnap.exists() ? bookerSnap.data() : {};
@@ -2165,6 +2197,23 @@ export default function ParkSwapApp() {
     return { needsEmailVerify: verificationEmailSent, reauthRequired };
   };
 
+  const handleAddWallet = async (amount) => {
+    if (!user?.uid) return { ok: false };
+    const value = Number(amount);
+    if (!Number.isFinite(value) || value <= 0) return { ok: false };
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    try {
+      await setDoc(userRef, { wallet: increment(value), updatedAt: serverTimestamp() }, { merge: true });
+      setUser((prev) =>
+        prev ? { ...prev, wallet: (Number(prev.wallet) || 0) + value } : prev,
+      );
+      return { ok: true };
+    } catch (err) {
+      console.error('Error adding wallet funds:', err);
+      return { ok: false, error: err };
+    }
+  };
+
 	  const handleLogout = async () => {
 	    if (loggingOut) return;
 	    const startMs = Date.now();
@@ -2380,6 +2429,7 @@ export default function ParkSwapApp() {
           onDeleteVehicle={handleDeleteVehicle}
           onSelectVehicle={handleSelectVehicle}
           onUpdateProfile={handleUpdateProfile}
+          onAddWallet={handleAddWallet}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}
@@ -2597,6 +2647,7 @@ export default function ParkSwapApp() {
           onDeleteVehicle={handleDeleteVehicle}
           onSelectVehicle={handleSelectVehicle}
           onUpdateProfile={handleUpdateProfile}
+          onAddWallet={handleAddWallet}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}

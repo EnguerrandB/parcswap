@@ -86,7 +86,7 @@ const buildPublicParkingModel = (t, isDark, parking) => {
 
   // ---- build chips (meta) ----
   const metaChips = [];
-  if (distanceLabel) metaChips.push(buildChip(distanceLabel, chipAccent));
+  const distanceChip = distanceLabel ? buildChip(distanceLabel, chipAccent) : null;
 
   const specChips = [];
   if (heightLabel) specChips.push(buildChip(`${t('height', { defaultValue: 'Height' })} ${heightLabel}`, chipBase));
@@ -144,12 +144,13 @@ const buildPublicParkingModel = (t, isDark, parking) => {
     priceBlock,
     metaChips,
     specChips,
+    distanceChip,
   };
 };
 
 const buildPublicParkingBodyHTML = (model) => `
   <!-- header (name) -->
-  <div style="padding: 2px 2px 0;">
+  <div style="padding: 2px 2px 0; display:flex; align-items:center; justify-content:space-between; gap:8px;">
     <div style="
       font-weight: 850;
       font-size: 14px;
@@ -157,7 +158,9 @@ const buildPublicParkingBodyHTML = (model) => `
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      min-width: 0;
     ">${model.name}</div>
+    ${model.distanceChip ? `<div style="flex-shrink:0;">${model.distanceChip}</div>` : ''}
   </div>
 
   <!-- meta chips -->

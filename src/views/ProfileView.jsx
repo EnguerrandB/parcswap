@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   CreditCard,
+  Wallet,
   LogOut,
   ArrowRight,
   Sun,
@@ -33,6 +34,7 @@ const ProfileView = ({
   inviteMessage,
   openAddVehicleRequestId = 0,
   highlightVehiclesRequestId = 0,
+  onAddWallet,
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
@@ -51,9 +53,15 @@ const ProfileView = ({
     tierLaptop: '#10b981',
     tierPhone: '#22c55e',
     logout: '#f97316',
+    wallet: '#22c55e',
   };
   const iconStyle = (key) => ({ color: iconColors[key] || '#f97316' });
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const formatWallet = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '0,00€';
+    return `${n.toFixed(2).replace('.', ',')}€`;
+  };
   const rankLabel = (count = 0) => {
     const n = Number(count) || 0;
     if (n >= 20) return 'Loulou Ultimate';
@@ -80,10 +88,17 @@ const ProfileView = ({
   const [showRankInfo, setShowRankInfo] = useState(null);
   const [closingRank, setClosingRank] = useState(false);
   const [language, setLanguage] = useState(user?.language || 'en');
+  const [walletInput, setWalletInput] = useState('');
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [closingWalletModal, setClosingWalletModal] = useState(false);
 
   useEffect(() => {
     if (showRankInfo) setClosingRank(false);
   }, [showRankInfo]);
+
+  useEffect(() => {
+    if (showWalletModal) setClosingWalletModal(false);
+  }, [showWalletModal]);
 
   useEffect(() => {
     setLanguage(user?.language || 'en');
@@ -132,6 +147,16 @@ const ProfileView = ({
       phoneVerified: user?.phoneVerified,
     });
   };
+  const handleWalletAdd = () => {
+    if (!onAddWallet) return;
+    const normalized = String(walletInput || '').replace(',', '.').replace(/[^0-9.]/g, '');
+    const amount = Number.parseFloat(normalized);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    onAddWallet(amount);
+    setWalletInput('');
+  };
+  const walletValue = Number(user?.wallet);
+  const walletDisplay = Number.isFinite(walletValue) ? walletValue : 0;
 
   return (
     <div
@@ -207,6 +232,30 @@ const ProfileView = ({
             isDark={isDark}
             iconStyle={iconStyle}
           />
+
+          <button
+            type="button"
+            onClick={() => setShowWalletModal(true)}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div
+                className={`p-2 rounded-lg border ${
+                  isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'
+                }`}
+              >
+                <Wallet size={20} style={iconStyle('wallet')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('wallet', { defaultValue: 'Wallet' })}
+              </span>
+            </div>
+            <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
+              {formatWallet(walletDisplay)}
+            </span>
+          </button>
 	        </div>
 	      </div>
 
@@ -391,6 +440,67 @@ const ProfileView = ({
 		          </div>
 		        </div>
 		      )}
+
+      {showWalletModal && (
+        <div
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
+            closingWalletModal ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={() => closeWithAnim(setClosingWalletModal, setShowWalletModal)}
+        >
+          <div
+            className={`rounded-2xl shadow-2xl w-full max-w-md p-6 relative border ${
+              closingWalletModal ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            } ${
+              isDark ? 'bg-slate-900 border-white/10 text-slate-100' : 'bg-white border-gray-100 text-gray-900'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`p-2 rounded-lg border ${
+                    isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'
+                  }`}
+                >
+                  <Wallet size={20} style={iconStyle('wallet')} />
+                </div>
+                <div>
+                  <div className="font-semibold text-lg leading-tight">{t('wallet', { defaultValue: 'Wallet' })}</div>
+                  <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                    {formatWallet(walletDisplay)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={walletInput}
+                onChange={(e) => setWalletInput(e.target.value)}
+                placeholder={t('walletTopupPlaceholder', { defaultValue: 'Montant à ajouter' })}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold outline-none border ${
+                  isDark
+                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                    : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'
+                }`}
+              />
+              <button
+                type="button"
+                onClick={handleWalletAdd}
+                className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                  isDark
+                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
+                    : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                }`}
+              >
+                {t('addFunds', { defaultValue: 'Ajouter' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

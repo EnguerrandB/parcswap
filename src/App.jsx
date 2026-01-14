@@ -228,7 +228,15 @@ const getRemainingMs = (spot) => {
   return createdMs + Number(spot.time) * 60_000 - Date.now();
 };
 
-const EXPIRED_PROPOSE_DISMISS_MS = 60_000;
+const isActiveProposeSpot = (spot) => {
+  if (!spot) return false;
+  if (spot.status === 'completed' || spot.status === 'cancelled' || spot.status === 'expired') return false;
+  if (spot.status === 'booked' || spot.status === 'confirmed') return true;
+  const remaining = getRemainingMs(spot);
+  if (!Number.isFinite(remaining)) return true;
+  return remaining > 0;
+};
+
 const PREMIUM_PARKS_MAX = 5;
 const isFreeSpot = (spot) => {
   const price = Number(spot?.price ?? 0);
@@ -524,6 +532,7 @@ export default function ParkSwapApp() {
   const [transactions, setTransactions] = useState([]);
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [searchMapOpen, setSearchMapOpen] = useState(false);
+  const [showPublicParkings, setShowPublicParkings] = useState(true);
   const searchMapPrefRef = useRef('list');
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
@@ -1027,14 +1036,7 @@ export default function ParkSwapApp() {
 	          }
 	        }
 
-		        const mySpot = fetchedSpots.find((s) => {
-		          if (s.hostId !== user.uid) return false;
-		          if (s.status === 'completed' || s.status === 'cancelled') return false;
-		          if (s.status === 'booked' || s.status === 'confirmed') return true;
-		          const remaining = getRemainingMs(s);
-		          if (!Number.isFinite(remaining)) return true;
-		          return remaining > -EXPIRED_PROPOSE_DISMISS_MS;
-		        });
+		        const mySpot = fetchedSpots.find((s) => s.hostId === user.uid && isActiveProposeSpot(s));
 		        setMyActiveSpot(mySpot || null);
 
 	        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
@@ -1047,31 +1049,32 @@ export default function ParkSwapApp() {
     return () => unsubscribe();
 	  }, [user]);
 
-	  // --- Auto-dismiss stale expired propose listings ---
+	  // --- Auto-dismiss propose listings as soon as the timer ends ---
 	  useEffect(() => {
 	    if (!myActiveSpot) return undefined;
 	    if (myActiveSpot.status === 'booked' || myActiveSpot.status === 'confirmed') return undefined;
+	    if (myActiveSpot.status === 'expired') {
+	      setMyActiveSpot(null);
+	      return undefined;
+	    }
 	    const remaining = getRemainingMs(myActiveSpot);
 	    if (!Number.isFinite(remaining)) return undefined;
-	    if (remaining > 0) return undefined;
-
-	    const expiredForMs = -remaining;
-	    if (expiredForMs > EXPIRED_PROPOSE_DISMISS_MS) {
+	    if (remaining <= 0) {
 	      setMyActiveSpot(null);
 	      return undefined;
 	    }
 
-	    const msUntilDismiss = Math.max(0, EXPIRED_PROPOSE_DISMISS_MS - expiredForMs);
 	    const spotId = myActiveSpot.id;
 	    const timer = window.setTimeout(() => {
 	      setMyActiveSpot((current) => {
 	        if (!current || current.id !== spotId) return current;
 	        if (current.status === 'booked' || current.status === 'confirmed') return current;
+	        if (current.status === 'expired') return null;
 	        const nextRemaining = getRemainingMs(current);
 	        if (!Number.isFinite(nextRemaining)) return current;
-	        return nextRemaining <= -EXPIRED_PROPOSE_DISMISS_MS ? null : current;
+	        return nextRemaining <= 0 ? null : current;
 	      });
-	    }, msUntilDismiss + 25);
+	    }, remaining + 25);
 
 	    return () => window.clearTimeout(timer);
 	  }, [myActiveSpot?.id, myActiveSpot?.status, myActiveSpot?.createdAt, myActiveSpot?.time]);
@@ -1325,7 +1328,7 @@ export default function ParkSwapApp() {
 	    const x = 50 + (Math.random() * 40 - 20);
 	    const y = 50 + (Math.random() * 40 - 20);
 	    try {
-	      if (myActiveSpot && myActiveSpot.status !== 'completed' && myActiveSpot.status !== 'cancelled') {
+	      if (isActiveProposeSpot(myActiveSpot)) {
 	        const err = new Error('active_spot_exists');
 	        err.code = 'active_spot_exists';
 	        throw err;
@@ -2242,8 +2245,7 @@ export default function ParkSwapApp() {
 	    setLoggingOut(false);
 	  };
 
-  const isSearchInProgress =
-    !!myActiveSpot && myActiveSpot.status !== 'completed' && myActiveSpot.status !== 'cancelled';
+  const isSearchInProgress = isActiveProposeSpot(myActiveSpot);
 
   const changeTab = (nextTab) => {
     if (!nextTab || nextTab === activeTab) return;
@@ -2391,14 +2393,15 @@ export default function ParkSwapApp() {
             selectedSpot={selectedSearchSpot}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
-	            leaderboard={leaderboard}
-	            userCoords={userCoords}
-	            currentUserId={user?.uid || null}
-              onFiltersOpenChange={setSearchFiltersOpen}
-	            premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
-	            deckIndex={searchDeckIndex}
-	            setDeckIndex={setSearchDeckIndex}
-	          />
+	    leaderboard={leaderboard}
+	    userCoords={userCoords}
+	    currentUserId={user?.uid || null}
+            onFiltersOpenChange={setSearchFiltersOpen}
+	    premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
+	    deckIndex={searchDeckIndex}
+	    setDeckIndex={setSearchDeckIndex}
+            showPublicParkings={showPublicParkings}
+	  />
         </div>
       );
     }
@@ -2597,6 +2600,32 @@ export default function ParkSwapApp() {
             >
               {searchMapOpen ? <List size={22} strokeWidth={2.5} /> : <MapPin size={22} strokeWidth={2.5} />}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowPublicParkings((prev) => !prev)}
+              className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                theme === 'dark'
+                  ? showPublicParkings
+                    ? 'bg-slate-900/80 text-blue-300 border-blue-400/40 hover:bg-slate-800'
+                    : 'bg-slate-900/60 text-slate-500 border-white/10 hover:bg-slate-800/70'
+                  : showPublicParkings
+                    ? 'bg-white/70 text-blue-600 border-blue-200/70 hover:bg-white'
+                    : 'bg-white/60 text-gray-400 border-white/60 hover:bg-white'
+              }`}
+              style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+              aria-label={
+                showPublicParkings
+                  ? i18n.t('hideParkings', 'Masquer parkings')
+                  : i18n.t('showParkings', 'Afficher parkings')
+              }
+              title={
+                showPublicParkings
+                  ? i18n.t('hideParkings', 'Masquer parkings')
+                  : i18n.t('showParkings', 'Afficher parkings')
+              }
+            >
+              <span className="text-lg font-extrabold">P</span>
+            </button>
           </div>
         </div>
       )}
@@ -2763,7 +2792,7 @@ export default function ParkSwapApp() {
         <BottomNav
           activeTab={activeTab}
           setActiveTab={changeTab}
-          waitingMode={activeTab === 'propose' && !!myActiveSpot}
+          waitingMode={activeTab === 'propose' && isActiveProposeSpot(myActiveSpot)}
           canPublish={vehicles.length > 0}
           onPublishDisabledPress={openAddVehicle}
           onCancelPress={() => {
@@ -2811,6 +2840,7 @@ export default function ParkSwapApp() {
           onSelectionStep={handleSelectionStep}
           setSelectedSpot={setSelectedSearchSpot}
           premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
+          showPublicParkings={showPublicParkings}
         />
       )}
       <TapDebugOverlay />

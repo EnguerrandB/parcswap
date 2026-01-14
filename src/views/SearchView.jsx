@@ -89,10 +89,11 @@ const formatParkingPrice = (value) => {
 };
 
 const RADIUS_MIN_KM = 0;
-const RADIUS_MAX_KM = 1;
-const DEFAULT_RADIUS_KM = 1;
+const RADIUS_MAX_KM = 2;
+const DEFAULT_RADIUS_KM = 2;
 const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
 const PARKING_FETCH_MIN_DISTANCE_M = 250;
+const PARKING_FETCH_RADIUS_M = 2000;
 
 const isValidCoord = (lng, lat) =>
   typeof lng === 'number' &&
@@ -559,6 +560,7 @@ SwipeCard.displayName = 'SwipeCard';
 const SearchView = ({
   spots = [],
   premiumParks = 0,
+  showPublicParkings = true,
   onBookSpot,
   onCancelBooking,
   selectedSpot: controlledSelectedSpot,
@@ -600,6 +602,13 @@ const SearchView = ({
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
   const [enteringIds, setEnteringIds] = useState([]);
+  const getSpotDistanceMeters = useCallback(
+    (spot) => {
+      const override = distanceOverrides?.[spot?.id];
+      return Number.isFinite(override) ? override : getDistanceMeters(spot, userCoords);
+    },
+    [distanceOverrides, userCoords],
+  );
   // Stable salt to keep card colors consistent across renders/tab switches
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const [shareToast, setShareToast] = useState('');
@@ -618,6 +627,7 @@ const SearchView = ({
   const parkingFetchQueuedRef = useRef(null);
   const lastParkingFetchRef = useRef({ at: 0, lat: null, lng: null });
   const isMountedRef = useRef(true);
+  const showPublicParkingsRef = useRef(showPublicParkings);
   const maxSpotPrice = useMemo(() => {
     const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
     const max = values.length ? Math.max(...values) : 0;
@@ -671,6 +681,7 @@ const SearchView = ({
   };
 
   const fetchPublicParkings = useCallback((center, { force = false } = {}) => {
+    if (!showPublicParkingsRef.current) return;
     const safeLng = Number(center?.lng);
     const safeLat = Number(center?.lat);
     if (!center || !isValidCoord(safeLng, safeLat)) return;
@@ -688,7 +699,7 @@ const SearchView = ({
     lastParkingFetchRef.current = { at: now, lat: safeLat, lng: safeLng };
     parkingFetchInFlightRef.current = true;
     const params = new URLSearchParams();
-    params.set('where', `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', 1000m)`);
+    params.set('where', `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', ${PARKING_FETCH_RADIUS_M}m)`);
     params.set('order_by', `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})')`);
     params.set('limit', '20');
     const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
@@ -699,7 +710,7 @@ const SearchView = ({
         return res.json();
       })
       .then((data) => {
-        if (!isMountedRef.current) return;
+        if (!isMountedRef.current || !showPublicParkingsRef.current) return;
         const raw = Array.isArray(data?.results) ? data.results : Array.isArray(data?.records) ? data.records : [];
         const next = [];
         raw.forEach((row, idx) => {
@@ -782,10 +793,10 @@ const SearchView = ({
           if (!unique.has(item.id)) unique.set(item.id, item);
         });
         const list = Array.from(unique.values());
-        if (isMountedRef.current) {
-          setPublicParkings(list);
-        }
-      })
+          if (isMountedRef.current && showPublicParkingsRef.current) {
+            setPublicParkings(list);
+          }
+        })
       .catch((err) => {
         if (!isMountedRef.current) return;
         console.error('[SearchView] parking fetch error:', err);
@@ -860,15 +871,24 @@ const SearchView = ({
   }, []);
 
   useEffect(() => {
+    showPublicParkingsRef.current = showPublicParkings;
+    if (!showPublicParkings) {
+      setPublicParkings([]);
+      parkingFetchQueuedRef.current = null;
+      lastParkingFetchRef.current = { at: 0, lat: null, lng: null };
+    }
+  }, [showPublicParkings]);
+
+  useEffect(() => {
     const safeLng = Number(userCoords?.lng);
     const safeLat = Number(userCoords?.lat);
-    if (!userCoords || !isValidCoord(safeLng, safeLat)) {
+    if (!showPublicParkings || !userCoords || !isValidCoord(safeLng, safeLat)) {
       setPublicParkings([]);
       return undefined;
     }
     fetchPublicParkings({ lng: safeLng, lat: safeLat });
     return undefined;
-  }, [userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
+  }, [showPublicParkings, userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
 
   // Restore + persist user preferences (radius + price filter)
   useEffect(() => {
@@ -968,7 +988,7 @@ const SearchView = ({
   const countAvailableWith = (radiusKmOverride, priceMaxOverride) => {
     const filtered = sortedSpots.filter((spot) => {
       const withinRadius =
-        radiusKmOverride == null ? true : getDistanceMeters(spot, userCoords) <= radiusKmOverride * 1000;
+        radiusKmOverride == null ? true : getSpotDistanceMeters(spot) <= radiusKmOverride * 1000;
       if (!withinRadius) return false;
       if (priceMaxOverride == null) return true;
       const p = Number(spot?.price ?? 0);
@@ -979,7 +999,7 @@ const SearchView = ({
   const spotsAvailableWith = (radiusKmOverride, priceMaxOverride) => {
     const filtered = sortedSpots.filter((spot) => {
       const withinRadius =
-        radiusKmOverride == null ? true : getDistanceMeters(spot, userCoords) <= radiusKmOverride * 1000;
+        radiusKmOverride == null ? true : getSpotDistanceMeters(spot) <= radiusKmOverride * 1000;
       if (!withinRadius) return false;
       if (priceMaxOverride == null) return true;
       const p = Number(spot?.price ?? 0);
@@ -989,7 +1009,7 @@ const SearchView = ({
   };
 
   const filteredSpots = sortedSpots.filter((spot) => {
-    const withinRadius = radius == null ? true : getDistanceMeters(spot, userCoords) <= radius * 1000;
+    const withinRadius = radius == null ? true : getSpotDistanceMeters(spot) <= radius * 1000;
     if (!withinRadius) return false;
     if (priceMax == null) return true;
     const p = Number(spot?.price ?? 0);
@@ -1005,7 +1025,8 @@ const SearchView = ({
     return map;
   }, [availableSpots, availableColors]);
   const publicParkingCards = useMemo(() => {
-    const maxRadiusMeters = radius == null ? null : Number(radius) * 1000;
+    if (!showPublicParkings) return [];
+    const maxRadiusMeters = radius == null ? PARKING_FETCH_RADIUS_M : Number(radius) * 1000;
     const maxPrice = priceMax == null ? null : Number(priceMax);
     const sorted = [...(publicParkings || [])]
       .filter((parking) => {
@@ -1024,7 +1045,7 @@ const SearchView = ({
       isPublicParking: true,
       price: parking?.tarif1h,
     }));
-  }, [publicParkings, radius, priceMax]);
+  }, [publicParkings, showPublicParkings, radius, priceMax]);
   const availableCards = useMemo(
     () => [...availableSpots, ...publicParkingCards],
     [availableSpots, publicParkingCards],

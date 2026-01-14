@@ -35,10 +35,11 @@ const isValidCoord = (lng, lat) =>
 
 const CAR_ICONS = [userCar1, userCar2, userCar3, userCar4];
 const RADIUS_MIN_KM = 0;
-const RADIUS_MAX_KM = 1;
-const DEFAULT_RADIUS_KM = 1;
+const RADIUS_MAX_KM = 2;
+const DEFAULT_RADIUS_KM = 2;
 const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
 const PARKING_FETCH_MIN_DISTANCE_M = 250;
+const PARKING_FETCH_RADIUS_M = 2000;
 const PERSISTENT_MAP_KEY = 'map-search';
 
 const formatEuro = (value) => {
@@ -210,6 +211,7 @@ const MapSearchView = ({
   spots = [],
   userCoords = null,
   currentUserId = null,
+  showPublicParkings = true,
   onBookSpot,
   onSelectionStep,
   setSelectedSpot,
@@ -276,6 +278,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const anyLabel = t('any', { defaultValue: 'Any' });
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
+  const showPublicParkingsRef = useRef(showPublicParkings);
   const maxSpotPrice = useMemo(() => {
     const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
     const max = values.length ? Math.max(...values) : 0;
@@ -625,6 +628,15 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   }, []);
 
   useEffect(() => {
+    showPublicParkingsRef.current = showPublicParkings;
+    if (!showPublicParkings) {
+      setPublicParkings([]);
+      parkingFetchQueuedRef.current = null;
+      lastParkingFetchRef.current = { at: 0, lat: null, lng: null };
+    }
+  }, [showPublicParkings]);
+
+  useEffect(() => {
     if (!actionToast) return undefined;
     const id = window.setTimeout(() => setActionToast(''), 2200);
     return () => window.clearTimeout(id);
@@ -632,6 +644,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const fetchPublicParkings = useCallback(
     (center, { force = false } = {}) => {
+      if (!showPublicParkingsRef.current) return;
       const safeLng = Number(center?.lng);
       const safeLat = Number(center?.lat);
       if (!center || !isValidCoord(safeLng, safeLat)) return;
@@ -651,7 +664,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       const params = new URLSearchParams();
       params.set(
         'where',
-        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', 1000m)`,
+        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', ${PARKING_FETCH_RADIUS_M}m)`,
       );
       params.set(
         'order_by',
@@ -666,7 +679,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           return res.json();
         })
         .then((data) => {
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current || !showPublicParkingsRef.current) return;
           const raw = Array.isArray(data?.results) ? data.results : Array.isArray(data?.records) ? data.records : [];
           const next = [];
           raw.forEach((row, idx) => {
@@ -755,7 +768,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             if (!unique.has(item.id)) unique.set(item.id, item);
           });
           const list = Array.from(unique.values());
-          if (isMountedRef.current) {
+          if (isMountedRef.current && showPublicParkingsRef.current) {
             setPublicParkings(list);
           }
         })
@@ -778,13 +791,19 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   useEffect(() => {
     const safeLng = Number(userCoords?.lng);
     const safeLat = Number(userCoords?.lat);
-    if (!userCoords || !isValidCoord(safeLng, safeLat)) {
+    if (!showPublicParkings || !userCoords || !isValidCoord(safeLng, safeLat)) {
       setPublicParkings([]);
       return undefined;
     }
     fetchPublicParkings({ lng: safeLng, lat: safeLat });
     return undefined;
-  }, [userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
+  }, [showPublicParkings, userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
+
+  useEffect(() => {
+    if (!showPublicParkings || !mapLoaded || !mapRef.current) return;
+    const center = mapRef.current.getCenter();
+    fetchPublicParkings({ lng: center.lng, lat: center.lat }, { force: true });
+  }, [showPublicParkings, mapLoaded, fetchPublicParkings]);
 
   const getSafeCenter = () => {
     if (userCoords && isValidCoord(userCoords.lng, userCoords.lat)) {
@@ -877,7 +896,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   }, [mapLoaded, userCoords?.lng, userCoords?.lat]);
 
   useEffect(() => {
-    if (!mapLoaded || !mapRef.current) return;
+    if (!mapLoaded || !mapRef.current || !showPublicParkings) return;
     const map = mapRef.current;
     let pending = null;
     const scheduleFetch = (force = false) => {
@@ -1009,6 +1028,8 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     if (!mapLoaded || !mapRef.current) return;
     const map = mapRef.current;
     const nextIds = new Set();
+    const maxRadiusMeters = radius == null ? PARKING_FETCH_RADIUS_M : Number(radius) * 1000;
+    const maxPrice = priceMax == null ? null : Number(priceMax);
     const setParkingMarkerInverted = (container, inner, inverted) => {
       if (!container || !inner) return;
       if (inverted) {
@@ -1036,6 +1057,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     };
 
     publicParkings.forEach((parking) => {
+      const distanceMeters = Number(parking?.distanceMeters);
+      if (maxRadiusMeters != null && Number.isFinite(distanceMeters) && distanceMeters > maxRadiusMeters) return;
+      if (maxPrice != null) {
+        const price = Number(parking?.tarif1h);
+        if (Number.isFinite(price) && price > maxPrice) return;
+      }
       const lng = Number(parking?.lng);
       const lat = Number(parking?.lat);
       if (!isValidCoord(lng, lat)) return;
@@ -1173,7 +1200,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         parkingPopupModeRef.current.delete(id);
       }
     }
-  }, [mapLoaded, publicParkings, isDark, t]);
+  }, [mapLoaded, publicParkings, isDark, t, radius, priceMax]);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;

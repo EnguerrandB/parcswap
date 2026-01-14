@@ -25,8 +25,9 @@ import {
   updateEmail,
   sendEmailVerification,
 } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 
-import { db, appId, auth } from './firebase';
+import { db, appId, auth, functions } from './firebase';
 import BottomNav from './components/BottomNav';
 import TapDebugOverlay from './components/TapDebugOverlay';
 import SearchView from './views/SearchView';
@@ -540,9 +541,30 @@ export default function ParkSwapApp() {
   const [renewFeedbackId, setRenewFeedbackId] = useState(0);
   const [renewWave, setRenewWave] = useState(null);
   const [premiumParksDeltaToast, setPremiumParksDeltaToast] = useState(null);
+  const [walletTopupToast, setWalletTopupToast] = useState('');
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const topup = url.searchParams.get('topup');
+    if (topup === 'success') {
+      setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuée'));
+    }
+    if (topup) {
+      url.searchParams.delete('topup');
+      url.searchParams.delete('session_id');
+      window.history.replaceState({}, document.title, url.toString());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!walletTopupToast || !user) return;
+    const id = window.setTimeout(() => setWalletTopupToast(''), 2200);
+    return () => window.clearTimeout(id);
+  }, [walletTopupToast, user]);
 
   const visibleSpots = useMemo(
     () => spots.filter((spot) => getRemainingMs(spot) > 0),
@@ -2214,12 +2236,15 @@ export default function ParkSwapApp() {
     if (!user?.uid) return { ok: false };
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return { ok: false };
-    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    if (value < 1 || value > 100) return { ok: false };
     try {
-      await setDoc(userRef, { wallet: increment(value), updatedAt: serverTimestamp() }, { merge: true });
-      setUser((prev) =>
-        prev ? { ...prev, wallet: (Number(prev.wallet) || 0) + value } : prev,
-      );
+      const callable = httpsCallable(functions, 'createWalletTopupSession');
+      const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
+      const result = await callable({ amount: value, returnUrl });
+      const url = result?.data?.url;
+      if (url && typeof window !== 'undefined') {
+        window.location.assign(url);
+      }
       return { ok: true };
     } catch (err) {
       console.error('Error adding wallet funds:', err);
@@ -2568,6 +2593,13 @@ export default function ParkSwapApp() {
           toCount={premiumParksDeltaToast.to}
           onDone={() => setPremiumParksDeltaToast(null)}
         />
+      ) : null}
+      {walletTopupToast ? (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[140] pointer-events-none">
+          <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">
+            {walletTopupToast}
+          </div>
+        </div>
       ) : null}
 	      {activeTab === 'search' && !searchFiltersOpen && !isHostSelectionFlow && (
 	        <div

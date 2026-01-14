@@ -183,7 +183,7 @@ const ProfileView = ({
     if (!onAddWallet) return;
     const normalized = String(walletInput || '').replace(',', '.').replace(/[^0-9.]/g, '');
     const amount = Number.parseFloat(normalized);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100) return;
     onAddWallet(amount);
     setWalletInput('');
   };

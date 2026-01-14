@@ -1,5 +1,5 @@
 // src/views/ProfileView.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   CreditCard,
   Wallet,
@@ -8,8 +8,11 @@ import {
   Sun,
   Moon,
   Globe,
+  Volume2,
+  ShieldCheck,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { httpsCallable } from 'firebase/functions';
 import Achievements from '../components/Achievements';
 import MyVehicules from '../components/MyVehicules';
 import MyHistory from '../components/MyHistory';
@@ -17,6 +20,8 @@ import Leaderboard from '../components/Leaderboard';
 import LegalContact from '../components/LegalContact';
 import PremiumParks from '../components/PremiumParks';
 import MyProfile from '../components/MyProfile';
+import { functions } from '../firebase';
+import { getVoicePreference, pickPreferredVoice, scoreVoice, setVoicePreference } from '../utils/voice';
 
 const ProfileView = ({
   user,
@@ -43,13 +48,15 @@ const ProfileView = ({
 	    profile: '#ec4899',
 	    vehicle: '#8b5cf6',
 	    stripe: '#0ea5e9',
-	    invite: '#22c55e',
-	    premiumParks: '#f43f5e',
-	    appearance: '#f59e0b',
-	    history: '#6366f1',
-	    legal: '#ef4444',
-	    leaderboard: '#06b6d4',
-	    tierCar: '#f97316',
+    invite: '#22c55e',
+    premiumParks: '#f43f5e',
+    appearance: '#f59e0b',
+    voice: '#3b82f6',
+    history: '#6366f1',
+    legal: '#ef4444',
+    leaderboard: '#06b6d4',
+    kyc: '#14b8a6',
+    tierCar: '#f97316',
     tierLaptop: '#10b981',
     tierPhone: '#22c55e',
     logout: '#f97316',
@@ -91,6 +98,9 @@ const ProfileView = ({
   const [walletInput, setWalletInput] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [closingWalletModal, setClosingWalletModal] = useState(false);
+  const [voiceUri, setVoiceUri] = useState(() => getVoicePreference().voiceUri || '');
+  const [voices, setVoices] = useState([]);
+  const [kycLoading, setKycLoading] = useState(false);
 
   useEffect(() => {
     if (showRankInfo) setClosingRank(false);
@@ -103,6 +113,28 @@ const ProfileView = ({
   useEffect(() => {
     setLanguage(user?.language || 'en');
   }, [user?.language]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return undefined;
+    const synth = window.speechSynthesis;
+    const loadVoices = () => {
+      try {
+        setVoices(synth.getVoices?.() || []);
+      } catch (_) {
+        setVoices([]);
+      }
+    };
+    loadVoices();
+    synth.addEventListener?.('voiceschanged', loadVoices);
+    return () => synth.removeEventListener?.('voiceschanged', loadVoices);
+  }, []);
+  useEffect(() => {
+    if (!voiceUri || !voices.length) return;
+    const exists = voices.some((v) => v.voiceURI === voiceUri);
+    if (!exists) {
+      setVoiceUri('');
+      setVoicePreference({ voiceUri: '', voiceName: '', voiceLang: '' });
+    }
+  }, [voices, voiceUri]);
   const selfLeaderboardEntry = leaderboard.find((u) => u.id === user?.uid);
 	  const userTransactionCount = Number(
 	    selfLeaderboardEntry?.transactions ??
@@ -157,6 +189,118 @@ const ProfileView = ({
   };
   const walletValue = Number(user?.wallet);
   const walletDisplay = Number.isFinite(walletValue) ? walletValue : 0;
+  const kycBadge = useMemo(() => {
+    const statusRaw = String(user?.kycStatus || user?.kyc?.status || 'unverified');
+    const status = statusRaw.toLowerCase();
+    if (status === 'verified' || status === 'approved') {
+      return {
+        label: t('kycVerified', { defaultValue: 'Vérifié' }),
+        className: isDark
+          ? 'text-emerald-200 bg-emerald-500/20 border-emerald-400/30'
+          : 'text-emerald-600 bg-emerald-50 border-emerald-200',
+      };
+    }
+    if (status === 'processing' || status === 'pending') {
+      return {
+        label: t('kycProcessing', { defaultValue: 'En cours' }),
+        className: isDark
+          ? 'text-amber-200 bg-amber-500/20 border-amber-400/30'
+          : 'text-amber-600 bg-amber-50 border-amber-200',
+      };
+    }
+    if (status === 'requires_input' || status === 'requires_action' || status === 'needs_input') {
+      return {
+        label: t('kycNeedsInput', { defaultValue: 'À vérifier' }),
+        className: isDark
+          ? 'text-orange-200 bg-orange-500/20 border-orange-400/30'
+          : 'text-orange-600 bg-orange-50 border-orange-200',
+      };
+    }
+    if (status === 'canceled' || status === 'failed' || status === 'rejected') {
+      return {
+        label: t('kycRejected', { defaultValue: 'Refusé' }),
+        className: isDark
+          ? 'text-rose-200 bg-rose-500/20 border-rose-400/30'
+          : 'text-rose-600 bg-rose-50 border-rose-200',
+      };
+    }
+    return {
+      label: t('kycNotVerified', { defaultValue: 'Non vérifié' }),
+      className: isDark
+        ? 'text-slate-200 bg-slate-700/60 border-slate-500/40'
+        : 'text-gray-600 bg-gray-100 border-gray-200',
+    };
+  }, [user?.kycStatus, user?.kyc?.status, isDark, t]);
+  const kycBadgeLabel = kycLoading ? t('kycOpening', { defaultValue: 'Ouverture...' }) : kycBadge.label;
+  const voiceLang = String(language || i18n.language || 'en').toLowerCase();
+  const voiceOptions = useMemo(() => {
+    const byLang = voices.filter((v) => String(v.lang || '').toLowerCase().startsWith(voiceLang));
+    const list = byLang.length ? byLang : voices.slice();
+    return list.sort((a, b) => scoreVoice(b, voiceLang) - scoreVoice(a, voiceLang));
+  }, [voices, voiceLang]);
+  const autoVoice = useMemo(() => pickPreferredVoice(voiceOptions, voiceLang, {}), [voiceOptions, voiceLang]);
+  const playVoicePreview = (nextUri) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    const previewText = t('voicePreview', { defaultValue: 'Aperçu de la voix GPS' });
+    const trimmed = String(previewText || '').replace(/\s+/g, ' ').trim();
+    if (!trimmed) return;
+    const selected =
+      (nextUri && (voiceOptions.find((v) => v.voiceURI === nextUri) || voices.find((v) => v.voiceURI === nextUri))) ||
+      pickPreferredVoice(voiceOptions, voiceLang, {});
+    try {
+      if (synth.paused) synth.resume();
+      synth.cancel();
+      const utterance = new SpeechSynthesisUtterance(trimmed);
+      if (selected?.lang) utterance.lang = selected.lang;
+      else if (language || i18n.language) utterance.lang = language || i18n.language;
+      if (selected) utterance.voice = selected;
+      utterance.volume = 1;
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      window.setTimeout(() => synth.speak(utterance), 0);
+    } catch (_) {
+      // ignore preview errors
+    }
+  };
+
+  const handleVoiceChange = (value) => {
+    const nextUri = value || '';
+    setVoiceUri(nextUri);
+    if (!nextUri) {
+      setVoicePreference({ voiceUri: '', voiceName: '', voiceLang: '' });
+      playVoicePreview('');
+      return;
+    }
+    const selected =
+      voiceOptions.find((v) => v.voiceURI === nextUri) || voices.find((v) => v.voiceURI === nextUri);
+    setVoicePreference({
+      voiceUri: nextUri,
+      voiceName: selected?.name || '',
+      voiceLang: selected?.lang || '',
+    });
+    playVoicePreview(nextUri);
+  };
+
+  const handleStartKyc = async () => {
+    if (!user?.uid || kycLoading) return;
+    setKycLoading(true);
+    try {
+      const callable = httpsCallable(functions, 'createKycSession');
+      const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
+      const result = await callable({ returnUrl });
+      const url = result?.data?.url;
+      if (url && typeof window !== 'undefined') {
+        window.location.assign(url);
+      } else {
+        console.error('[KYC] Missing redirect URL from Stripe session.');
+      }
+    } catch (err) {
+      console.error('[KYC] Unable to start verification:', err);
+    } finally {
+      setKycLoading(false);
+    }
+  };
 
   return (
     <div
@@ -212,19 +356,40 @@ const ProfileView = ({
             highlightVehiclesRequestId={highlightVehiclesRequestId}
           />
 
-	          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
-	            <div className="flex items-center space-x-3">
-	              <div className="bg-white p-2 rounded-lg border border-gray-100">
-	                <CreditCard size={20} style={iconStyle('stripe')} />
-	              </div>
+          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <CreditCard size={20} style={iconStyle('stripe')} />
+              </div>
 	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
 	                {t('stripeConnection', 'Stripe Connection')}
 	              </span>
 	            </div>
-	            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
-	              {t('stripeActive', 'Active')}
-	            </span>
-	          </div>
+            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
+              {t('stripeActive', 'Active')}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleStartKyc}
+            disabled={kycLoading}
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
+              isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
+            } ${kycLoading ? 'opacity-70 cursor-wait' : ''}`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <ShieldCheck size={20} style={iconStyle('kyc')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('kycLabel', { defaultValue: 'KYC' })}
+              </span>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${kycBadge.className}`}>
+              {kycBadgeLabel}
+            </span>
+          </button>
 
           <PremiumParks
             user={user}
@@ -353,11 +518,11 @@ const ProfileView = ({
             </span>
           </button>
 
-	          <div
-	            className={`w-full p-4 flex items-center justify-between text-left ${
-	              isDark ? 'text-slate-100' : 'text-gray-900'
-	            }`}
-	          >
+          <div
+            className={`w-full p-4 flex items-center justify-between text-left ${
+              isDark ? 'text-slate-100' : 'text-gray-900'
+            }`}
+          >
 	            <div className="flex items-center space-x-3">
 	              <div className="bg-white p-2 rounded-lg border border-gray-100">
 	                {getLanguageFlag(language) ? (
@@ -379,6 +544,40 @@ const ProfileView = ({
             >
               <option value="en">English</option>
               <option value="fr">Français</option>
+            </select>
+          </div>
+
+          <div
+            className={`w-full p-4 flex items-center justify-between text-left ${
+              isDark ? 'text-slate-100' : 'text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <Volume2 size={20} style={iconStyle('voice')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('gpsVoice', 'GPS voice')}
+              </span>
+            </div>
+            <select
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+                isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
+              }`}
+              value={voiceUri}
+              onChange={(e) => handleVoiceChange(e.target.value)}
+              disabled={!voices.length}
+            >
+              <option value="">
+                {autoVoice
+                  ? t('voiceAuto', { defaultValue: `Auto (${autoVoice.name})` })
+                  : t('voiceAutoShort', { defaultValue: 'Auto' })}
+              </option>
+              {voiceOptions.map((voice) => (
+                <option key={voice.voiceURI} value={voice.voiceURI}>
+                  {voice.name} {voice.lang ? `(${voice.lang})` : ''}
+                </option>
+              ))}
             </select>
           </div>
 

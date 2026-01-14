@@ -1,6 +1,7 @@
 // src/firebase.js
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import {
   getFirestore,
   initializeFirestore,
@@ -20,6 +21,7 @@ const firebaseConfig = {
 // Robust initialization to prevent hot-reload duplicate app errors
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
+const functions = getFunctions(app);
 
 // Robust Firestore initialization
 let db;
@@ -50,6 +52,9 @@ if (useEmulators) {
     // Firestore Emulator (par défaut port 8080)
     connectFirestoreEmulator(db, "localhost", 8080);
 
+    // Functions Emulator (par défaut port 5001)
+    connectFunctionsEmulator(functions, "localhost", 5001);
+
     // Optionnel: petit log pour debug
     // console.log('[Firebase] Connected to local emulators (auth + firestore)');
   } catch (e) {
@@ -59,4 +64,4 @@ if (useEmulators) {
 
 const appId = "parkswap-36bb2";
 
-export { app, auth, db, appId };
+export { app, auth, db, appId, functions };

@@ -838,6 +838,7 @@ export default function ParkSwapApp() {
 		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
 		      let language = i18n.language || 'en';
           let wallet = 0;
+          let kycStatus = 'unverified';
 		      try {
 		        const snap = await getDoc(userRef);
 		        if (snap.exists()) {
@@ -845,6 +846,8 @@ export default function ParkSwapApp() {
 		          if (data?.language) language = data.language;
               const walletValue = Number(data?.wallet);
               if (Number.isFinite(walletValue)) wallet = walletValue;
+              if (data?.kycStatus) kycStatus = data.kycStatus;
+              else if (data?.kyc?.status) kycStatus = data.kyc.status;
 		        }
 		      } catch (err) {
 		        console.error('Error loading user language:', err);
@@ -858,6 +861,7 @@ export default function ParkSwapApp() {
 		        premiumParks: PREMIUM_PARKS_MAX,
             wallet,
 		        language: language || 'en',
+            kycStatus,
 		      };
 		    };
 
@@ -906,6 +910,7 @@ export default function ParkSwapApp() {
       const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
       let language = i18n.language || 'en';
       let wallet = 0;
+      let kycStatus = 'unverified';
       try {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
@@ -913,6 +918,8 @@ export default function ParkSwapApp() {
           if (data?.language) language = data.language;
           const walletValue = Number(data?.wallet);
           if (Number.isFinite(walletValue)) wallet = walletValue;
+          if (data?.kycStatus) kycStatus = data.kycStatus;
+          else if (data?.kyc?.status) kycStatus = data.kyc.status;
         }
       } catch (err) {
         console.error('Error loading user language:', err);
@@ -926,6 +933,7 @@ export default function ParkSwapApp() {
         premiumParks: PREMIUM_PARKS_MAX,
         wallet,
         language: language || 'en',
+        kycStatus,
       };
       setUser((prev) => prev || nextUser);
       if (nextUser.language) i18n.changeLanguage(nextUser.language);

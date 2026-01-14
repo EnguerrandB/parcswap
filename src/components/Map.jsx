@@ -18,6 +18,7 @@ import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
+import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
 
 // --- Helpers ---
 const PERSISTENT_MAP_KEY = 'main-map';
@@ -234,10 +235,12 @@ const MapInner = ({
   const [userLoc, setUserLoc] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [showPlateNotice, setShowPlateNotice] = useState(false);
+  const [showArrivalPopup, setShowArrivalPopup] = useState(false);
   const [plateConfirmInput, setPlateConfirmInput] = useState('');
   const [plateConfirmError, setPlateConfirmError] = useState(null);
   const [plateConfirmSubmitting, setPlateConfirmSubmitting] = useState(false);
   const plateNoticeSeenRef = useRef(new Set());
+  const arrivalSeenRef = useRef(null);
   const [acceptingNav, setAcceptingNav] = useState(false);
   const [actionToast, setActionToast] = useState('');
   const [premiumParksToast, setPremiumParksToast] = useState(null);
@@ -289,6 +292,8 @@ const MapInner = ({
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
   const speechStateRef = useRef({ text: '', index: -1, at: 0 });
+  const speechVoicesRef = useRef([]);
+  const speechPrimedRef = useRef(false);
   const OTHER_VISIBILITY_MIN_ZOOM = 13;
   const OTHER_USERS_MAX_DISTANCE_KM = 5;
   const OTHER_USERS_MAX_VISIBLE = 25;
@@ -515,6 +520,8 @@ useEffect(() => {
     setShowRoute(false);
     setConfirming(false);
     setShowSteps(false);
+    setShowArrivalPopup(false);
+    arrivalSeenRef.current = null;
     setNavReady(false);
     setNavGeometry([]);
     setNavSteps([]);
@@ -565,7 +572,14 @@ useEffect(() => {
     return getDistanceFromLatLonInKm(origin.lat, origin.lng, dest.lat, dest.lng);
   };
 
-  const distanceKm = useMemo(() => calculateDistanceKm(userLoc, spot), [userLoc, spot]);
+  const distanceKm = useMemo(
+    () => calculateDistanceKm(userLoc || userCoords, spot),
+    [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng, spot?.lat, spot?.lng],
+  );
+  const distanceMeters = useMemo(
+    () => (distanceKm == null ? null : distanceKm * 1000),
+    [distanceKm],
+  );
   const etaMinutes = useMemo(() => {
     if (distanceKm == null) return null;
     return Math.round((distanceKm / 30) * 60);
@@ -578,11 +592,20 @@ useEffect(() => {
   };
 
   const arrivalTime = useMemo(() => {
-    if (!etaMinutes) return null;
+    if (etaMinutes == null) return null;
     const now = new Date();
     now.setMinutes(now.getMinutes() + etaMinutes);
     return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }, [etaMinutes]);
+
+  useEffect(() => {
+    if (!showRoute || !showSteps) return;
+    if (distanceMeters == null) return;
+    if (distanceMeters > 20) return;
+    if (arrivalSeenRef.current === spot?.id) return;
+    arrivalSeenRef.current = spot?.id || 'arrived';
+    setShowArrivalPopup(true);
+  }, [showRoute, showSteps, distanceMeters, spot?.id]);
 
   const locationName = spot?.placeName || spot?.name || spot?.parkingName || null;
   const locationAddress = spot?.address || '';
@@ -596,8 +619,16 @@ useEffect(() => {
     return [`${t('stepHead', 'Head toward')} ${destinationLabel}`, `${t('stepArrive', 'Arrive at destination')}`];
   }, [destinationLabel, t]);
   
-  const stepsToShow = navReady && navSteps.length > 0 ? navSteps : 
-                      providedSteps && providedSteps.length > 0 ? providedSteps : fallbackSteps;
+  const stepsToShow = navReady && navSteps.length > 0
+    ? navSteps
+    : providedSteps && providedSteps.length > 0
+      ? providedSteps
+      : fallbackSteps;
+  const currentInstruction = useMemo(
+    () => stepsToShow?.[navIndex] || t('stepFollow', 'Follow route'),
+    [stepsToShow, navIndex, t],
+  );
+  const nextInstruction = stepsToShow?.[navIndex + 1] || null;
 
   const navLanguage = i18nInstance?.language || 'en';
   const canSpeakNav = typeof window !== 'undefined' && !!window.speechSynthesis;
@@ -616,6 +647,43 @@ useEffect(() => {
     ],
     [],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return undefined;
+    const synth = window.speechSynthesis;
+    const loadVoices = () => {
+      try {
+        speechVoicesRef.current = synth.getVoices?.() || [];
+      } catch (_) {
+        speechVoicesRef.current = [];
+      }
+    };
+    loadVoices();
+    synth.addEventListener?.('voiceschanged', loadVoices);
+    return () => {
+      synth.removeEventListener?.('voiceschanged', loadVoices);
+    };
+  }, []);
+
+  const primeSpeechSynthesis = useCallback(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    try {
+      if (synth.paused) synth.resume();
+      const voices = speechVoicesRef.current.length ? speechVoicesRef.current : synth.getVoices?.() || [];
+      const pref = getVoicePreference();
+      const voice = pickPreferredVoice(voices, navLanguage, pref);
+      const utterance = new SpeechSynthesisUtterance(' ');
+      if (navLanguage) utterance.lang = navLanguage;
+      utterance.volume = 0;
+      if (voice) utterance.voice = voice;
+      synth.speak(utterance);
+      window.setTimeout(() => synth.cancel(), 40);
+    } catch (_) {
+      // ignore
+    }
+    speechPrimedRef.current = true;
+  }, [navLanguage]);
 
   const updateRouteProgress = useCallback(
     (lng, lat) => {
@@ -636,27 +704,41 @@ useEffect(() => {
     (instruction, { force = false } = {}) => {
       if (typeof window === 'undefined' || !window.speechSynthesis) return;
       if (!navVoiceEnabled) return;
-      const text = String(instruction ?? '').replace(/\s+/g, ' ').trim();
+      if (force) primeSpeechSynthesis();
+      const text = String(instruction ?? '')
+        .replace(/[\u{1F000}-\u{1FAFF}]/gu, '')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (!text) return;
       const last = speechStateRef.current;
       if (!force && last.text === text && last.index === navIndex) return;
-      speechStateRef.current = { text, index: navIndex, at: Date.now() };
       try {
-        window.speechSynthesis.cancel();
+        const synth = window.speechSynthesis;
+        if (synth.paused) synth.resume();
         const utterance = new SpeechSynthesisUtterance(text);
         if (navLanguage) utterance.lang = navLanguage;
-        const voices = window.speechSynthesis.getVoices?.() || [];
-        const targetLang = String(navLanguage || '').toLowerCase();
-        const voice =
-          voices.find((v) => v.lang && v.lang.toLowerCase() === targetLang) ||
-          voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(targetLang));
+        const voices = speechVoicesRef.current.length
+          ? speechVoicesRef.current
+          : window.speechSynthesis.getVoices?.() || [];
+        const pref = getVoicePreference();
+        const voice = pickPreferredVoice(voices, navLanguage, pref);
         if (voice) utterance.voice = voice;
-        window.speechSynthesis.speak(utterance);
+        utterance.volume = 1;
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        speechStateRef.current = { text, index: navIndex, at: Date.now() };
+        const speak = () => synth.speak(utterance);
+        if (synth.speaking || synth.pending) {
+          synth.cancel();
+          window.setTimeout(speak, 0);
+        } else {
+          speak();
+        }
       } catch (err) {
         console.warn('[Map] SpeechSynthesis failed:', err);
       }
     },
-    [navLanguage, navVoiceEnabled, navIndex],
+    [navLanguage, navVoiceEnabled, navIndex, primeSpeechSynthesis],
   );
 
   useEffect(() => {
@@ -677,8 +759,8 @@ useEffect(() => {
       speechStateRef.current = { text: '', index: -1, at: 0 };
       return;
     }
-    speakNavInstruction(stepsToShow?.[navIndex]);
-  }, [showRoute, showSteps, navIndex, stepsToShow, speakNavInstruction]);
+    speakNavInstruction(currentInstruction);
+  }, [showRoute, showSteps, navIndex, currentInstruction, navVoiceEnabled, speakNavInstruction]);
 
   const ensureUserProfile = (uid) => {
     if (!uid) return;
@@ -747,6 +829,9 @@ useEffect(() => {
   const handleAcceptNav = async () => {
     if (!spot) return;
     if (acceptingNav) return;
+    if (navVoiceEnabled) {
+      primeSpeechSynthesis();
+    }
     setAcceptingNav(true);
 
     if (isPublicParking) {
@@ -1929,7 +2014,10 @@ useEffect(() => {
                 <div className="flex items-center gap-4 px-4 py-3">
                   <button
                     type="button"
-                    onClick={() => speakNavInstruction(stepsToShow?.[navIndex], { force: true })}
+                    onClick={() => {
+                      primeSpeechSynthesis();
+                      speakNavInstruction(currentInstruction, { force: true });
+                    }}
                     className="shrink-0 bg-orange-50 border border-orange-100 p-2.5 rounded-2xl shadow-inner text-orange-500 transition active:scale-95"
                     aria-label={t('repeatInstruction', { defaultValue: 'Repeat instruction' })}
                   >
@@ -1937,21 +2025,27 @@ useEffect(() => {
                   </button>
                   <div className="flex-1 min-w-0">
                     <p className="text-lg font-semibold leading-tight tracking-tight drop-shadow-sm">
-                      {stepsToShow[navIndex] || t('stepFollow', 'Follow route')}
+                      {currentInstruction}
                     </p>
-                    {stepsToShow[navIndex + 1] && (
+                    {nextInstruction && (
                       <p
                         className="text-sm mt-1 truncate"
                         style={{ color: instructionSubTextColor }}
                       >
-                        {t('then', 'Then')}: {stepsToShow[navIndex + 1]}
+                        {t('then', 'Then')}: {nextInstruction}
                       </p>
                     )}
                   </div>
                   {canSpeakNav && (
                     <button
                       type="button"
-                      onClick={() => setNavVoiceEnabled((prev) => !prev)}
+                      onClick={() =>
+                        setNavVoiceEnabled((prev) => {
+                          const next = !prev;
+                          if (next) primeSpeechSynthesis();
+                          return next;
+                        })
+                      }
                       aria-pressed={navVoiceEnabled}
                       aria-label={
                         navVoiceEnabled
@@ -1988,7 +2082,9 @@ useEffect(() => {
               <div className="bg-white rounded-[2rem] shadow-[0_18px_40px_-12px_rgba(0,0,0,0.35)] p-4 flex items-center justify-between pointer-events-auto border border-orange-100/70">
                 <div>
                   <div className="flex items-baseline gap-3">
-                    <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">{etaMinutes || '--'} min</span>
+                    <span className="text-green-600 font-extrabold text-3xl drop-shadow-sm">
+                      {etaMinutes == null ? '--' : etaMinutes} min
+                    </span>
                     <span className="text-gray-700 font-semibold bg-gray-100 px-3 py-1 rounded-xl shadow-sm border border-white/60">
                       {formatDistanceText(distanceKm)}
                     </span>
@@ -2051,6 +2147,86 @@ useEffect(() => {
             >
               <XIcon size={20} strokeWidth={2.5} />
             </button>
+          </div>
+        )}
+
+        {showArrivalPopup && (
+          <div className="absolute inset-0 z-[140] flex items-center justify-center px-6">
+            <div
+              className={`absolute inset-0 backdrop-blur-sm ${
+                isDark ? 'bg-black/70' : 'bg-black/40'
+              }`}
+              onClick={() => setShowArrivalPopup(false)}
+            />
+            <div
+              className="
+                relative w-full max-w-sm
+                rounded-[28px] border
+                shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+                p-6 text-center
+              "
+              style={
+                isDark
+                  ? {
+                      WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                      backgroundColor: 'rgba(15,23,42,0.82)',
+                      borderColor: 'rgba(255,255,255,0.12)',
+                    }
+                  : {
+                      WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                      backgroundColor: 'rgba(255,255,255,0.88)',
+                      borderColor: 'rgba(255,255,255,0.7)',
+                    }
+              }
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('arrivedTitle', { defaultValue: "Vous êtes arrivé" })}
+            >
+              <p
+                className={`text-xs uppercase tracking-[0.18em] font-semibold mb-2 ${
+                  isDark ? 'text-orange-300' : 'text-orange-600'
+                }`}
+              >
+                {t('arrivedBadge', { defaultValue: 'Arrivée' })}
+              </p>
+              <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {t('arrivedTitle', { defaultValue: "Vous êtes arrivé" })}
+              </h3>
+              <p className={`mt-3 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
+                {t('arrivedMessage', { defaultValue: 'Destination atteinte.' })}
+              </p>
+              {isPublicParking ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowArrivalPopup(false);
+                    onSelectionStep?.('cleared', null);
+                    onClose?.();
+                  }}
+                  className={`
+                    mt-5 w-full h-12 rounded-2xl
+                    text-white font-extrabold shadow-[0_12px_30px_rgba(16,185,129,0.35)]
+                    hover:brightness-110 transition active:scale-[0.99]
+                    ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'}
+                  `}
+                >
+                  {t('arrived', { defaultValue: 'Arrivé' })}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowArrivalPopup(false)}
+                  className={`
+                    mt-5 w-full h-12 rounded-2xl
+                    text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
+                    hover:brightness-110 transition active:scale-[0.99]
+                    ${isDark ? 'bg-gradient-to-r from-orange-400 to-amber-400' : 'bg-gradient-to-r from-orange-500 to-amber-500'}
+                  `}
+                >
+                  OK
+                </button>
+              )}
+            </div>
           </div>
         )}
 

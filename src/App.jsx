@@ -37,7 +37,7 @@ import i18n from './i18n/i18n';
 import Map from './components/Map';
 import MapSearchView from './components/MapSearchView';
 import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
-import { List, MapPin, Settings } from 'lucide-react';
+import { MapPin, Settings } from 'lucide-react';
 import { newId } from './utils/ids';
 
 const hashSeed = (str) => {
@@ -536,6 +536,7 @@ export default function ParkSwapApp() {
   const searchMapPrefRef = useRef('list');
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
+  const [topMenuOpen, setTopMenuOpen] = useState(false);
   const [renewFeedbackId, setRenewFeedbackId] = useState(0);
   const [renewWave, setRenewWave] = useState(null);
   const [premiumParksDeltaToast, setPremiumParksDeltaToast] = useState(null);
@@ -2326,6 +2327,12 @@ export default function ParkSwapApp() {
   }, [showAccountSheet]);
 
   useEffect(() => {
+    if (!topMenuOpen) return undefined;
+    const timer = window.setTimeout(() => setTopMenuOpen(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [topMenuOpen]);
+
+  useEffect(() => {
     if (!cancelledNotice) {
       if (cancelledNoticeTimerRef.current) {
         window.clearTimeout(cancelledNoticeTimerRef.current);
@@ -2559,20 +2566,22 @@ export default function ParkSwapApp() {
 	            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
 	          }`}
 	        >
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col">
             <button
               type="button"
-              onClick={handleMenuClick}
+              onClick={() => setTopMenuOpen((prev) => !prev)}
               className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
                 theme === 'dark'
                   ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
                   : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
               }`}
               style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
-              aria-label={i18n.t('settings', 'Settings')}
-              title={i18n.t('settings', 'Settings')}
+              aria-label={i18n.t('menu', 'Menu')}
+              title={i18n.t('menu', 'Menu')}
+              aria-expanded={topMenuOpen}
+              aria-controls="top-left-actions"
             >
-              {menuNudgeActive ? (
+              {menuNudgeActive && !topMenuOpen ? (
                 <>
                   <span
                     className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
@@ -2584,48 +2593,110 @@ export default function ParkSwapApp() {
                   />
                 </>
               ) : null}
-              <Settings size={22} strokeWidth={2.5} />
+              <span className="flex flex-col items-center gap-[5px]">
+                <span className="block h-[2px] w-5 rounded-full bg-current" />
+                <span className="block h-[2px] w-5 rounded-full bg-current" />
+                <span className="block h-[2px] w-5 rounded-full bg-current" />
+              </span>
             </button>
-            <button
-              type="button"
-              onClick={toggleSearchMap}
-              className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
-                theme === 'dark'
-                  ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
-                  : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+            <div
+              id="top-left-actions"
+              className={`flex flex-col gap-3 overflow-hidden transition-all duration-300 ${
+                topMenuOpen ? 'max-h-64 opacity-100 pt-3' : 'max-h-0 opacity-0 pointer-events-none pt-0'
               }`}
-              style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
-              aria-label={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
-              title={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
             >
-              {searchMapOpen ? <List size={22} strokeWidth={2.5} /> : <MapPin size={22} strokeWidth={2.5} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowPublicParkings((prev) => !prev)}
-              className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
-                theme === 'dark'
-                  ? showPublicParkings
-                    ? 'bg-slate-900/80 text-blue-300 border-blue-400/40 hover:bg-slate-800'
-                    : 'bg-slate-900/60 text-slate-500 border-white/10 hover:bg-slate-800/70'
-                  : showPublicParkings
-                    ? 'bg-white/70 text-blue-600 border-blue-200/70 hover:bg-white'
-                    : 'bg-white/60 text-gray-400 border-white/60 hover:bg-white'
-              }`}
-              style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
-              aria-label={
-                showPublicParkings
-                  ? i18n.t('hideParkings', 'Masquer parkings')
-                  : i18n.t('showParkings', 'Afficher parkings')
-              }
-              title={
-                showPublicParkings
-                  ? i18n.t('hideParkings', 'Masquer parkings')
-                  : i18n.t('showParkings', 'Afficher parkings')
-              }
-            >
-              <span className="text-lg font-extrabold">P</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleMenuClick();
+                  setTopMenuOpen(false);
+                }}
+                className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                  theme === 'dark'
+                    ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+                    : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+                }`}
+                style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+                aria-label={i18n.t('settings', 'Settings')}
+                title={i18n.t('settings', 'Settings')}
+              >
+                {menuNudgeActive && topMenuOpen ? (
+                  <>
+                    <span
+                      className="pointer-events-none absolute -inset-1 rounded-[18px] bg-orange-400/25 blur-md animate-pulse"
+                      aria-hidden="true"
+                    />
+                    <span
+                      className="pointer-events-none absolute -inset-1 rounded-[18px] border border-orange-300/70"
+                      aria-hidden="true"
+                    />
+                  </>
+                ) : null}
+                <Settings size={22} strokeWidth={2.5} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  toggleSearchMap();
+                  setTopMenuOpen(false);
+                }}
+                className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                  theme === 'dark'
+                    ? 'bg-slate-900/80 text-slate-100 border-white/10 hover:bg-slate-800'
+                    : 'bg-white/70 text-slate-900 border-white/60 hover:bg-white'
+                }`}
+                style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+                aria-label={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
+                title={searchMapOpen ? i18n.t('listView', 'Liste') : i18n.t('openMap', 'Carte')}
+              >
+                {searchMapOpen ? (
+                  <span className="relative w-[22px] h-[26px]">
+                    <span className="absolute left-[2px] top-[4px] w-[14px] h-[20px] rounded-[7px] border border-current/80 bg-current/20" />
+                    <span className="absolute left-[6px] top-[1px] w-[14px] h-[20px] rounded-[7px] border border-current/65 bg-current/15" />
+                    <span className="absolute left-[8px] top-[-2px] w-[14px] h-[20px] rounded-[7px] border border-current/55 bg-current/10" />
+                  </span>
+                ) : (
+                  <MapPin size={22} strokeWidth={2.5} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPublicParkings((prev) => !prev);
+                  setTopMenuOpen(false);
+                }}
+                className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                  theme === 'dark'
+                    ? showPublicParkings
+                      ? 'bg-slate-900/80 text-blue-300 border-blue-400/40 hover:bg-slate-800'
+                      : 'bg-slate-900/60 text-slate-500 border-white/10 hover:bg-slate-800/70'
+                    : showPublicParkings
+                      ? 'bg-white/70 text-blue-600 border-blue-200/70 hover:bg-white'
+                      : 'bg-white/60 text-gray-400 border-white/60 hover:bg-white'
+                }`}
+                style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+                aria-label={
+                  showPublicParkings
+                    ? i18n.t('hideParkings', 'Masquer parkings')
+                    : i18n.t('showParkings', 'Afficher parkings')
+                }
+                title={
+                  showPublicParkings
+                    ? i18n.t('hideParkings', 'Masquer parkings')
+                    : i18n.t('showParkings', 'Afficher parkings')
+                }
+              >
+                <span className="text-lg font-extrabold">P</span>
+                {!showPublicParkings ? (
+                  <span
+                    className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden"
+                    aria-hidden="true"
+                  >
+                    <span className="absolute left-1/2 top-1/2 h-[2px] w-[160%] -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full bg-current opacity-80" />
+                  </span>
+                ) : null}
+              </button>
+            </div>
           </div>
         </div>
       )}

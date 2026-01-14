@@ -1509,7 +1509,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     <span
       className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
     >
-      {priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`}
+      {priceMax == null ? anyLabel : `${formatEuro(priceMax)} €`}
     </span>
   </button>
 </div>

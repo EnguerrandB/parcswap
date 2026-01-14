@@ -1,9 +1,9 @@
 // src/components/Map.jsx
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Check, X as XIcon } from 'lucide-react';
+import { Check, X as XIcon, Volume2, VolumeX } from 'lucide-react';
 import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import i18n from '../i18n/i18n';
@@ -287,6 +287,7 @@ const MapInner = ({
   const otherUserProfilesRef = useRef(new globalThis.Map());
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
+  const speechStateRef = useRef({ text: '', index: -1, at: 0 });
   const OTHER_VISIBILITY_MIN_ZOOM = 13;
   const OTHER_USERS_MAX_DISTANCE_KM = 5;
   const OTHER_USERS_MAX_VISIBLE = 25;
@@ -598,6 +599,8 @@ useEffect(() => {
                       providedSteps && providedSteps.length > 0 ? providedSteps : fallbackSteps;
 
   const navLanguage = i18nInstance?.language || 'en';
+  const canSpeakNav = typeof window !== 'undefined' && !!window.speechSynthesis;
+  const [navVoiceEnabled, setNavVoiceEnabled] = useState(true);
   const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
   const fallbackOtherPositions = useMemo(
     () => [
@@ -612,6 +615,69 @@ useEffect(() => {
     ],
     [],
   );
+
+  const updateRouteProgress = useCallback(
+    (lng, lat) => {
+      if (!Array.isArray(navGeometry) || navGeometry.length === 0) return;
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+      const stepCount = Array.isArray(stepsToShow) ? stepsToShow.length : 0;
+      if (stepCount === 0) return;
+      const { index: closestIdx } = findClosestPointIndex(navGeometry, lng, lat);
+      const ratio = navGeometry.length > 1 ? closestIdx / (navGeometry.length - 1) : 0;
+      const nextIndex = Math.min(stepCount - 1, Math.max(0, Math.floor(ratio * stepCount)));
+      if (!Number.isFinite(nextIndex)) return;
+      setNavIndex((prev) => (nextIndex > prev ? nextIndex : prev));
+    },
+    [navGeometry, stepsToShow],
+  );
+
+  const speakNavInstruction = useCallback(
+    (instruction, { force = false } = {}) => {
+      if (typeof window === 'undefined' || !window.speechSynthesis) return;
+      if (!navVoiceEnabled) return;
+      const text = String(instruction ?? '').replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      const last = speechStateRef.current;
+      if (!force && last.text === text && last.index === navIndex) return;
+      speechStateRef.current = { text, index: navIndex, at: Date.now() };
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        if (navLanguage) utterance.lang = navLanguage;
+        const voices = window.speechSynthesis.getVoices?.() || [];
+        const targetLang = String(navLanguage || '').toLowerCase();
+        const voice =
+          voices.find((v) => v.lang && v.lang.toLowerCase() === targetLang) ||
+          voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(targetLang));
+        if (voice) utterance.voice = voice;
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn('[Map] SpeechSynthesis failed:', err);
+      }
+    },
+    [navLanguage, navVoiceEnabled, navIndex],
+  );
+
+  useEffect(() => {
+    if (navVoiceEnabled) {
+      speechStateRef.current = { text: '', index: -1, at: 0 };
+      return;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  }, [navVoiceEnabled]);
+
+  useEffect(() => {
+    if (!showRoute || !showSteps) {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      speechStateRef.current = { text: '', index: -1, at: 0 };
+      return;
+    }
+    speakNavInstruction(stepsToShow?.[navIndex]);
+  }, [showRoute, showSteps, navIndex, stepsToShow, speakNavInstruction]);
 
   const ensureUserProfile = (uid) => {
     if (!uid) return;
@@ -1859,9 +1925,14 @@ useEffect(() => {
                 style={{ ...instructionCardStyle, color: instructionTextColor }}
               >
                 <div className="flex items-center gap-4 px-4 py-3">
-                  <div className="shrink-0 bg-orange-50 border border-orange-100 p-2.5 rounded-2xl shadow-inner text-orange-500">
+                  <button
+                    type="button"
+                    onClick={() => speakNavInstruction(stepsToShow?.[navIndex], { force: true })}
+                    className="shrink-0 bg-orange-50 border border-orange-100 p-2.5 rounded-2xl shadow-inner text-orange-500 transition active:scale-95"
+                    aria-label={t('repeatInstruction', { defaultValue: 'Repeat instruction' })}
+                  >
                     {getManeuverIcon(stepsToShow[navIndex])}
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0">
                     <p className="text-lg font-semibold leading-tight tracking-tight drop-shadow-sm">
                       {stepsToShow[navIndex] || t('stepFollow', 'Follow route')}
@@ -1875,6 +1946,25 @@ useEffect(() => {
                       </p>
                     )}
                   </div>
+                  {canSpeakNav && (
+                    <button
+                      type="button"
+                      onClick={() => setNavVoiceEnabled((prev) => !prev)}
+                      aria-pressed={navVoiceEnabled}
+                      aria-label={
+                        navVoiceEnabled
+                          ? t('voiceOn', { defaultValue: 'Voice on' })
+                          : t('voiceOff', { defaultValue: 'Voice off' })
+                      }
+                      className={`shrink-0 w-11 h-11 rounded-2xl border flex items-center justify-center transition ${
+                        navVoiceEnabled
+                          ? 'bg-orange-50 border-orange-200 text-orange-500'
+                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      {navVoiceEnabled ? <Volume2 size={18} strokeWidth={2.4} /> : <VolumeX size={18} strokeWidth={2.4} />}
+                    </button>
+                  )}
                 </div>
                 <div className="px-4 pb-3">
                   <div className="h-2 rounded-full bg-orange-100/70 overflow-hidden">

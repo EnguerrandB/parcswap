@@ -66,7 +66,7 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
   const remainingLabel = formatDuration(remainingMs) || '--:--';
   const priceLabel = formatSpotPrice(spot?.price);
 
-  const bg = isDark ? 'rgba(12,16,24,0.78)' : 'rgba(255,255,255,0.75)';
+  const bg = isDark ? 'rgba(12,16,24,0.88)' : 'rgba(255,255,255,0.9)';
   const shadow = isDark
     ? '0 18px 50px rgba(0,0,0,0.55)'
     : '0 22px 60px rgba(15,23,42,0.18)';
@@ -184,7 +184,7 @@ export const buildSpotActionPopupHTML = (
     ">
       <div data-spot-popup-root="action" style="
         border-radius: 24px;
-        background: linear-gradient(145deg, ${accentSoft} 0%, rgba(0,0,0,0) 58%), ${isDark ? 'rgba(12,16,24,0.78)' : 'rgba(255,255,255,0.75)'};
+        background: linear-gradient(145deg, ${accentSoft} 0%, rgba(0,0,0,0) 58%), ${isDark ? 'rgba(12,16,24,0.88)' : 'rgba(255,255,255,0.9)'};
         border: 1px solid ${accentBorder};
         box-shadow: 0 18px 50px rgba(0,0,0,0.4), 0 0 0 1px ${accentBorder}, 0 14px 34px -22px ${accentGlow};
         backdrop-filter: blur(22px) saturate(170%);

@@ -9,6 +9,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import PremiumParksDeltaToast from '../components/PremiumParksDeltaToast';
 import BottomNav from '../components/BottomNav';
+import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
@@ -19,6 +20,7 @@ const ROUTE_OUTLINE_ID = 'parkswap-route-outline';
 const ROUTE_DOTS_SOURCE_ID = 'parkswap-route-dots';
 const ROUTE_DOTS_LAYER_ID = 'parkswap-route-dots-layer';
 const ROUTE_DOTS_GLOW_ID = 'parkswap-route-dots-glow';
+const PERSISTENT_MAP_KEY = 'got-confirmed-map';
 
 const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
   const points = [];
@@ -427,19 +429,29 @@ const GotConfirmedView = ({
         return undefined;
       }
 
+      const container = attachPersistentMapContainer(PERSISTENT_MAP_KEY, miniMapEl);
+      if (!container) return undefined;
+
       const initialCenter =
         hasSpotCoords && Number.isFinite(spotLng) && Number.isFinite(spotLat) ? [spotLng, spotLat] : DEFAULT_CENTER;
 
-      const map = new mapboxgl.Map({
-        container: miniMapEl,
-        style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
-        center: initialCenter,
-        zoom: 15,
-        pitch: 0,
-        bearing: 0,
-        interactive: true,
-        attributionControl: false,
-      });
+      const cachedMap = getPersistentMap(PERSISTENT_MAP_KEY);
+      const map = cachedMap
+        ? cachedMap
+        : new mapboxgl.Map({
+            container,
+            style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
+            center: initialCenter,
+            zoom: 15,
+            pitch: 0,
+            bearing: 0,
+            interactive: true,
+            attributionControl: false,
+          });
+
+      if (!cachedMap) {
+        setPersistentMap(PERSISTENT_MAP_KEY, map);
+      }
 
       miniMapInstanceRef.current = map;
 
@@ -452,7 +464,11 @@ const GotConfirmedView = ({
         markReady(map);
       };
 
-      map.on('load', handleLoad);
+      if (map.loaded()) {
+        handleLoad();
+      } else {
+        map.on('load', handleLoad);
+      }
       map.on('style.load', handleStyleLoad);
       map.on('error', handleError);
       const handleMoveStart = (e) => {
@@ -499,7 +515,6 @@ const GotConfirmedView = ({
           spotMarkerRef.current = null;
         }
 
-        map.remove();
         miniMapInstanceRef.current = null;
         setMapReady(false);
       };

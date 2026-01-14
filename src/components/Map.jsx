@@ -16,8 +16,10 @@ import userCar3 from '../assets/user-car-3.png';
 import userCar4 from '../assets/user-car-4.png';
 import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
+import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 
 // --- Helpers ---
+const PERSISTENT_MAP_KEY = 'main-map';
 
 const decodePolyline = (str, precision = 6) => {
   let index = 0;
@@ -787,77 +789,93 @@ useEffect(() => {
   useEffect(() => {
     if (!mapboxToken || !mapContainerRef.current) return undefined;
     if (mapRef.current) return undefined;
+    const container = attachPersistentMapContainer(PERSISTENT_MAP_KEY, mapContainerRef.current);
+    if (!container) return undefined;
 
     mapboxgl.accessToken = mapboxToken;
-   const map = new mapboxgl.Map({
-  container: mapContainerRef.current,
+    const cachedMap = getPersistentMap(PERSISTENT_MAP_KEY);
+    const map = cachedMap
+      ? cachedMap
+      : new mapboxgl.Map({
+          container,
+          style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
+          center: isValidCoord(spot?.lng, spot?.lat) ? [spot.lng, spot.lat] : getSafeCenter(),
+          zoom: 15.5,
+          pitch: 45,
+          bearing: -17.6,
+          antialias: true,
+          interactive: true,
+          attributionControl: false,
+        });
 
-  style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
+    if (!cachedMap) {
+      setPersistentMap(PERSISTENT_MAP_KEY, map);
+    }
 
-  center: isValidCoord(spot?.lng, spot?.lat)
-    ? [spot.lng, spot.lat]
-    : getSafeCenter(),
+    const add3DBuildings = () => {
+      const layers = map.getStyle()?.layers || [];
+      const labelLayerId = layers.find(
+        (layer) => layer.type === 'symbol' && layer.layout && layer.layout['text-field'],
+      )?.id;
 
-  zoom: 15.5,
-  pitch: 45,
-  bearing: -17.6,
+      if (map.getLayer('add-3d-buildings')) return;
 
-  antialias: true,         // ✅ important pour le rendu 3D
-  interactive: true,
-  attributionControl: false,
-});
+      map.addLayer(
+        {
+          id: 'add-3d-buildings',
+          source: 'composite',
+          'source-layer': 'building',
+          filter: ['==', 'extrude', 'true'],
+          type: 'fill-extrusion',
+          minzoom: 15,
+          paint: {
+            'fill-extrusion-color': '#aaa',
+            'fill-extrusion-height': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15, 0,
+              15.05, ['get', 'height'],
+            ],
+            'fill-extrusion-base': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15, 0,
+              15.05, ['get', 'min_height'],
+            ],
+            'fill-extrusion-opacity': 0.6,
+          },
+        },
+        labelLayerId,
+      );
+    };
 
-const add3DBuildings = () => {
-  const layers = map.getStyle()?.layers || [];
-  const labelLayerId = layers.find(
-    (layer) => layer.type === 'symbol' && layer.layout && layer.layout['text-field']
-  )?.id;
+    const handleStyleLoad = () => {
+      applyDayNightPreset(map);
+      const last = lastRainCheckRef.current?.isRaining;
+      if (last === true) enableRainEffect(map);
+      add3DBuildings();
+    };
 
-  if (map.getLayer('add-3d-buildings')) return;
+    const handleLoad = () => {
+      setMapLoaded(true);
+      map.resize();
+      updateOtherMarkersVisibility(map.getZoom());
+    };
 
-  map.addLayer(
-    {
-      id: 'add-3d-buildings',
-      source: 'composite',
-      'source-layer': 'building',
-      filter: ['==', 'extrude', 'true'],
-      type: 'fill-extrusion',
-      minzoom: 15,
-      paint: {
-        'fill-extrusion-color': '#aaa',
-        'fill-extrusion-height': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          15, 0,
-          15.05, ['get', 'height'],
-        ],
-        'fill-extrusion-base': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          15, 0,
-          15.05, ['get', 'min_height'],
-        ],
-        'fill-extrusion-opacity': 0.6,
-      },
-    },
-    labelLayerId
-  );
-};
+    const handleError = () => setMapLoaded(false);
 
-const handleStyleLoad = () => {
-  applyDayNightPreset(map);
-  const last = lastRainCheckRef.current?.isRaining;
-  if (last === true) enableRainEffect(map);
-  add3DBuildings();
-};
-
-map.on('style.load', handleStyleLoad);
-applyDayNightPreset(map);
-
-    map.on('load', () => { setMapLoaded(true); map.resize(); updateOtherMarkersVisibility(map.getZoom()); });
-    map.on('error', () => setMapLoaded(false));
+    map.on('style.load', handleStyleLoad);
+    map.on('error', handleError);
+    if (map.loaded()) {
+      handleLoad();
+    } else {
+      map.on('load', handleLoad);
+    }
+    if (typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : map.loaded()) {
+      handleStyleLoad();
+    }
     const handleMoveStart = (e) => {
       if (e?.originalEvent) {
         setMapMoved(true);
@@ -872,10 +890,10 @@ applyDayNightPreset(map);
       map.off('movestart', handleMoveStart);
       map.off('zoom', handleZoom);
       map.off('style.load', handleStyleLoad);
-if (map.getLayer('add-3d-buildings')) map.removeLayer('add-3d-buildings');
+      map.off('load', handleLoad);
+      map.off('error', handleError);
+      if (map.getLayer('add-3d-buildings')) map.removeLayer('add-3d-buildings');
       disableRainEffect(map);
-
-      map.remove();
       mapRef.current = null;
       if (destMarkerRef.current?._clickHandler && destMarkerRef.current?.getElement()) {
         destMarkerRef.current.getElement().removeEventListener('click', destMarkerRef.current._clickHandler);

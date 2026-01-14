@@ -1,10 +1,11 @@
 // src/views/SearchView.jsx
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, MapPin, Bell, WifiOff, Wifi, Euro } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 import useConnectionQuality from '../hooks/useConnectionQuality';
+import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { newId } from '../utils/ids';
 import {
   CARD_COLOR_SALT,
@@ -81,9 +82,125 @@ const formatEuro = (value) => {
   return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
 };
 
-const RADIUS_MIN_KM = 0.1;
-const RADIUS_MAX_KM = 5000;
-const DEFAULT_RADIUS_KM = 2000;
+const formatParkingPrice = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '-- € / h';
+  return `${n.toFixed(2).replace('.', ',')}€ / h`;
+};
+
+const RADIUS_MIN_KM = 0;
+const RADIUS_MAX_KM = 1;
+const DEFAULT_RADIUS_KM = 1;
+const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
+const PARKING_FETCH_MIN_DISTANCE_M = 250;
+
+const isValidCoord = (lng, lat) =>
+  typeof lng === 'number' &&
+  typeof lat === 'number' &&
+  !Number.isNaN(lng) &&
+  !Number.isNaN(lat) &&
+  Math.abs(lng) <= 180 &&
+  Math.abs(lat) <= 90;
+
+const normalizeParkingText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const extractTimeRanges = (raw) => {
+  const text = String(raw || '');
+  const matches = [...text.matchAll(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/gi)];
+  const minutes = matches
+    .map((match) => {
+      const hour = Number(match[1]);
+      const min = match[2] ? Number(match[2]) : 0;
+      if (!Number.isFinite(hour) || hour < 0 || hour > 24) return null;
+      if (!Number.isFinite(min) || min < 0 || min > 59) return null;
+      return hour === 24 ? 24 * 60 : hour * 60 + min;
+    })
+    .filter((value) => value != null);
+  const ranges = [];
+  for (let i = 0; i + 1 < minutes.length; i += 2) {
+    ranges.push([minutes[i], minutes[i + 1]]);
+  }
+  return ranges;
+};
+
+const isParkingOpenNow = (record, now = new Date()) => {
+  if (!record) return false;
+  const raw = record?.horaire_na ?? record?.horaire ?? record?.horaires ?? '';
+  const text = normalizeParkingText(raw);
+  if (!text) return false;
+  if (text.includes('ferme') || text.includes('fermee')) return false;
+  if (text.includes('24h') || text.includes('24 h') || text.includes('24/24')) return true;
+
+  const ranges = extractTimeRanges(text);
+  if (!ranges.length) return false;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  return ranges.some(([start, end]) => {
+    if (start == null || end == null) return false;
+    if (start === end) return false;
+    if (end > start) return nowMinutes >= start && nowMinutes <= end;
+    return nowMinutes >= start || nowMinutes <= end;
+  });
+};
+
+const isResidentOnlyParking = (record) => {
+  if (!record) return false;
+  const type = normalizeParkingText(record?.type_usagers ?? record?.type_usager ?? '');
+  const hours = normalizeParkingText(record?.horaire_na ?? '');
+  const info = normalizeParkingText(
+    Array.isArray(record?.info) ? record.info.join(' ') : record?.info ?? '',
+  );
+  const isPublic =
+    type.includes('tous') || type.includes('public') || type.includes('visiteur') || type.includes('visitor');
+  if (isPublic) return false;
+  if (type.includes('abonn') || type.includes('resident')) return true;
+  if (hours.includes('abonn')) return true;
+  if (info.includes('abonn')) return true;
+  return false;
+};
+
+const toNumberOrNull = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getDistanceMetersBetween = (a, b) => {
+  if (!a || !b) return Infinity;
+  if (!isValidCoord(a.lng, a.lat) || !isValidCoord(b.lng, b.lat)) return Infinity;
+  const R = 6371e3;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const c =
+    2 *
+    Math.atan2(
+      Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2),
+      Math.sqrt(1 - (Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2)),
+    );
+  return R * c;
+};
+
+const formatHeight = (heightCm) => {
+  const cm = Number(heightCm);
+  if (!Number.isFinite(cm) || cm <= 0) return null;
+  if (cm >= 100) {
+    const meters = cm / 100;
+    const display = meters % 1 === 0 ? meters.toFixed(0) : meters.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return `${display} m`;
+  }
+  return `${Math.round(cm)} cm`;
+};
+
+const formatCount = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+};
 
 // --- COMPOSANT CARTE (SWIPE) ---
 // caca
@@ -225,11 +342,19 @@ const SwipeCard = forwardRef(({
   const rotation = shouldRotate ? offset.x * 0.1 : baseRotation; // 0.1 pour accentuer l'effet
 
   const cursorClass = isDragging ? 'cursor-grabbing' : active ? 'cursor-grab' : 'cursor-default';
-  const isFree = isFreeSpot(spot);
+  const isPublicParking = !!spot?.isPublicParking;
+  const isFree = !isPublicParking && isFreeSpot(spot);
   const cardColor = spot._overrideColor || colorForSpot(spot, colorSalt);
   const carEmoji = spot?.carEmoji || CAR_EMOJIS[index % CAR_EMOJIS.length];
-  const remainingMs = getRemainingMs(spot, nowMs);
+  const remainingMs = isPublicParking ? null : getRemainingMs(spot, nowMs);
   const preciseTime = formatDuration(remainingMs);
+  const parkingName = spot?.parkingName || spot?.name || t('publicParking', { defaultValue: 'Public parking' });
+  const distanceLabel = formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords));
+  const placesLabel = formatCount(spot?.nbPlaces);
+  const heightLabel = formatHeight(spot?.heightMaxCm);
+  const priceDisplay = isPublicParking
+    ? formatParkingPrice(spot?.tarif1h ?? spot?.price)
+    : formatPrice(spot.price);
   
   // Ombres (inchangé)
   const appleShadow = active
@@ -240,10 +365,16 @@ const SwipeCard = forwardRef(({
       ? '0 20px 60px -40px rgba(0,0,0,0.55), 0 10px 34px -30px rgba(0,0,0,0.35), 0 1px 0 0 rgba(255,255,255,0.04) inset'
       : '0 20px 60px -40px rgba(15,23,42,0.20), 0 10px 34px -30px rgba(15,23,42,0.12), 0 1px 0 0 rgba(255,255,255,0.55) inset';
   
-  const cardBackground = isFree
-    ? 'linear-gradient(145deg, #fff5cc 0%, #ffe08a 18%, #d4af37 48%, #b8860b 78%, #6b4f13 100%)'
-    : `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
-  const cardBorder = isFree ? '1px solid rgba(255, 236, 170, 0.55)' : '1px solid rgba(255,255,255,0.08)';
+  const cardBackground = isPublicParking
+    ? 'linear-gradient(145deg, #1d4ed8 0%, #2563eb 45%, #3b82f6 100%)'
+    : isFree
+      ? 'linear-gradient(145deg, #fff5cc 0%, #ffe08a 18%, #d4af37 48%, #b8860b 78%, #6b4f13 100%)'
+      : `linear-gradient(145deg, ${cardColor}, ${cardColor}dd)`;
+  const cardBorder = isPublicParking
+    ? '1px solid rgba(255,255,255,0.22)'
+    : isFree
+      ? '1px solid rgba(255, 236, 170, 0.55)'
+      : '1px solid rgba(255,255,255,0.08)';
   const premiumGlow = isFree
     ? active
       ? isDark
@@ -253,7 +384,7 @@ const SwipeCard = forwardRef(({
         ? '0 24px 80px -55px rgba(212,175,55,0.45)'
         : '0 24px 80px -55px rgba(212,175,55,0.32)'
     : null;
-  const leaderEntry = leaderboard.find((u) => u.id === spot?.hostId);
+  const leaderEntry = isPublicParking ? null : leaderboard.find((u) => u.id === spot?.hostId);
   const rank = leaderEntry?.rank ?? (spot?.rank || spot?.position || '—');
   const transactions = leaderEntry?.transactions ?? (Number(spot?.transactions) || 0);
   const [showRank, setShowRank] = useState(false);
@@ -335,42 +466,75 @@ const SwipeCard = forwardRef(({
       {/* ... CONTENU DE LA CARTE (INCHANGÉ) ... */}
       <div className="flex flex-col items-center justify-center h-full space-y-6 text-center pointer-events-none">
         
-        <div className="absolute top-3 left-3 text-white/90 pointer-events-auto">
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()} 
-            onClick={() => setShowRank(true)}
-            className="relative inline-flex items-center justify-center rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
-            style={{ width: 'clamp(44px, 12vw, 56px)', height: 'clamp(44px, 12vw, 56px)' }}
-          >
-            <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
-            <img src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'} alt="Rang" className="w-full h-full object-contain bg-white/20 p-1 rounded-full" />
-          </button>
-        </div>
+        {isPublicParking ? (
+          <div className="absolute top-3 left-3 right-3 flex items-center gap-2 text-white/90 pointer-events-none">
+            <div
+              className="flex items-center justify-center rounded-full bg-white/15 border border-white/20 font-extrabold"
+              style={{ width: 'clamp(38px, 10vw, 46px)', height: 'clamp(38px, 10vw, 46px)' }}
+            >
+              P
+            </div>
+            <div className="text-sm font-semibold truncate">{parkingName}</div>
+          </div>
+        ) : (
+          <div className="absolute top-3 left-3 text-white/90 pointer-events-auto">
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()} 
+              onClick={() => setShowRank(true)}
+              className="relative inline-flex items-center justify-center rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
+              style={{ width: 'clamp(44px, 12vw, 56px)', height: 'clamp(44px, 12vw, 56px)' }}
+            >
+              <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
+              <img src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'} alt="Rang" className="w-full h-full object-contain bg-white/20 p-1 rounded-full" />
+            </button>
+          </div>
+        )}
 
         <div className="mt-3">
           <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)] price-pulse">
-            {formatPrice(spot.price)}
+            {priceDisplay}
           </p>
         </div>
 
         <div className="flex flex-col items-stretch gap-3 w-full text-left">
-          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
-            <div className="text-[clamp(15px,4vw,18px)] font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
-          </div>
-          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
-            <div className="text-[clamp(15px,4vw,18px)] font-bold">{formatDistance(distanceOverrides[spot.id] ?? getDistanceMeters(spot, userCoords))}</div>
-          </div>
-          <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-            <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Leaving in')}</span></div>
-            <div className="text-[clamp(15px,4vw,18px)] font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
-          </div>
+          {isPublicParking ? (
+            <>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>P</span><span>{t('parkingSpacesLabel', 'Places')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">{placesLabel ?? '—'}</div>
+              </div>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">{distanceLabel}</div>
+              </div>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('openNowLabel', 'Open now')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">
+                  {heightLabel ? t('heightValue', { value: heightLabel, defaultValue: 'Max {{value}}' }) : t('openNowValue', 'Open')}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
+              </div>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">{distanceLabel}</div>
+              </div>
+              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Leaving in')}</span></div>
+                <div className="text-[clamp(15px,4vw,18px)] font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {showRank && (
+      {!isPublicParking && showRank && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-auto">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[26px]" onClick={() => setShowRank(false)} />
           <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
@@ -426,14 +590,12 @@ const SearchView = ({
   const [nowMs, setNowMs] = useState(Date.now());
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null); // null => any price
-  const [showRadiusPicker, setShowRadiusPicker] = useState(false);
-  const kmValueRef = useRef(null);
-  const [kmShift, setKmShift] = useState({ x: 0, y: 0 });
-  const [kmFloatPos, setKmFloatPos] = useState(null);
-  const [kmFloatVisible, setKmFloatVisible] = useState(false);
-  const kmBasePosRef = useRef(null);
-  const filtersButtonRef = useRef(null);
-  const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
+  const {
+    showRadiusPicker,
+    setShowRadiusPicker,
+    filtersButtonRef,
+    filtersPanelTopPx,
+  } = useFiltersAnimation({ viewRef, onFiltersOpenChange });
   const [distanceOverrides, setDistanceOverrides] = useState({});
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
@@ -451,6 +613,11 @@ const SearchView = ({
   const prefsWriteQueuedRef = useRef(null);
   const prefsFlushRequestedRef = useRef(false);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
+  const [publicParkings, setPublicParkings] = useState([]);
+  const parkingFetchInFlightRef = useRef(false);
+  const parkingFetchQueuedRef = useRef(null);
+  const lastParkingFetchRef = useRef({ at: 0, lat: null, lng: null });
+  const isMountedRef = useRef(true);
   const maxSpotPrice = useMemo(() => {
     const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
     const max = values.length ? Math.max(...values) : 0;
@@ -503,34 +670,135 @@ const SearchView = ({
     }
   };
 
-  const computeFiltersPanelTop = () => {
-    if (!viewRef.current || !filtersButtonRef.current) return null;
-    const viewRect = viewRef.current.getBoundingClientRect();
-    const buttonRect = filtersButtonRef.current.getBoundingClientRect();
-    const top = buttonRect.bottom - viewRect.top + 10;
-    return Math.max(0, Math.round(top));
-  };
+  const fetchPublicParkings = useCallback((center, { force = false } = {}) => {
+    const safeLng = Number(center?.lng);
+    const safeLat = Number(center?.lat);
+    if (!center || !isValidCoord(safeLng, safeLat)) return;
+    const now = Date.now();
+    const last = lastParkingFetchRef.current;
+    const moved = last.lat == null ? Infinity : getDistanceMetersBetween(last, { lng: safeLng, lat: safeLat });
+    if (parkingFetchInFlightRef.current) {
+      parkingFetchQueuedRef.current = { center: { lng: safeLng, lat: safeLat }, force };
+      return;
+    }
+    if (!force && now - last.at < PARKING_FETCH_MIN_INTERVAL_MS && moved < PARKING_FETCH_MIN_DISTANCE_M) {
+      return;
+    }
 
-  useEffect(() => {
-    if (!showRadiusPicker) return undefined;
-    const update = () => setFiltersPanelTopPx(computeFiltersPanelTop());
-    const rafUpdate = () => window.requestAnimationFrame(update);
+    lastParkingFetchRef.current = { at: now, lat: safeLat, lng: safeLng };
+    parkingFetchInFlightRef.current = true;
+    const params = new URLSearchParams();
+    params.set('where', `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', 1000m)`);
+    params.set('order_by', `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})')`);
+    params.set('limit', '20');
+    const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
 
-    rafUpdate();
-    window.addEventListener('resize', rafUpdate);
-    window.addEventListener('orientationchange', rafUpdate);
+    fetch(url, { mode: 'cors', credentials: 'omit' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`parking_fetch_${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (!isMountedRef.current) return;
+        const raw = Array.isArray(data?.results) ? data.results : Array.isArray(data?.records) ? data.records : [];
+        const next = [];
+        raw.forEach((row, idx) => {
+          const record = row?.fields ?? row;
+          if (!record) return;
+          if (isResidentOnlyParking(record)) return;
+          if (!isParkingOpenNow(record)) return;
+          const id = row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
+          const shape = record?.geo_shape || record?.geometry || null;
+          let lng = null;
+          let lat = null;
+          if (shape?.type === 'Point' && Array.isArray(shape.coordinates)) {
+            [lng, lat] = shape.coordinates;
+          } else if (Array.isArray(shape?.coordinates) && typeof shape.coordinates[0] === 'number') {
+            [lng, lat] = shape.coordinates;
+          } else if (shape?.geometry?.type === 'Point' && Array.isArray(shape.geometry.coordinates)) {
+            [lng, lat] = shape.geometry.coordinates;
+          }
+          if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+            const point = record?.geo_point_2d || record?.geo_point || null;
+            const parsePointArray = (arr) => {
+              if (!Array.isArray(arr) || arr.length < 2) return null;
+              const a = Number(arr[0]);
+              const b = Number(arr[1]);
+              if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+              const cand1 = { lat: a, lng: b };
+              const cand2 = { lat: b, lng: a };
+              const d1 = getDistanceMetersBetween(cand1, { lat: safeLat, lng: safeLng });
+              const d2 = getDistanceMetersBetween(cand2, { lat: safeLat, lng: safeLng });
+              return d1 <= d2 ? cand1 : cand2;
+            };
+            if (Array.isArray(point)) {
+              const picked = parsePointArray(point);
+              if (picked) {
+                lat = picked.lat;
+                lng = picked.lng;
+              }
+            } else if (typeof point === 'string') {
+              const parts = point.split(/[,\s]+/).filter(Boolean).map((v) => Number(v));
+              const picked = parsePointArray(parts);
+              if (picked) {
+                lat = picked.lat;
+                lng = picked.lng;
+              }
+            } else if (point && typeof point === 'object') {
+              lat = Number(point.lat ?? point.latitude ?? point.y);
+              lng = Number(point.lon ?? point.lng ?? point.longitude ?? point.x);
+            }
+          }
+          const parsedLng = Number(lng);
+          const parsedLat = Number(lat);
+          if (!isValidCoord(parsedLng, parsedLat)) return;
+          const name = record?.nom || record?.name || record?.nom_parc || '';
+          const address =
+            record?.adresse ||
+            (Array.isArray(record?.adress_geo_entrees) ? record.adress_geo_entrees[0] : record?.adress_geo_entrees) ||
+            record?.adress ||
+            '';
+          const distanceMeters = getDistanceMetersBetween(
+            { lng: safeLng, lat: safeLat },
+            { lng: parsedLng, lat: parsedLat },
+          );
+          next.push({
+            id,
+            lng: parsedLng,
+            lat: parsedLat,
+            name,
+            address,
+            distanceMeters,
+            hours: record?.horaire_na ?? '',
+            heightMaxCm: toNumberOrNull(record?.hauteur_max),
+            tarif1h: toNumberOrNull(record?.tarif_1h),
+            nbPlaces: toNumberOrNull(record?.nb_places),
+            url: record?.url ?? '',
+          });
+        });
 
-    const viewport = window.visualViewport;
-    viewport?.addEventListener('resize', rafUpdate);
-    viewport?.addEventListener('scroll', rafUpdate);
-
-    return () => {
-      window.removeEventListener('resize', rafUpdate);
-      window.removeEventListener('orientationchange', rafUpdate);
-      viewport?.removeEventListener('resize', rafUpdate);
-      viewport?.removeEventListener('scroll', rafUpdate);
-    };
-  }, [showRadiusPicker]);
+        const unique = new Map();
+        next.forEach((item) => {
+          if (!unique.has(item.id)) unique.set(item.id, item);
+        });
+        const list = Array.from(unique.values());
+        if (isMountedRef.current) {
+          setPublicParkings(list);
+        }
+      })
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        console.error('[SearchView] parking fetch error:', err);
+      })
+      .finally(() => {
+        parkingFetchInFlightRef.current = false;
+        const queued = parkingFetchQueuedRef.current;
+        if (queued) {
+          parkingFetchQueuedRef.current = null;
+          fetchPublicParkings(queued.center, { force: queued.force });
+        }
+      });
+  }, []);
 
   // Inject lightweight keyframes for card enter/exit
   useEffect(() => {
@@ -583,6 +851,24 @@ const SearchView = ({
       document.head.appendChild(style);
     }
   }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const safeLng = Number(userCoords?.lng);
+    const safeLat = Number(userCoords?.lat);
+    if (!userCoords || !isValidCoord(safeLng, safeLat)) {
+      setPublicParkings([]);
+      return undefined;
+    }
+    fetchPublicParkings({ lng: safeLng, lat: safeLat });
+    return undefined;
+  }, [userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
 
   // Restore + persist user preferences (radius + price filter)
   useEffect(() => {
@@ -711,9 +997,41 @@ const SearchView = ({
   });
   const availableSpots = uniqueSpotsByHost(filteredSpots).sort((a, b) => getCreatedMs(a) - getCreatedMs(b));
   const availableColors = colorsForOrderedSpots(availableSpots, colorSaltRef.current);
-  const outOfCards = currentIndex >= availableSpots.length;
-  const visibleSpots = outOfCards ? [] : availableSpots.slice(currentIndex, currentIndex + 3); // show 3 at once
-  const noSpots = availableSpots.length === 0;
+  const spotColorById = useMemo(() => {
+    const map = new Map();
+    availableSpots.forEach((spot, idx) => {
+      map.set(spot.id, availableColors[idx]);
+    });
+    return map;
+  }, [availableSpots, availableColors]);
+  const publicParkingCards = useMemo(() => {
+    const maxRadiusMeters = radius == null ? null : Number(radius) * 1000;
+    const maxPrice = priceMax == null ? null : Number(priceMax);
+    const sorted = [...(publicParkings || [])]
+      .filter((parking) => {
+        if (maxRadiusMeters != null && Number(parking?.distanceMeters) > maxRadiusMeters) return false;
+        if (maxPrice != null) {
+          const price = Number(parking?.tarif1h);
+          if (Number.isFinite(price) && price > maxPrice) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => (a?.distanceMeters ?? Infinity) - (b?.distanceMeters ?? Infinity));
+    return sorted.map((parking, idx) => ({
+      ...parking,
+      id: `public-parking-${parking?.id || idx}`,
+      parkingId: parking?.id,
+      isPublicParking: true,
+      price: parking?.tarif1h,
+    }));
+  }, [publicParkings, radius, priceMax]);
+  const availableCards = useMemo(
+    () => [...availableSpots, ...publicParkingCards],
+    [availableSpots, publicParkingCards],
+  );
+  const outOfCards = currentIndex >= availableCards.length;
+  const visibleSpots = outOfCards ? [] : availableCards.slice(currentIndex, currentIndex + 3); // show 3 at once
+  const noSpots = availableCards.length === 0;
   const showOffline = !isOnline && !selectedSpot;
   const showEmpty = (noSpots || outOfCards) && !selectedSpot && isOnline;
   const isMapOpen = !!selectedSpot;
@@ -730,15 +1048,19 @@ const SearchView = ({
   const relaxedPriceValue = priceMax != null ? Number(priceMax) + 1 : priceMax;
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
-  const isActiveFreeSpot = isFreeSpot(activeSpot);
+  const isActivePublicParking = !!activeSpot?.isPublicParking;
+  const isActiveFreeSpot = !isActivePublicParking && isFreeSpot(activeSpot);
   const blockActiveFreeBooking = isActiveFreeSpot && !canAcceptFreeSpot;
+  const rightButtonLabel = isActivePublicParking
+    ? t('goThere', { defaultValue: 'Y aller' })
+    : t('book', 'Book');
 
   useEffect(() => {
     if (!Number.isFinite(currentIndex)) return;
-    const maxIndex = availableSpots.length;
+    const maxIndex = availableCards.length;
     if (currentIndex < 0) setCurrentIndex(0);
     else if (currentIndex > maxIndex) setCurrentIndex(maxIndex);
-  }, [availableSpots.length, currentIndex, setCurrentIndex]);
+  }, [availableCards.length, currentIndex, setCurrentIndex]);
 
   // Track cards leaving the visible stack to animate them out
   useEffect(() => {
@@ -861,10 +1183,31 @@ const SearchView = ({
     trackActionPosition();
   }, [visibleSpots?.length, selectedSpot]);
 
+  const handleGoToParking = (parking) => {
+    if (!parking || !isValidCoord(Number(parking.lng), Number(parking.lat))) return;
+    const parkingSpot = {
+      id: `public-parking-${parking.parkingId || parking.id || `${parking.lng}:${parking.lat}`}`,
+      lng: Number(parking.lng),
+      lat: Number(parking.lat),
+      name: parking.name || t('publicParking', { defaultValue: 'Parking' }),
+      parkingName: parking.name || '',
+      address: parking.address || '',
+      mapOnly: true,
+      isPublicParking: true,
+      autoStartNav: true,
+    };
+    setSelectedSpot(parkingSpot);
+  };
+
   const handleSwipe = (direction, spot) => {
     if (!spot) return;
 
     if (direction === 'right') {
+      if (spot.isPublicParking) {
+        handleGoToParking(spot);
+        setCurrentIndex((prev) => prev + 1);
+        return;
+      }
       if (isFreeSpot(spot) && !canAcceptFreeSpot) {
         const msg = t('premiumParksEmpty', 'No Premium Parks left.');
         setShareToast(msg);
@@ -944,60 +1287,6 @@ const SearchView = ({
     onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
     setSelectedSpot(spotWithSession);
   };
-  useEffect(() => {
-    onFiltersOpenChange?.(showRadiusPicker);
-    return () => onFiltersOpenChange?.(false);
-  }, [showRadiusPicker, onFiltersOpenChange]);
-
-  useEffect(() => {
-    if (showRadiusPicker) {
-      setKmFloatVisible(true);
-    }
-  }, [showRadiusPicker]);
-
-  useEffect(() => {
-    const PRICE_LIFT_PX = -4;
-    const desiredLeft = (viewRef.current?.getBoundingClientRect?.().left ?? 0) + 24;
-    let raf1 = null;
-    let raf2 = null;
-
-    const computeTargetShift = () => {
-      const rect = kmValueRef.current?.getBoundingClientRect();
-      if (!rect) return null;
-      if (!showRadiusPicker) {
-        kmBasePosRef.current = { top: rect.top, left: rect.left };
-        setKmFloatPos({ top: rect.top, left: rect.left });
-      }
-      const base = kmBasePosRef.current || { top: rect.top, left: rect.left };
-      const x = showRadiusPicker ? desiredLeft - base.left : 0;
-      const y = showRadiusPicker ? PRICE_LIFT_PX : 0;
-      return { x, y };
-    };
-
-    const update = () => {
-      const target = computeTargetShift();
-      if (!target) return;
-      if (showRadiusPicker) {
-        setKmShift({ x: 0, y: 0 });
-        raf1 = window.requestAnimationFrame(() => {
-          raf2 = window.requestAnimationFrame(() => {
-            setKmShift(target);
-          });
-        });
-      } else {
-        setKmShift(target);
-      }
-    };
-
-    update();
-    window.addEventListener('resize', update);
-    return () => {
-      if (raf1) window.cancelAnimationFrame(raf1);
-      if (raf2) window.cancelAnimationFrame(raf2);
-      window.removeEventListener('resize', update);
-    };
-  }, [showRadiusPicker, radius, priceMax]);
-
   return (
     <div
       ref={viewRef}
@@ -1195,53 +1484,19 @@ const SearchView = ({
 	            }`}
 	          >
             <span
-              ref={kmValueRef}
-              className={`block leading-tight font-semibold transition-opacity duration-200 ${
-                showRadiusPicker || kmFloatVisible ? 'absolute opacity-0 pointer-events-none' : 'relative'
-              } ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+              className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
             >
               {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
             </span>
             <span
-              className={`block leading-tight font-semibold transition-transform duration-300 ease-out ${
-                isDark ? 'text-slate-50' : 'text-slate-900'
-              }`}
-              style={{
-                transform: showRadiusPicker
-                  ? 'translate3d(0,-4px,0)'
-                  : 'translate3d(0,0,0)',
-              }}
+              className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
             >
               {priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`}
             </span>
 	            </button>
             </div>
-            {kmFloatVisible && kmFloatPos ? (
-              <div
-                className="fixed z-[200] pointer-events-none will-change-transform"
-                style={{
-                  top: kmFloatPos.top,
-                  left: kmFloatPos.left,
-                  transform: `translate3d(${kmShift.x}px, ${kmShift.y}px, 0)`,
-                  transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
-                }}
-                onTransitionEnd={() => {
-                  if (!showRadiusPicker) setKmFloatVisible(false);
-                }}
-              >
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full border shadow-sm text-sm font-semibold ${
-                    isDark
-                      ? 'bg-slate-800/80 border-white/10 text-slate-50'
-                      : 'bg-white/70 border-white/60 text-slate-900'
-                  }`}
-                >
-                  {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
-                </span>
-              </div>
-            ) : null}
-	        </div>
-	      )}
+          </div>
+        )}
 
       {/* Stack de Cartes + Actions */}
       <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
@@ -1332,32 +1587,42 @@ const SearchView = ({
                     style={{ height: 'clamp(320px, 45vh, 420px)' }}
                   >
                     {[
-                      ...visibleSpots.map((spot, i) => ({
-                        spot: { ...spot, _overrideColor: availableColors[currentIndex + i] },
-                        index: i,
-                        exiting: false,
-                      })),
+                      ...visibleSpots.map((spot, i) => {
+                        const decorated = spot.isPublicParking
+                          ? spot
+                          : { ...spot, _overrideColor: spotColorById.get(spot.id) };
+                        return {
+                          spot: decorated,
+                          index: i,
+                          exiting: false,
+                        };
+                      }),
                       ...exitingCards
                       .filter((c) => !visibleSpots.find((v) => v.id === c.id))
-                      .map((spotObj) => ({
-                        spot: spotObj,
-                        index: spotObj._exitIndex ?? visibleSpots.length,
-                        exiting: true,
-                      }))].map(({ spot, index, exiting }) => {
+                      .map((spotObj) => {
+                        const decorated = spotObj.isPublicParking
+                          ? spotObj
+                          : { ...spotObj, _overrideColor: spotColorById.get(spotObj.id) };
+                        return {
+                          spot: decorated,
+                          index: spotObj._exitIndex ?? visibleSpots.length,
+                          exiting: true,
+                        };
+                      })].map(({ spot, index, exiting }) => {
                       const entering = enteringIds.includes(spot.id);
                       return (
 	                      <SwipeCard
 	                        key={spot._exitKey || spot.id}
 	                        onDrag={setDragX}
 	                        spot={spot}
-	                        canSwipeRight={() => !isFreeSpot(spot) || canAcceptFreeSpot}
-	                        onBlockedSwipe={notifyNoPremiumParks}
+	                        canSwipeRight={() => (spot.isPublicParking ? true : !isFreeSpot(spot) || canAcceptFreeSpot)}
+	                        onBlockedSwipe={spot.isPublicParking ? undefined : notifyNoPremiumParks}
 	                        index={index}
 	                        active={!exiting && index === 0}
 	                        nowMs={nowMs}
 	                        ref={(!exiting && index === 0) ? activeCardRef : null}
 	                        onSwipe={(dir) => handleSwipe(dir, spot)}
-                        onVerticalSwipe={() => handleVerticalShare(spot)}
+                        onVerticalSwipe={spot.isPublicParking ? undefined : () => handleVerticalShare(spot)}
                         isDark={isDark}
                         userCoords={userCoords}
                         distanceOverrides={distanceOverrides}
@@ -1473,7 +1738,7 @@ willChange: 'transform, opacity',
                     })`
                   }}
                 >
-                  {t('book', 'Book')}
+                  {rightButtonLabel}
                 </div>
               </button>
             </div>

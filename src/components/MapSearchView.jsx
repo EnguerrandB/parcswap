@@ -11,6 +11,8 @@ import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from
 import { buildPublicParkingActionPopupHTML, buildPublicParkingPopupHTML } from './PublicParkingPopups';
 import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
 import { newId } from '../utils/ids';
+import useFiltersAnimation from '../hooks/useFiltersAnimation';
+import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import {
   CARD_COLOR_SALT,
   colorForSpot,
@@ -32,11 +34,12 @@ const isValidCoord = (lng, lat) =>
   Math.abs(lat) <= 90;
 
 const CAR_ICONS = [userCar1, userCar2, userCar3, userCar4];
-const RADIUS_MIN_KM = 0.1;
-const RADIUS_MAX_KM = 5000;
-const DEFAULT_RADIUS_KM = 2000;
+const RADIUS_MIN_KM = 0;
+const RADIUS_MAX_KM = 1;
+const DEFAULT_RADIUS_KM = 1;
 const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
 const PARKING_FETCH_MIN_DISTANCE_M = 250;
+const PERSISTENT_MAP_KEY = 'map-search';
 
 const formatEuro = (value) => {
   const n = Number(value);
@@ -218,7 +221,6 @@ const MapSearchView = ({
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const viewRef = useRef(null);
-  const filtersButtonRef = useRef(null);
   const filtersPanelRef = useRef(null);
   const filtersRailRef = useRef(null);
 const [filtersRailRect, setFiltersRailRect] = useState(null);
@@ -242,20 +244,18 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const [mapLoaded, setMapLoaded] = useState(false);
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null);
-  const [showRadiusPicker, setShowRadiusPicker] = useState(false);
-  const kmValueRef = useRef(null);
-  const [kmShift, setKmShift] = useState({ x: 0, y: 0 });
-  const [kmFloatPos, setKmFloatPos] = useState(null);
-  const [kmFloatVisible, setKmFloatVisible] = useState(false);
-  const kmBasePosRef = useRef(null);
+  const {
+    showRadiusPicker,
+    setShowRadiusPicker,
+    filtersButtonRef,
+    filtersPanelTopPx,
+  } = useFiltersAnimation({ viewRef, onFiltersOpenChange });
   const bottomNavEdgeOffset = 'calc((100% - min(90%, 320px)) / 2)';
-  const [filtersPanelTopPx, setFiltersPanelTopPx] = useState(null);
   const prefsHydratedRef = useRef(false);
   const prefsTouchedRef = useRef(false);
   const prefsWriteInFlightRef = useRef(false);
   const prefsWriteQueuedRef = useRef(null);
   const prefsFlushRequestedRef = useRef(false);
-  const priceValueRef = useRef(null);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
   const [actionToast, setActionToast] = useState('');
   const [publicParkings, setPublicParkings] = useState([]);
@@ -385,101 +385,6 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     window.addEventListener('pointerup', onEnd);
     window.addEventListener('pointercancel', onEnd);
   };
-
-  const computeFiltersPanelTop = () => {
-    if (!viewRef.current || !filtersButtonRef.current) return null;
-    const viewRect = viewRef.current.getBoundingClientRect();
-    const buttonRect = filtersButtonRef.current.getBoundingClientRect();
-    const top = buttonRect.bottom - viewRect.top + 10;
-    return Math.max(0, Math.round(top));
-  };
-
-  useEffect(() => {
-    if (!showRadiusPicker) return undefined;
-    const update = () => setFiltersPanelTopPx(computeFiltersPanelTop());
-    const rafUpdate = () => window.requestAnimationFrame(update);
-
-    rafUpdate();
-    window.addEventListener('resize', rafUpdate);
-    window.addEventListener('orientationchange', rafUpdate);
-
-    const viewport = window.visualViewport;
-    viewport?.addEventListener('resize', rafUpdate);
-    viewport?.addEventListener('scroll', rafUpdate);
-
-    return () => {
-      window.removeEventListener('resize', rafUpdate);
-      window.removeEventListener('orientationchange', rafUpdate);
-      viewport?.removeEventListener('resize', rafUpdate);
-      viewport?.removeEventListener('scroll', rafUpdate);
-    };
-  }, [showRadiusPicker]);
-
-  useEffect(() => {
-    onFiltersOpenChange?.(showRadiusPicker);
-    return () => onFiltersOpenChange?.(false);
-  }, [showRadiusPicker, onFiltersOpenChange]);
-
-  useEffect(() => {
-    if (showRadiusPicker) {
-      setKmFloatVisible(true);
-    }
-}, [showRadiusPicker]);
-
-  useEffect(() => {
-  const PRICE_LIFT_PX = -4;
-  const desiredLeft =
-    (viewRef.current?.getBoundingClientRect?.().left ?? 0) + 24;
-
-  let raf1 = null;
-  let raf2 = null;
-
-  const computeTargetShift = () => {
-    const kmRect = kmValueRef.current?.getBoundingClientRect();
-    if (!kmRect) return null;
-
-    // base = position "fermée"
-    if (!showRadiusPicker) {
-      kmBasePosRef.current = { top: kmRect.top, left: kmRect.left };
-      setKmFloatPos({ top: kmRect.top, left: kmRect.left });
-    }
-
-    const base = kmBasePosRef.current || { top: kmRect.top, left: kmRect.left };
-
-    const x = showRadiusPicker ? desiredLeft - base.left : 0;
-    const y = showRadiusPicker ? PRICE_LIFT_PX : 0;
-
-    return { x, y };
-  };
-
-  const update = () => {
-    const target = computeTargetShift();
-    if (!target) return;
-
-    if (showRadiusPicker) {
-      // 1) frame 0: on reset (point de départ)
-      setKmShift({ x: 0, y: 0 });
-
-      // 2) frame 1: on applique la cible -> transition visible
-      raf1 = window.requestAnimationFrame(() => {
-        raf2 = window.requestAnimationFrame(() => {
-          setKmShift(target);
-        });
-      });
-    } else {
-      // fermeture: retour direct (transition ok)
-      setKmShift(target);
-    }
-  };
-
-  update();
-  window.addEventListener('resize', update);
-  return () => {
-    if (raf1) window.cancelAnimationFrame(raf1);
-    if (raf2) window.cancelAnimationFrame(raf2);
-    window.removeEventListener('resize', update);
-  };
-}, [showRadiusPicker, radius, priceMax]);
 
   // Restore + persist user preferences (radius + price filter)
   useEffect(() => {
@@ -618,7 +523,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       : buildPublicParkingPopupHTML(t, isDark, parking);
 
   const bindSpotPopupHandlers = (popup, spotId, spot, accentColor, options = {}) => {
-    const { buildPopup = buildSpotPopup, onAction = handleReserveSpot, modeRef = popupModeRef } = options;
+    const {
+      buildPopup = buildSpotPopup,
+      onAction = handleReserveSpot,
+      modeRef = popupModeRef,
+      onModeChange,
+    } = options;
     const el = popup?.getElement?.();
     if (!el) {
       if (!popup.__bindOnOpen) {
@@ -631,12 +541,17 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       return;
     }
     const root = el.querySelector('[data-spot-popup-root]');
+    if (onModeChange) {
+      const currentMode = modeRef.current.get(spotId) || 'info';
+      onModeChange(currentMode);
+    }
     if (root && root.getAttribute('data-spot-popup-root') === 'info') {
       root.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (modeRef.current.get(spotId) === 'action') return;
         modeRef.current.set(spotId, 'action');
+        if (onModeChange) onModeChange('action');
         const nextHtml = buildPopup(spot, accentColor, 'action');
         popup.setHTML(nextHtml);
         bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
@@ -892,33 +807,51 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   useEffect(() => {
     if (!mapboxToken || !mapContainerRef.current) return undefined;
     if (mapRef.current) return undefined;
+    const container = attachPersistentMapContainer(PERSISTENT_MAP_KEY, mapContainerRef.current);
+    if (!container) return undefined;
 
     mapboxgl.accessToken = mapboxToken;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
-      center: getSafeCenter(),
-      zoom: 14.5,
-      pitch: 0,
-      bearing: 0,
-      antialias: true,
-      interactive: true,
-      attributionControl: false,
-    });
+    const cachedMap = getPersistentMap(PERSISTENT_MAP_KEY);
+    const map = cachedMap
+      ? cachedMap
+      : new mapboxgl.Map({
+          container,
+          style: 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce',
+          center: getSafeCenter(),
+          zoom: 14.5,
+          pitch: 0,
+          bearing: 0,
+          antialias: true,
+          interactive: true,
+          attributionControl: false,
+        });
 
-    const handleStyleLoad = () => applyDayNightPreset(map);
-    map.on('style.load', handleStyleLoad);
-    applyDayNightPreset(map);
-    map.on('load', () => {
-      setMapLoaded(true);
-      map.resize();
-    });
-    map.on('error', () => setMapLoaded(false));
+    if (!cachedMap) {
+      setPersistentMap(PERSISTENT_MAP_KEY, map);
+    }
 
     mapRef.current = map;
+
+    const handleStyleLoad = () => applyDayNightPreset(map);
+    const handleLoad = () => {
+      setMapLoaded(true);
+      map.resize();
+    };
+    const handleError = () => setMapLoaded(false);
+
+    map.on('style.load', handleStyleLoad);
+    map.on('error', handleError);
+    applyDayNightPreset(map);
+    if (map.loaded()) {
+      handleLoad();
+    } else {
+      map.on('load', handleLoad);
+    }
+
     return () => {
       map.off('style.load', handleStyleLoad);
-      map.remove();
+      map.off('error', handleError);
+      map.off('load', handleLoad);
       mapRef.current = null;
       setMapLoaded(false);
     };
@@ -1076,6 +1009,31 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     if (!mapLoaded || !mapRef.current) return;
     const map = mapRef.current;
     const nextIds = new Set();
+    const setParkingMarkerInverted = (container, inner, inverted) => {
+      if (!container || !inner) return;
+      if (inverted) {
+        inner.style.background = '#3b82f6';
+        inner.style.border = '1px solid #3b82f6';
+        inner.style.color = '#ffffff';
+        inner.style.textShadow = '0 6px 14px rgba(0,0,0,0.35)';
+      } else {
+        inner.style.background = 'rgba(255,255,255,0.82)';
+        inner.style.border = '1px solid rgba(255,255,255,0.9)';
+        inner.style.color = '#3b82f6';
+        inner.style.textShadow = '0 6px 14px rgba(59,130,246,0.45)';
+      }
+    };
+    const bindParkingPopupToMarker = (popup, markerEl, markerInner, popupId) => {
+      if (!popup || popup.__parkingColorBound) return;
+      popup.__parkingColorBound = true;
+      popup.on('open', () => {
+        const mode = parkingPopupModeRef.current.get(popupId) || 'info';
+        setParkingMarkerInverted(markerEl, markerInner, mode === 'info');
+      });
+      popup.on('close', () => {
+        setParkingMarkerInverted(markerEl, markerInner, false);
+      });
+    };
 
     publicParkings.forEach((parking) => {
       const lng = Number(parking?.lng);
@@ -1112,17 +1070,19 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         inner.style.justifyContent = 'center';
         inner.style.fontSize = '20px';
         inner.style.fontWeight = '900';
-        inner.style.color = '#1d4ed8';
-        inner.style.textShadow = '0 6px 14px rgba(30,64,175,0.45)';
+        inner.style.color = '#3b82f6';
+        inner.style.textShadow = '0 6px 14px rgba(59,130,246,0.45)';
         inner.style.pointerEvents = 'none';
         inner.textContent = 'P';
         el.appendChild(inner);
+        setParkingMarkerInverted(el, inner, false);
 
         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
         enhancePopupAnimation(popup);
         registerSinglePopup(popup);
+        bindParkingPopupToMarker(popup, el, inner, id);
         popup.on('close', () => {
           parkingPopupModeRef.current.delete(id);
         });
@@ -1130,6 +1090,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           buildPopup: buildParkingPopupForBind,
           onAction: handleGoToParking,
           modeRef: parkingPopupModeRef,
+          onModeChange: (mode) => setParkingMarkerInverted(el, inner, mode === 'info'),
         });
         const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
           .setLngLat([lng, lat])
@@ -1148,9 +1109,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
               buildPopup: buildParkingPopupForBind,
               onAction: handleGoToParking,
               modeRef: parkingPopupModeRef,
+              onModeChange: (mode) => setParkingMarkerInverted(el, inner, mode === 'info'),
             });
           }
           marker.togglePopup();
+          if (!marker.getPopup()?.isOpen?.()) {
+            setParkingMarkerInverted(el, inner, false);
+          }
         };
         el.__parkingClickHandler = clickHandler;
         el.addEventListener('click', clickHandler);
@@ -1159,15 +1124,19 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const marker = parkingMarkersRef.current.get(id);
         marker.setLngLat([lng, lat]);
         marker.__parkingData = parking;
+        const markerEl = marker.getElement?.();
+        const markerInner = markerEl?.firstChild;
         const popup = marker.getPopup();
         if (popup) {
           enhancePopupAnimation(popup);
           registerSinglePopup(popup);
+          bindParkingPopupToMarker(popup, markerEl, markerInner, id);
           popup.setHTML(popupHtml);
           bindSpotPopupHandlers(popup, id, parking, null, {
             buildPopup: buildParkingPopupForBind,
             onAction: handleGoToParking,
             modeRef: parkingPopupModeRef,
+            onModeChange: (mode) => setParkingMarkerInverted(markerEl, markerInner, mode === 'info'),
           });
         } else {
           const nextPopup = new mapboxgl.Popup({
@@ -1177,6 +1146,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           }).setHTML(popupHtml);
           enhancePopupAnimation(nextPopup);
           registerSinglePopup(nextPopup);
+          bindParkingPopupToMarker(nextPopup, markerEl, markerInner, id);
           nextPopup.on('close', () => {
             parkingPopupModeRef.current.delete(id);
           });
@@ -1184,6 +1154,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             buildPopup: buildParkingPopupForBind,
             onAction: handleGoToParking,
             modeRef: parkingPopupModeRef,
+            onModeChange: (mode) => setParkingMarkerInverted(markerEl, markerInner, mode === 'info'),
           });
           marker.setPopup(nextPopup);
         }
@@ -1502,54 +1473,19 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   >
     {/* KM (texte simple, disparaît quand panel ouvert) */}
     <span
-      ref={kmValueRef}
-      className={`block leading-tight font-semibold transition-opacity duration-200 ${
-        showRadiusPicker || kmFloatVisible ? 'absolute opacity-0 pointer-events-none' : 'relative'
-      } ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+      className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
     >
       {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
     </span>
 
-    {/* PRIX (texte simple, monte légèrement) */}
+    {/* PRIX */}
     <span
-      ref={priceValueRef}
-      className={`block leading-tight font-semibold transition-transform duration-300 ease-out ${
-        isDark ? 'text-slate-50' : 'text-slate-900'
-      }`}
-      style={{
-        transform: showRadiusPicker
-          ? 'translate3d(0,-4px,0)'
-          : 'translate3d(0,0,0)',
-      }}
+      className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
     >
       {priceMax == null ? anyLabel : `≤ ${formatEuro(priceMax)} €`}
     </span>
   </button>
 </div>
-        {kmFloatVisible && kmFloatPos ? (
-          <div
-            className="fixed z-[200] pointer-events-none will-change-transform"
-            style={{
-              top: kmFloatPos.top,
-              left: kmFloatPos.left,
-              transform: `translate3d(${kmShift.x}px, ${kmShift.y}px, 0)`,
-              transition: 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)',
-            }}
-            onTransitionEnd={() => {
-              if (!showRadiusPicker) setKmFloatVisible(false);
-            }}
-          >
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full border shadow-sm text-sm font-semibold ${
-                isDark
-                  ? 'bg-slate-800/80 border-white/10 text-slate-50'
-                  : 'bg-white/70 border-white/60 text-slate-900'
-              }`}
-            >
-              {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
-            </span>
-          </div>
-        ) : null}
       </div>
     </div>
   );

@@ -1,11 +1,42 @@
 // src/components/PublicParkingPopups.jsx
+
+// --- Helpers (réutilisés ou adaptés) ---
+
+const toRgba = (hex, alpha) => {
+  if (typeof hex !== 'string') return `rgba(0,0,0,${alpha})`;
+  const raw = hex.replace('#', '');
+  if (raw.length === 3) {
+    const r = parseInt(raw[0] + raw[0], 16);
+    const g = parseInt(raw[1] + raw[1], 16);
+    const b = parseInt(raw[2] + raw[2], 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (raw.length === 6) {
+    const r = parseInt(raw.slice(0, 2), 16);
+    const g = parseInt(raw.slice(2, 4), 16);
+    const b = parseInt(raw.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return hex;
+};
+
+const getContrastText = (hex) => {
+  if (typeof hex !== 'string') return '#0b1220';
+  const raw = hex.replace('#', '');
+  if (raw.length !== 6) return '#0b1220';
+  const r = parseInt(raw.slice(0, 2), 16) / 255;
+  const g = parseInt(raw.slice(2, 4), 16) / 255;
+  const b = parseInt(raw.slice(4, 6), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.6 ? '#0b1220' : '#ffffff';
+};
+
 const formatDistance = (meters) => {
   const n = Number(meters);
   if (!Number.isFinite(n)) return null;
   if (n < 1000) return `${Math.round(n)} m`;
   const km = n / 1000;
-  const rounded = km < 10 ? km.toFixed(1) : km.toFixed(0);
-  return `${rounded} km`;
+  return `${km < 10 ? km.toFixed(1) : km.toFixed(0)} km`;
 };
 
 const formatEuro = (value) => {
@@ -20,9 +51,9 @@ const formatHeight = (heightCm) => {
   if (cm >= 100) {
     const meters = cm / 100;
     const display = meters % 1 === 0 ? meters.toFixed(0) : meters.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-    return `${display} m`;
+    return `${display}m`;
   }
-  return `${Math.round(cm)} cm`;
+  return `${Math.round(cm)}cm`;
 };
 
 const formatCount = (value) => {
@@ -31,211 +62,207 @@ const formatCount = (value) => {
   return Math.round(n);
 };
 
-const buildChip = (text, styles) => `
+// --- Composants internes HTML ---
+
+const buildMiniChip = (text, isDark, accent) => `
   <span style="
     display:inline-flex;
     align-items:center;
-    padding:5px 10px;
-    border-radius:999px;
+    padding:3px 8px;
+    border-radius:6px;
     font-size:11px;
     font-weight:700;
     line-height:1;
-    letter-spacing:-0.01em;
-    color:${styles.color};
-    background:${styles.bg};
-    border:1px solid ${styles.border};
+    color:${isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)'};
+    background:${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)'};
     white-space:nowrap;
   ">${text}</span>
 `;
 
-const buildPublicParkingModel = (t, isDark, parking) => {
-  const name = parking?.name || t('publicParking', { defaultValue: 'Public parking' });
+// --- Core Builder ---
 
+const buildPublicParkingModel = (t, isDark, parking) => {
+  const name = parking?.name || t('publicParking', { defaultValue: 'Parking Public' });
+  
+  // Data formatting
   const distanceLabel = formatDistance(parking?.distanceMeters);
   const heightLabel = formatHeight(parking?.heightMaxCm);
-  const totalPlaces = formatCount(parking?.nbPlaces);
-  const pmrPlaces = formatCount(parking?.nbPmr);
-  const evPlaces = formatCount(parking?.nbEv);
-
-  const price1h = formatEuro(parking?.tarif1h);
-
-  // ---- theme tokens (Apple-like glass) ----
-  const cardBg = isDark ? '#0f172a' : '#ffffff';
-  const cardBorder = isDark ? '1px solid rgba(255,255,255,0.10)' : '1px solid rgba(15,23,42,0.10)';
+  const placesLabel = formatCount(parking?.nbPlaces);
+  const priceVal = formatEuro(parking?.tarif1h);
+  
+  // Colors & Theme (Matching SpotPopups logic)
+  // Blue accent for public parking typically
+  const accent = '#3b82f6'; 
+  
+  const bg = isDark ? 'rgba(12,16,24,0.95)' : 'rgba(255,255,255,0.95)';
   const shadow = isDark
     ? '0 18px 50px rgba(0,0,0,0.55)'
     : '0 22px 60px rgba(15,23,42,0.18)';
 
   const text = isDark ? '#EAF0FF' : '#0B1220';
-  const muted = isDark ? 'rgba(234,240,255,0.62)' : 'rgba(11,18,32,0.55)';
+  const sub = isDark ? 'rgba(234,240,255,0.60)' : 'rgba(11,18,32,0.55)';
 
-  const pillBg = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.06)';
-  const pillBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.10)';
+  const accentSoft = toRgba(accent, isDark ? 0.22 : 0.16);
+  const accentBorder = toRgba(accent, isDark ? 0.45 : 0.3);
+  const accentGlow = toRgba(accent, isDark ? 0.35 : 0.25);
+  const priceColor = accent; // Or use text color if you prefer contrast
 
-  const accent = '#2563eb';
-  const chipBase = {
-    color: text,
-    bg: pillBg,
-    border: pillBorder,
-  };
-  const chipAccent = {
-    color: accent,
-    bg: isDark ? 'rgba(37,99,235,0.20)' : 'rgba(37,99,235,0.12)',
-    border: isDark ? 'rgba(37,99,235,0.40)' : 'rgba(37,99,235,0.22)',
-  };
-
-  // ---- build chips (meta) ----
-  const metaChips = [];
-  const distanceChip = distanceLabel ? buildChip(distanceLabel, chipAccent) : null;
-
-  const specChips = [];
-  if (heightLabel) specChips.push(buildChip(`${t('height', { defaultValue: 'Height' })} ${heightLabel}`, chipBase));
-  if (totalPlaces != null) specChips.push(buildChip(`${t('places', { defaultValue: 'Places' })} ${totalPlaces}`, chipBase));
-  if (pmrPlaces != null) specChips.push(buildChip(`PMR ${pmrPlaces}`, chipBase));
-  if (evPlaces != null) specChips.push(buildChip(`EV ${evPlaces}`, chipBase));
-
-  // ---- first hour price ----
-  const priceBlock =
-    price1h != null
-      ? `
-      <div style="margin-top: 10px;">
-        <div style="
-          padding: 10px 14px;
-          border-radius: 16px;
-          background: linear-gradient(135deg, rgba(37,99,235,0.98), rgba(59,130,246,0.82));
-          color: #ffffff;
-          font-weight: 900;
-          font-size: 18px;
-          letter-spacing: -0.02em;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          box-shadow: 0 18px 36px -18px rgba(37,99,235,0.6);
-        ">
-          <span>${price1h}€ / h</span>
-        </div>
-      </div>
-      `
-      : `
-      <div style="
-        margin-top: 10px;
-        padding: 10px 12px;
-        border-radius: 16px;
-        background: ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.04)'};
-        border: 1px solid ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(15,23,42,0.08)'};
-        color: ${muted};
-        font-size: 12px;
-        font-weight: 700;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-      ">
-        ${t('pricesUnavailable', { defaultValue: 'Prices unavailable' })}
-      </div>
-      `;
+  // Bottom Metadata (Height, Places, etc.)
+  const metas = [];
+  if (heightLabel) metas.push(`Max ${heightLabel}`);
+  if (placesLabel) metas.push(`${placesLabel} pl.`);
+  // Add more if needed (PMR, EV)
 
   return {
     name,
-    cardBg,
-    cardBorder,
-    shadow,
-    text,
-    muted,
-    priceBlock,
-    metaChips,
-    specChips,
-    distanceChip,
+    priceVal,
+    distanceLabel,
+    metas,
+    styles: {
+      bg, shadow, text, sub, accent, accentSoft, accentBorder, accentGlow, priceColor
+    }
   };
 };
 
-const buildPublicParkingBodyHTML = (model) => `
-  <!-- header (name) -->
-  <div style="padding: 2px 2px 0; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+const buildPublicParkingInnerHTML = (model, isDark) => {
+  const { name, priceVal, distanceLabel, metas, styles } = model;
+  
+  const priceDisplay = priceVal 
+    ? `${priceVal} €<span style="font-size:16px; font-weight:600; opacity:0.6; margin-left:4px;">/h</span>`
+    : '<span style="font-size:20px; opacity:0.5;">-- €</span>';
+
+  const metaHtml = metas.map(m => buildMiniChip(m, isDark, styles.accent)).join('<div style="width:4px"></div>');
+
+  return `
     <div style="
-      font-weight: 850;
-      font-size: 14px;
-      letter-spacing: -0.02em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      min-width: 0;
-    ">${model.name}</div>
-    ${model.distanceChip ? `<div style="flex-shrink:0;">${model.distanceChip}</div>` : ''}
-  </div>
+      padding: 10px 14px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    ">
+      <div style="
+        font-size: 12px;
+        font-weight: 600;
+        color: ${styles.sub};
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 70%;
+      ">
+        ${name}
+      </div>
+      ${distanceLabel ? `
+        <div style="
+          font-size: 11px;
+          font-weight: 700;
+          color: ${styles.accent};
+          background: ${styles.accentSoft};
+          padding: 2px 6px;
+          border-radius: 6px;
+        ">${distanceLabel}</div>
+      ` : ''}
+    </div>
 
-  <!-- meta chips -->
-  ${
-    model.metaChips.length
-      ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${model.metaChips.join('')}</div>`
-      : ''
-  }
+    <div style="
+      padding: 6px 14px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px; 
+    ">
+      <div style="
+        font-size: 34px;
+        font-weight: 900;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        color: ${styles.priceColor};
+        display: flex; 
+        align-items: baseline;
+      ">
+        ${priceDisplay}
+      </div>
+    </div>
 
-  <!-- price range -->
-  ${model.priceBlock}
+    <div style="
+      height: 1px;
+      background: ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'};
+      margin: 0 14px;
+    "></div>
 
-  <!-- specs -->
-  ${
-    model.specChips.length
-      ? `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">${model.specChips.join('')}</div>`
-      : ''
-  }
-`;
+    <div style="
+      padding: 10px 14px 12px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    ">
+      ${metaHtml || `<span style="font-size:12px; color:${styles.sub};">Information indisponible</span>`}
+    </div>
+  `;
+};
+
+// --- Exports ---
 
 export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
   const model = buildPublicParkingModel(t, isDark, parking);
-  const body = buildPublicParkingBodyHTML(model);
+  const inner = buildPublicParkingInnerHTML(model, isDark);
+  const s = model.styles;
+
   return `
-    <div data-parking-popup-root="info" data-spot-popup-root="info" style="
-      font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'SF Pro Text', Inter, sans-serif;
-      min-width: 260px;
-      color: ${model.text};
+    <div style="
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      min-width: 240px;
+      color: ${s.text};
       -webkit-font-smoothing: antialiased;
-      cursor: pointer;
-      pointer-events: auto;
     ">
-      <div style="
-        padding: 12px 12px 12px;
+      <div data-parking-popup-root="info" style="
         border-radius: 24px;
-        background: ${model.cardBg};
-        border: ${model.cardBorder};
-        box-shadow: ${model.shadow};
+        background: linear-gradient(145deg, ${s.accentSoft} 0%, rgba(0,0,0,0) 58%), ${s.bg};
+        border: 1px solid ${s.accentBorder};
+        box-shadow: ${s.shadow}, 0 0 0 1px ${s.accentBorder}, 0 14px 34px -22px ${s.accentGlow};
         backdrop-filter: blur(22px) saturate(170%);
         -webkit-backdrop-filter: blur(22px) saturate(170%);
+        cursor: pointer;
       ">
-        ${body}
+        ${inner}
       </div>
     </div>
   `;
 };
 
-export const buildPublicParkingActionPopupHTML = (t, isDark, parking, label = 'Y aller') => {
+export const buildPublicParkingActionPopupHTML = (t, isDark, parking, labelOverride = null) => {
   const model = buildPublicParkingModel(t, isDark, parking);
-  const body = buildPublicParkingBodyHTML(model);
-  const accent = '#2563eb';
-  const buttonBg = `linear-gradient(135deg, ${accent} 0%, rgba(37,99,235,0.78) 100%)`;
+  const inner = buildPublicParkingInnerHTML(model, isDark);
+  const s = model.styles;
+
+  const label = labelOverride || t('navigate', { defaultValue: 'Y aller' });
+  const buttonText = getContrastText(s.accent);
+  const buttonBg = `linear-gradient(135deg, ${s.accent} 0%, ${toRgba(s.accent, 0.8)} 100%)`;
+
   return `
-    <div data-parking-popup-root="action" data-spot-popup-root="action" style="
-      font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Display', 'SF Pro Text', Inter, sans-serif;
-      min-width: 260px;
-      color: ${model.text};
+    <div style="
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      min-width: 240px; 
+      /* Fixe la width pour éviter le layout shift entre info et action */
+      width: max-content;
       -webkit-font-smoothing: antialiased;
-      pointer-events: auto;
     ">
-      <div style="
-        position: relative;
-        padding: 12px 12px 12px;
+      <div data-parking-popup-root="action" style="
         border-radius: 24px;
-        background: ${model.cardBg};
-        border: ${model.cardBorder};
-        box-shadow: ${model.shadow};
+        background: linear-gradient(145deg, ${s.accentSoft} 0%, rgba(0,0,0,0) 58%), ${s.bg};
+        border: 1px solid ${s.accentBorder};
+        box-shadow: 0 18px 50px rgba(0,0,0,0.4), 0 0 0 1px ${s.accentBorder}, 0 14px 34px -22px ${s.accentGlow};
         backdrop-filter: blur(22px) saturate(170%);
         -webkit-backdrop-filter: blur(22px) saturate(170%);
+        position: relative;
         overflow: hidden;
       ">
         <div style="visibility: hidden;">
-          ${body}
+          ${inner}
         </div>
-        <button data-spot-popup-action type="button" style="
+
+        <button data-parking-popup-action type="button" style="
           position: absolute;
           inset: 0;
           width: 100%;
@@ -245,7 +272,7 @@ export const buildPublicParkingActionPopupHTML = (t, isDark, parking, label = 'Y
           outline: none;
           cursor: pointer;
           background: ${buttonBg};
-          color: #ffffff;
+          color: ${buttonText};
           font-size: 18px;
           font-weight: 800;
           letter-spacing: -0.01em;
@@ -253,9 +280,7 @@ export const buildPublicParkingActionPopupHTML = (t, isDark, parking, label = 'Y
           align-items: center;
           justify-content: center;
           white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          box-shadow: 0 18px 40px -22px rgba(37,99,235,0.6);
+          box-shadow: 0 18px 40px -22px ${s.accentGlow};
         ">
           ${label}
         </button>

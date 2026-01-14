@@ -1081,11 +1081,12 @@ export default function ParkSwapApp() {
 	  }, [myActiveSpot?.id, myActiveSpot?.status, myActiveSpot?.createdAt, myActiveSpot?.time]);
 
 	  // Restore selected spot (itinerary) from persisted state or current booking
-	  useEffect(() => {
-	    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
-	    // First priority: persisted selection with a spotId
-	    if (selectionSnapshot?.spotId) {
-	      const match = findSpotById(selectionSnapshot.spotId);
+  useEffect(() => {
+    if (selectedSearchSpot?.isPublicParking) return;
+    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
+    // First priority: persisted selection with a spotId
+    if (selectionSnapshot?.spotId) {
+      const match = findSpotById(selectionSnapshot.spotId);
 	      const patched =
 	        match && selectionSnapshot.bookingSessionId
 	          ? { ...match, bookingSessionId: selectionSnapshot.bookingSessionId }

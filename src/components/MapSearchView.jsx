@@ -13,6 +13,7 @@ import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
 import { newId } from '../utils/ids';
 import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
+import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
 import {
   CARD_COLOR_SALT,
   colorForSpot,
@@ -363,6 +364,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       isPublicParking: true,
       autoStartNav: true,
     };
+    onSelectionStep?.('selected', parkingSpot, { mapOnly: true });
     setSelectedSpot?.(parkingSpot);
   };
 
@@ -543,30 +545,77 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       }
       return;
     }
-    const root = el.querySelector('[data-spot-popup-root]');
+    const content = el.querySelector('.mapboxgl-popup-content');
+    if (!content) {
+      if (!popup.__bindOnOpen) {
+        popup.__bindOnOpen = true;
+        popup.once('open', () => {
+          popup.__bindOnOpen = false;
+          bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
+        });
+      }
+      return;
+    }
+    content.style.pointerEvents = 'auto';
+    const root = content.querySelector('[data-spot-popup-root],[data-parking-popup-root]');
     if (onModeChange) {
       const currentMode = modeRef.current.get(spotId) || 'info';
       onModeChange(currentMode);
     }
-    if (root && root.getAttribute('data-spot-popup-root') === 'info') {
-      root.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (modeRef.current.get(spotId) === 'action') return;
-        modeRef.current.set(spotId, 'action');
-        if (onModeChange) onModeChange('action');
-        const nextHtml = buildPopup(spot, accentColor, 'action');
-        popup.setHTML(nextHtml);
-        bindSpotPopupHandlers(popup, spotId, spot, accentColor, options);
+
+    popup.__popupHandlerState = {
+      spotId,
+      spot,
+      accentColor,
+      buildPopup,
+      onAction,
+      modeRef,
+      onModeChange,
+    };
+
+    if (content && !popup.__popupDelegatedHandler) {
+      popup.__popupDelegatedHandler = (event) => {
+        const state = popup.__popupHandlerState;
+        if (!state) return;
+        const target = event?.target instanceof Element ? event.target : null;
+        if (!target) return;
+
+        const actionEl = target.closest('[data-spot-popup-action],[data-parking-popup-action]');
+        if (actionEl) {
+          event.preventDefault();
+          event.stopPropagation();
+          state.onAction?.(state.spot);
+          return;
+        }
+
+        const rootEl = target.closest('[data-spot-popup-root],[data-parking-popup-root]');
+        if (!rootEl) return;
+        const rootMode =
+          rootEl.getAttribute('data-spot-popup-root') || rootEl.getAttribute('data-parking-popup-root');
+        if (rootMode === 'info') {
+          event.preventDefault();
+          event.stopPropagation();
+          if (state.modeRef.current.get(state.spotId) === 'action') return;
+          state.modeRef.current.set(state.spotId, 'action');
+          state.onModeChange?.('action');
+          const nextHtml = state.buildPopup(state.spot, state.accentColor, 'action');
+          popup.setHTML(nextHtml);
+          bindSpotPopupHandlers(popup, state.spotId, state.spot, state.accentColor, options);
+          return;
+        }
+
+        const isParkingRoot = rootEl.hasAttribute?.('data-parking-popup-root');
+        if (rootMode === 'action' && isParkingRoot) {
+          event.preventDefault();
+          event.stopPropagation();
+          state.onAction?.(state.spot);
+        }
       };
+      content.addEventListener('click', popup.__popupDelegatedHandler);
     }
-    const actionBtn = el.querySelector('[data-spot-popup-action]');
-    if (actionBtn) {
-      actionBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onAction(spot);
-      };
+
+    if (root) {
+      root.style.pointerEvents = 'auto';
     }
   };
 
@@ -851,7 +900,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
     mapRef.current = map;
 
-    const handleStyleLoad = () => applyDayNightPreset(map);
+    const handleStyleLoad = () => {
+      applyDayNightPreset(map);
+      patchSizerankInStyle(map);
+    };
     const handleLoad = () => {
       setMapLoaded(true);
       map.resize();

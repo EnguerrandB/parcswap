@@ -1217,6 +1217,7 @@ const SearchView = ({
       isPublicParking: true,
       autoStartNav: true,
     };
+    onSelectionStep?.('selected', parkingSpot, { mapOnly: true });
     setSelectedSpot(parkingSpot);
   };
 

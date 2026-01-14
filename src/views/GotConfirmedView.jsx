@@ -10,6 +10,7 @@ import { appId, db } from '../firebase';
 import PremiumParksDeltaToast from '../components/PremiumParksDeltaToast';
 import BottomNav from '../components/BottomNav';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
+import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
@@ -457,10 +458,12 @@ const GotConfirmedView = ({
 
       const handleLoad = () => {
         applyDayNightPreset(map);
+        patchSizerankInStyle(map);
         markReady(map);
       };
       const handleStyleLoad = () => {
         applyDayNightPreset(map);
+        patchSizerankInStyle(map);
         markReady(map);
       };
 

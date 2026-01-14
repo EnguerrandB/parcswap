@@ -17,6 +17,7 @@ import userCar4 from '../assets/user-car-4.png';
 import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
+import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
 
 // --- Helpers ---
 const PERSISTENT_MAP_KEY = 'main-map';
@@ -919,6 +920,7 @@ useEffect(() => {
 
     const handleStyleLoad = () => {
       applyDayNightPreset(map);
+      patchSizerankInStyle(map);
       const last = lastRainCheckRef.current?.isRaining;
       if (last === true) enableRainEffect(map);
       add3DBuildings();

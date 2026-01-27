@@ -327,6 +327,8 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     if (bookRes && bookRes.ok === false) {
       if (bookRes.code === 'no_premium_parks') {
         showPremiumToast();
+      } else if (bookRes.code === 'insufficient_funds') {
+        setActionToast(t('walletInsufficient', { defaultValue: 'Insufficient wallet balance.' }));
       } else if (bookRes.code === 'spot_not_available') {
         setActionToast(t('spotNotAvailable', { defaultValue: 'Spot no longer available.' }));
       } else {

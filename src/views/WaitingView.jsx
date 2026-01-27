@@ -42,10 +42,12 @@ const WaitingView = ({
     animationFillMode: 'forwards',
   };
   const bookerAccepted = !!myActiveSpot?.bookerAccepted;
-  const isReservedPendingAccept = !!myActiveSpot && myActiveSpot.status === 'booked' && !bookerAccepted;
+  const bookerStartedNav = !!myActiveSpot?.navOpId || !!myActiveSpot?.navOpAt;
+  const isReservedPendingAccept = !!myActiveSpot && myActiveSpot.status === 'booked' && !bookerStartedNav;
   const isExpired = !!myActiveSpot && !optimisticRenew && (
     myActiveSpot.status === 'expired' || (remainingMs !== null && remainingMs <= 0)
   );
+  const isWaitingForAccept = !!myActiveSpot && !isExpired && (!myActiveSpot.status || myActiveSpot.status === 'available');
 
   // Prevent background scrolling while waiting overlay is shown
   useEffect(() => {
@@ -102,11 +104,6 @@ const WaitingView = ({
   }, [optimisticRenew]);
 
   useEffect(() => {
-    const isWaitingForAccept =
-      !!myActiveSpot &&
-      myActiveSpot.status === 'available' &&
-      myActiveSpot.status !== 'expired';
-
     if (!isWaitingForAccept) {
       setShowAd(false);
       hasScheduledAdRef.current = false;
@@ -130,8 +127,9 @@ const WaitingView = ({
         window.clearTimeout(adTimerRef.current);
         adTimerRef.current = null;
       }
+      hasScheduledAdRef.current = false;
     };
-  }, [myActiveSpot?.id, myActiveSpot?.status]);
+  }, [myActiveSpot?.id, myActiveSpot?.status, isWaitingForAccept]);
 
   useEffect(() => {
     if (remainingMs != null && remainingMs <= 0) {
@@ -200,13 +198,11 @@ const WaitingView = ({
   // Subscribe to booker's live position (for host view)
   useEffect(() => {
     if (!myActiveSpot?.bookerId) return undefined;
-    console.log('[WaitingView] subscribing to booker location', myActiveSpot.bookerId);
     const userLocRef = doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', myActiveSpot.bookerId);
     const unsub = onSnapshot(
       userLocRef,
       (snap) => {
         if (!snap.exists()) {
-          console.log('[WaitingView] booker location missing');
           setBookerCoords(null);
           return;
         }
@@ -214,12 +210,11 @@ const WaitingView = ({
         const lng = Number(data.lng);
         const lat = Number(data.lat);
         if (isValidCoord(lng, lat)) {
-          console.log('[WaitingView] booker location update', { lng, lat, updatedAt: data.updatedAt?.toDate?.() });
           setBookerCoords({ lng, lat });
           setBookerLastSeen(data.updatedAt?.toDate?.() || null);
         }
       },
-      (err) => console.error('Error subscribing to booker location', err),
+      (err) => console.error('[WaitingView] Error subscribing to booker location:', err),
     );
     return () => unsub();
   }, [myActiveSpot?.bookerId]);
@@ -231,7 +226,7 @@ const WaitingView = ({
         ? getDistanceFromLatLonInKm(myActiveSpot.lat, myActiveSpot.lng, bookerCoords.lat, bookerCoords.lng)
         : null;
 
-      if (!bookerAccepted) {
+      if (!bookerStartedNav) {
         return <GotSelectedView spot={myActiveSpot} onCancel={onCancel} />;
       }
 

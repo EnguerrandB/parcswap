@@ -40,6 +40,7 @@ const ProfileView = ({
   openAddVehicleRequestId = 0,
   highlightVehiclesRequestId = 0,
   onAddWallet,
+  walletPending = false,
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
@@ -417,9 +418,22 @@ const ProfileView = ({
                 {t('wallet', { defaultValue: 'Wallet' })}
               </span>
             </div>
-            <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
-              {formatWallet(walletDisplay)}
-            </span>
+            <div className="flex flex-col items-end gap-1">
+              <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
+                {formatWallet(walletDisplay)}
+              </span>
+              {walletPending ? (
+                <span
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                    isDark
+                      ? 'text-amber-200 bg-amber-500/20 border-amber-400/30'
+                      : 'text-amber-700 bg-amber-50 border-amber-200'
+                  }`}
+                >
+                  {t('walletPendingShort', { defaultValue: 'En attente' })}
+                </span>
+              ) : null}
+            </div>
           </button>
 	        </div>
 	      </div>
@@ -669,6 +683,11 @@ const ProfileView = ({
                   <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
                     {formatWallet(walletDisplay)}
                   </div>
+                  {walletPending ? (
+                    <div className={`text-xs font-semibold ${isDark ? 'text-amber-200' : 'text-amber-600'}`}>
+                      {t('walletPendingLong', { defaultValue: 'En attente de confirmation' })}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

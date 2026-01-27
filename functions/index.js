@@ -28,8 +28,19 @@ const stripe = stripeSecret
     })
   : null;
 
+const WALLET_VERSION = 1;
+const WALLET_AVAILABLE_FIELD = 'walletAvailableCents';
+const WALLET_RESERVED_FIELD = 'walletReservedCents';
+const WALLET_LEGACY_FIELD = 'wallet';
+const PREMIUM_PARKS_MAX = 5;
+
 const getUserRef = (uid) =>
   admin.firestore().doc(`artifacts/${projectId}/public/data/users/${uid}`);
+
+const buildWalletLedgerRef = (id) =>
+  admin.firestore().doc(`artifacts/${projectId}/public/data/walletLedger/${id}`);
+
+const makeId = () => admin.firestore().collection('_').doc().id;
 
 const normalizeReturnUrl = (value) => {
   if (!value) return '';
@@ -53,6 +64,65 @@ const parseAmountToCents = (value) => {
   return rounded;
 };
 
+const parsePriceToCents = (value) => {
+  const raw = typeof value === 'string' ? value.replace(',', '.') : value;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount)) return null;
+  return Math.round(amount * 100);
+};
+
+const normalizeWalletCents = (data = {}) => {
+  const availableRaw = Number(data?.[WALLET_AVAILABLE_FIELD]);
+  const reservedRaw = Number(data?.[WALLET_RESERVED_FIELD]);
+  const legacyRaw = Number(data?.[WALLET_LEGACY_FIELD]);
+
+  let available = Number.isFinite(availableRaw) ? Math.round(availableRaw) : null;
+  let reserved = Number.isFinite(reservedRaw) ? Math.round(reservedRaw) : null;
+  const legacy = Number.isFinite(legacyRaw) ? Math.round(legacyRaw * 100) : null;
+
+  let migrated = false;
+  if (available == null) {
+    available = legacy != null ? legacy : 0;
+    migrated = true;
+  }
+  if (reserved == null) {
+    reserved = 0;
+    migrated = true;
+  }
+  if (Number.isFinite(availableRaw) && availableRaw < 0) migrated = true;
+  if (Number.isFinite(reservedRaw) && reservedRaw < 0) migrated = true;
+
+  available = Math.max(0, available);
+  reserved = Math.max(0, reserved);
+
+  return { available, reserved, migrated };
+};
+
+const ensureWalletFields = (tx, userRef, data) => {
+  const normalized = normalizeWalletCents(data);
+  if (normalized.migrated) {
+    tx.set(
+      userRef,
+      {
+        [WALLET_AVAILABLE_FIELD]: normalized.available,
+        [WALLET_RESERVED_FIELD]: normalized.reserved,
+        walletVersion: WALLET_VERSION,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+  return normalized;
+};
+
+const getSafeBookerName = (value) => {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed || 'Seeker';
+};
+
+const buildHttpsError = (status, code) =>
+  new functions.https.HttpsError(status, code, { code });
+
 const buildReturnUrl = (baseUrl, params = {}) => {
   const normalized = normalizeReturnUrl(baseUrl) || stripeReturnUrl;
   if (!normalized) return '';
@@ -72,6 +142,202 @@ const computeFeeCents = (amountCents) => {
   const feeCents = Math.max(0, totalCents - amountCents);
   return { feeCents, totalCents };
 };
+
+exports.bookSpotSecure = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Authentication required.');
+  }
+
+  const uid = context.auth.uid;
+  const spotId = typeof data?.spotId === 'string' ? data.spotId.trim() : '';
+  if (!spotId) {
+    throw buildHttpsError('invalid-argument', 'spot_missing');
+  }
+
+  const requestedSessionId =
+    typeof data?.bookingSessionId === 'string' && data.bookingSessionId
+      ? data.bookingSessionId
+      : null;
+  const requestedBookOpId =
+    typeof data?.bookOpId === 'string' && data.bookOpId
+      ? data.bookOpId
+      : null;
+  const bookingSessionId = requestedSessionId || makeId();
+  const bookOpId = requestedBookOpId || bookingSessionId;
+
+  const bookerName = getSafeBookerName(data?.bookerName);
+  const bookerVehiclePlate =
+    typeof data?.bookerVehiclePlate === 'string' ? data.bookerVehiclePlate : null;
+  const bookerVehicleId =
+    typeof data?.bookerVehicleId === 'string' ? data.bookerVehicleId : null;
+
+  const spotRef = admin.firestore().doc(`artifacts/${projectId}/public/data/spots/${spotId}`);
+  const bookerRef = getUserRef(uid);
+
+  const result = await admin.firestore().runTransaction(async (tx) => {
+    const spotSnap = await tx.get(spotRef);
+    if (!spotSnap.exists) {
+      throw buildHttpsError('not-found', 'spot_missing');
+    }
+
+    const liveSpot = spotSnap.data() || {};
+    const status = liveSpot.status;
+    const liveSessionId =
+      typeof liveSpot.bookingSessionId === 'string' ? liveSpot.bookingSessionId : null;
+    const liveBookOpId = typeof liveSpot.bookOpId === 'string' ? liveSpot.bookOpId : null;
+
+    if (status && status !== 'available') {
+      if (
+        status === 'booked' &&
+        liveSpot.bookerId === uid &&
+        liveSessionId === bookingSessionId &&
+        liveBookOpId === bookOpId
+      ) {
+        const priceCents = parsePriceToCents(liveSpot?.price);
+        const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
+        return {
+          ok: true,
+          isFree: amountCents <= 0,
+          bookingSessionId: liveSessionId,
+          alreadyBooked: true,
+          hostId: liveSpot.hostId || null,
+        };
+      }
+      throw buildHttpsError('failed-precondition', 'spot_not_available');
+    }
+
+    const priceCents = parsePriceToCents(liveSpot?.price);
+    const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
+    const isFree = amountCents <= 0;
+    const hostId = liveSpot.hostId || null;
+    const hostRef = hostId ? getUserRef(hostId) : null;
+
+    const bookerSnap = await tx.get(bookerRef);
+    const bookerData = bookerSnap.exists ? bookerSnap.data() : {};
+    const { available: bookerAvailable } = ensureWalletFields(tx, bookerRef, bookerData);
+
+    if (isFree) {
+      const currentHeartsRaw = Number(bookerData?.premiumParks);
+      const currentHearts = Number.isFinite(currentHeartsRaw) ? currentHeartsRaw : PREMIUM_PARKS_MAX;
+      if (currentHearts <= 0) {
+        throw buildHttpsError('failed-precondition', 'no_premium_parks');
+      }
+    }
+
+    if (amountCents > 0) {
+      if (bookerAvailable < amountCents) {
+        throw buildHttpsError('failed-precondition', 'insufficient_funds');
+      }
+
+      const nextBookerAvailable = bookerAvailable - amountCents;
+      tx.set(
+        bookerRef,
+        {
+          [WALLET_AVAILABLE_FIELD]: nextBookerAvailable,
+          walletVersion: WALLET_VERSION,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          [WALLET_LEGACY_FIELD]: nextBookerAvailable / 100,
+        },
+        { merge: true },
+      );
+
+      if (hostRef && hostId !== uid) {
+        const hostSnap = await tx.get(hostRef);
+        const hostData = hostSnap.exists ? hostSnap.data() : {};
+        const { available: hostAvailable } = ensureWalletFields(tx, hostRef, hostData);
+        const nextHostAvailable = hostAvailable + amountCents;
+        tx.set(
+          hostRef,
+          {
+            [WALLET_AVAILABLE_FIELD]: nextHostAvailable,
+            walletVersion: WALLET_VERSION,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            [WALLET_LEGACY_FIELD]: nextHostAvailable / 100,
+          },
+          { merge: true },
+        );
+
+        const hostLedgerId = `booking_${spotId}_${bookingSessionId}_${hostId}_credit`;
+        tx.set(
+          buildWalletLedgerRef(hostLedgerId),
+          {
+            uid: hostId,
+            spotId,
+            bookingSessionId,
+            type: 'booking_credit',
+            amountCents,
+            balanceAfterCents: nextHostAvailable,
+            counterpartyUid: uid,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      const bookerLedgerId = `booking_${spotId}_${bookingSessionId}_${uid}_debit`;
+      tx.set(
+        buildWalletLedgerRef(bookerLedgerId),
+        {
+          uid,
+          spotId,
+          bookingSessionId,
+          type: 'booking_debit',
+          amountCents,
+          balanceAfterCents: nextBookerAvailable,
+          counterpartyUid: hostId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+
+    tx.update(spotRef, {
+      status: 'booked',
+      bookingSessionId,
+      bookedAt: admin.firestore.FieldValue.serverTimestamp(),
+      bookOpId,
+      bookOpAt: admin.firestore.FieldValue.serverTimestamp(),
+      bookerId: uid,
+      bookerName,
+      bookerAccepted: false,
+      bookerAcceptedAt: null,
+      navOpId: null,
+      navOpAt: null,
+      bookerVehiclePlate: bookerVehiclePlate || null,
+      bookerVehicleId: bookerVehicleId || null,
+      premiumParksAppliedAt: null,
+      premiumParksAppliedBy: null,
+      premiumParksBookerDelta: null,
+      premiumParksBookerAfter: null,
+      premiumParksHostDelta: null,
+      premiumParksHostAfter: null,
+      hostVerifiedBookerPlate: false,
+      hostVerifiedBookerPlateAt: null,
+      hostConfirmedBookerPlate: null,
+      hostConfirmedBookerPlateNorm: null,
+      bookerVerifiedHostPlate: false,
+      bookerVerifiedHostPlateAt: null,
+      bookerConfirmedHostPlate: null,
+      bookerConfirmedHostPlateNorm: null,
+      plateConfirmed: false,
+      completedAt: null,
+      cancelledAt: null,
+      cancelledBy: null,
+      cancelledByRole: null,
+      cancelledFor: null,
+      cancelledForName: null,
+    });
+
+    return {
+      ok: true,
+      isFree,
+      bookingSessionId,
+      hostId,
+    };
+  });
+
+  return result;
+});
 
 exports.createKycSession = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -241,6 +507,14 @@ exports.stripeIdentityWebhook = functions.https.onRequest(async (req, res) => {
     await admin.firestore().runTransaction(async (tx) => {
       const existing = await tx.get(topupRef);
       if (existing.exists) return;
+      const userSnap = await tx.get(userRef);
+      const userData = userSnap.exists ? userSnap.data() : {};
+      const { available: currentAvailable, reserved: currentReserved } = ensureWalletFields(
+        tx,
+        userRef,
+        userData,
+      );
+      const nextAvailable = currentAvailable + amountCents;
       tx.set(
         topupRef,
         {
@@ -259,8 +533,27 @@ exports.stripeIdentityWebhook = functions.https.onRequest(async (req, res) => {
       tx.set(
         userRef,
         {
-          wallet: admin.firestore.FieldValue.increment(amountCents / 100),
+          [WALLET_AVAILABLE_FIELD]: nextAvailable,
+          [WALLET_RESERVED_FIELD]: currentReserved,
+          walletVersion: WALLET_VERSION,
+          [WALLET_LEGACY_FIELD]: nextAvailable / 100,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      const ledgerId = `topup_${object.id}_${uid}`;
+      tx.set(
+        buildWalletLedgerRef(ledgerId),
+        {
+          uid,
+          type: 'topup',
+          amountCents,
+          balanceAfterCents: nextAvailable,
+          currency: object?.currency || 'eur',
+          sessionId: object?.id || null,
+          paymentIntentId: object?.payment_intent || null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
       );

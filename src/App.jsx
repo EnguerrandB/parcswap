@@ -30,6 +30,7 @@ import { httpsCallable } from 'firebase/functions';
 import { db, appId, auth, functions } from './firebase';
 import BottomNav from './components/BottomNav';
 import TapDebugOverlay from './components/TapDebugOverlay';
+import FirestoreDebugOverlay from './components/FirestoreDebugOverlay';
 import SearchView from './views/SearchView';
 import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
@@ -58,6 +59,43 @@ const mulberry32 = (seed) => {
     x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
+};
+
+const walletCentsFromData = (data) => {
+  const availableRaw = Number(data?.walletAvailableCents);
+  if (Number.isFinite(availableRaw)) return Math.max(0, Math.round(availableRaw));
+  const legacyRaw = Number(data?.wallet);
+  if (Number.isFinite(legacyRaw)) return Math.max(0, Math.round(legacyRaw * 100));
+  return 0;
+};
+
+const walletReservedCentsFromData = (data) => {
+  const reservedRaw = Number(data?.walletReservedCents);
+  if (Number.isFinite(reservedRaw)) return Math.max(0, Math.round(reservedRaw));
+  return 0;
+};
+
+const walletCentsToEuros = (cents) => {
+  const n = Number(cents);
+  return Number.isFinite(n) ? n / 100 : 0;
+};
+
+// --- SAFE NUMERIC HELPERS ---
+// These helpers prevent NaN/Infinity from being written to Firestore, which would cause 400 errors.
+
+const safeNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) && !Number.isNaN(n) ? n : fallback;
+};
+
+const safePrice = (value) => safeNumber(value, 0);
+
+const safeCoord = (value, fallback = 0) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || Number.isNaN(n)) return fallback;
+  // Clamp to reasonable bounds for coordinates
+  if (Math.abs(n) > 180) return fallback;
+  return n;
 };
 
 const ConfettiOverlay = ({ seedKey }) => {
@@ -312,7 +350,7 @@ export default function ParkSwapApp() {
         cancelledNoticeTimerRef.current = null;
       }
     };
-  }, []);
+  }, [i18n]);
 
   useEffect(() => {
     userUidRef.current = user?.uid || null;
@@ -490,7 +528,6 @@ export default function ParkSwapApp() {
 
   const logCurrentLocation = async (contextLabel = 'location') => {
     if (!navigator?.geolocation) {
-      console.log(`[${contextLabel}] Geolocation API not available`);
       return null;
     }
     const fallbackLocation = { lat: 48.8738, lng: 2.295 };
@@ -499,12 +536,10 @@ export default function ParkSwapApp() {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-            console.log(`[${contextLabel}] lat=${coords.lat}, lng=${coords.lng}`);
             lastKnownLocationRef.current = coords;
             resolve(coords);
           },
           (err) => {
-            console.log(`[${contextLabel}] Geolocation failed: ${err?.message || err}`);
             resolve(null);
           },
           opts,
@@ -517,10 +552,8 @@ export default function ParkSwapApp() {
     const second = await attempt({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 20_000 });
     if (second) return second;
     if (lastKnownLocationRef.current) {
-      console.log(`[${contextLabel}] Using last known location`);
       return lastKnownLocationRef.current;
     }
-    console.log(`[${contextLabel}] Falling back to default location (Arc de Triomphe)`);
     return fallbackLocation;
   };
   const [spots, setSpots] = useState([]);
@@ -542,6 +575,8 @@ export default function ParkSwapApp() {
   const [renewWave, setRenewWave] = useState(null);
   const [premiumParksDeltaToast, setPremiumParksDeltaToast] = useState(null);
   const [walletTopupToast, setWalletTopupToast] = useState('');
+  const [walletTopupPending, setWalletTopupPending] = useState(false);
+  const walletPendingBaseRef = useRef(null);
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
@@ -552,13 +587,60 @@ export default function ParkSwapApp() {
     const topup = url.searchParams.get('topup');
     if (topup === 'success') {
       setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuée'));
+      setWalletTopupPending(true);
     }
     if (topup) {
       url.searchParams.delete('topup');
       url.searchParams.delete('session_id');
       window.history.replaceState({}, document.title, url.toString());
     }
-  }, []);
+  }, [i18n]);
+
+  useEffect(() => {
+    if (!walletTopupPending) {
+      walletPendingBaseRef.current = null;
+      return;
+    }
+    if (walletPendingBaseRef.current != null) return;
+    const currentWallet = Number(user?.wallet);
+    if (Number.isFinite(currentWallet)) {
+      walletPendingBaseRef.current = currentWallet;
+    }
+  }, [walletTopupPending, user?.wallet]);
+
+  useEffect(() => {
+    if (!walletTopupPending || !user?.uid) return undefined;
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    const stopAt = window.setTimeout(() => {
+      setWalletTopupPending(false);
+    }, 90_000);
+    const unsubscribe = onSnapshot(userRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data() || {};
+      const latestWalletCents = walletCentsFromData(data);
+      const latestWallet = walletCentsToEuros(latestWalletCents);
+      const latestReservedCents = walletReservedCentsFromData(data);
+      const latestKyc = data?.kycStatus || data?.kyc?.status;
+      setUser((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev };
+        if (Number.isFinite(latestWallet)) next.wallet = latestWallet;
+        next.walletCents = latestWalletCents;
+        next.walletReservedCents = latestReservedCents;
+        if (latestKyc) next.kycStatus = latestKyc;
+        return next;
+      });
+      const base = walletPendingBaseRef.current;
+      if (Number.isFinite(base) && Number.isFinite(latestWallet) && latestWallet > base) {
+        setWalletTopupPending(false);
+        walletPendingBaseRef.current = null;
+      }
+    });
+    return () => {
+      window.clearTimeout(stopAt);
+      unsubscribe();
+    };
+  }, [walletTopupPending, user?.uid]);
 
   useEffect(() => {
     if (!walletTopupToast || !user) return;
@@ -769,12 +851,15 @@ export default function ParkSwapApp() {
       heartbeatInFlightRef.current = true;
       try {
         const coords = await logCurrentLocation('heartbeat');
-        if (cancelled || !coords || !Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) return;
+        // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
+        const safeLat = safeCoord(coords?.lat, 48.8738);
+        const safeLng = safeCoord(coords?.lng, 2.295);
+        if (cancelled || !coords) return;
         await setDoc(
           doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', user.uid),
           {
-            lat: coords.lat,
-            lng: coords.lng,
+            lat: safeLat,
+            lng: safeLng,
             displayName: user.displayName || 'User',
             updatedAt: serverTimestamp(),
           },
@@ -859,15 +944,16 @@ export default function ParkSwapApp() {
 		      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
 		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
 		      let language = i18n.language || 'en';
-          let wallet = 0;
+          let walletCents = 0;
+          let walletReservedCents = 0;
           let kycStatus = 'unverified';
 		      try {
 		        const snap = await getDoc(userRef);
 		        if (snap.exists()) {
 		          const data = snap.data();
 		          if (data?.language) language = data.language;
-              const walletValue = Number(data?.wallet);
-              if (Number.isFinite(walletValue)) wallet = walletValue;
+              walletCents = walletCentsFromData(data);
+              walletReservedCents = walletReservedCentsFromData(data);
               if (data?.kycStatus) kycStatus = data.kycStatus;
               else if (data?.kyc?.status) kycStatus = data.kyc.status;
 		        }
@@ -881,7 +967,9 @@ export default function ParkSwapApp() {
 		        phone: fbUser.phoneNumber || '',
 		        transactions: 0,
 		        premiumParks: PREMIUM_PARKS_MAX,
-            wallet,
+            wallet: walletCentsToEuros(walletCents),
+            walletCents,
+            walletReservedCents,
 		        language: language || 'en',
             kycStatus,
 		      };
@@ -931,15 +1019,16 @@ export default function ParkSwapApp() {
       const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
       const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
       let language = i18n.language || 'en';
-      let wallet = 0;
+      let walletCents = 0;
+      let walletReservedCents = 0;
       let kycStatus = 'unverified';
       try {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
           const data = snap.data();
           if (data?.language) language = data.language;
-          const walletValue = Number(data?.wallet);
-          if (Number.isFinite(walletValue)) wallet = walletValue;
+          walletCents = walletCentsFromData(data);
+          walletReservedCents = walletReservedCentsFromData(data);
           if (data?.kycStatus) kycStatus = data.kycStatus;
           else if (data?.kyc?.status) kycStatus = data.kyc.status;
         }
@@ -953,7 +1042,9 @@ export default function ParkSwapApp() {
         phone: fbUser.phoneNumber || '',
         transactions: 0,
         premiumParks: PREMIUM_PARKS_MAX,
-        wallet,
+        wallet: walletCentsToEuros(walletCents),
+        walletCents,
+        walletReservedCents,
         language: language || 'en',
         kycStatus,
       };
@@ -1225,14 +1316,11 @@ export default function ParkSwapApp() {
 	      const initialized = data?.premiumParksInitialized === true;
 	      const current = Number(data?.premiumParks);
 	      const hasValue = Number.isFinite(current);
-        const walletRaw = Number(data?.wallet);
-        const hasWallet = Number.isFinite(walletRaw);
-        const walletSeed = hasWallet ? {} : { wallet: 0 };
 
 	      if (!snap.exists()) {
 	        tx.set(
 	          userRef,
-	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true, ...walletSeed },
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
 	          { merge: true },
 	        );
 	        return;
@@ -1241,20 +1329,16 @@ export default function ParkSwapApp() {
 	      if (!initialized) {
 	        tx.set(
 	          userRef,
-	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true, ...walletSeed },
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
 	          { merge: true },
 	        );
 	        return;
 	      }
 
 	      if (!hasValue) {
-	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX, ...walletSeed }, { merge: true });
+	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX }, { merge: true });
         return;
 	      }
-
-        if (!hasWallet) {
-          tx.set(userRef, { wallet: 0 }, { merge: true });
-        }
 	    }).catch((err) => console.error('Error initializing Premium Parks:', err));
 
 	    // Ensure the profile doc exists with basic defaults
@@ -1268,7 +1352,6 @@ export default function ParkSwapApp() {
 		        language: user.language || i18n.language || 'en',
 		        // increment(0) preserves existing transactions and initializes to 0 if missing
 		        transactions: increment(0),
-            wallet: increment(0),
 		        createdAt: serverTimestamp(),
 		      },
 		      { merge: true },
@@ -1288,8 +1371,9 @@ export default function ParkSwapApp() {
 		                ? premiumValue
 		                : prev?.premiumParks ?? PREMIUM_PARKS_MAX
 		              : PREMIUM_PARKS_MAX;
-              const walletValue = Number(data.wallet);
-              const nextWallet = Number.isFinite(walletValue) ? walletValue : prev?.wallet ?? 0;
+              const walletCents = walletCentsFromData(data);
+              const walletReservedCents = walletReservedCentsFromData(data);
+              const nextWallet = walletCentsToEuros(walletCents);
 		          return {
 		            ...prev,
 		            displayName: data.displayName || prev?.displayName,
@@ -1299,6 +1383,8 @@ export default function ParkSwapApp() {
 		            transactions: data.transactions ?? prev?.transactions ?? 0,
 		            premiumParks: nextPremium,
                 wallet: nextWallet,
+                walletCents,
+                walletReservedCents,
 		          };
 		        });
 	      },
@@ -1357,8 +1443,9 @@ export default function ParkSwapApp() {
 	    const arcLat = 48.8738;
 	    const arcLng = 2.2950;
 	    const vehicleToUse = car || selectedVehicle?.model || '';
-	    const x = 50 + (Math.random() * 40 - 20);
-	    const y = 50 + (Math.random() * 40 - 20);
+	    // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
+	    const x = safeCoord(50 + (Math.random() * 40 - 20), 50);
+	    const y = safeCoord(50 + (Math.random() * 40 - 20), 50);
 	    try {
 	      if (isActiveProposeSpot(myActiveSpot)) {
 	        const err = new Error('active_spot_exists');
@@ -1373,7 +1460,7 @@ export default function ParkSwapApp() {
 	        hostVehiclePlate: vehiclePlate || selectedVehicle?.plate || null,
 	        hostVehicleId: vehicleId || selectedVehicle?.id || null,
 	        time,
-	        price,
+	        price: safePrice(price),
 	        length: length ?? null,
 	        x,
 	        y,
@@ -1595,104 +1682,22 @@ export default function ParkSwapApp() {
 	        : bookingSessionId;
 	    logCurrentLocation('book_spot');
 	    try {
-	      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
-	      const bookerRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
-
-	      const { isFree, hostId, bookingSessionId: confirmedSessionId } = await runTransaction(db, async (tx) => {
-	        const snap = await tx.get(spotRef);
-	        if (!snap.exists()) {
-	          const err = new Error('spot_missing');
-	          err.code = 'spot_missing';
-	          throw err;
-	        }
-
-	        const liveSpot = { id: spot.id, ...snap.data() };
-	        const status = liveSpot.status;
-	        const liveSessionId = typeof liveSpot.bookingSessionId === 'string' ? liveSpot.bookingSessionId : null;
-	        const liveBookOpId = typeof liveSpot.bookOpId === 'string' ? liveSpot.bookOpId : null;
-	        if (status && status !== 'available') {
-	          if (
-	            status === 'booked' &&
-	            liveSpot.bookerId === user.uid &&
-	            liveSessionId === bookingSessionId &&
-	            liveBookOpId === bookOpId
-	          ) {
-	            return {
-	              isFree: isFreeSpot(liveSpot),
-	              hostId: liveSpot.hostId || spot.hostId || null,
-	              bookingSessionId: liveSessionId,
-	            };
-	          }
-	          const err = new Error('spot_not_available');
-	          err.code = 'spot_not_available';
-	          throw err;
-	        }
-
-	        const free = isFreeSpot(liveSpot);
-	        const resolvedHostId = liveSpot.hostId || spot.hostId || null;
-	        const priceValue = Number(liveSpot.price ?? spot.price ?? 0);
-	        const amount = Number.isFinite(priceValue) ? priceValue : 0;
-	        const hostRef = resolvedHostId
-	          ? doc(db, 'artifacts', appId, 'public', 'data', 'users', resolvedHostId)
-	          : null;
-
-	        if (amount) {
-	          tx.set(bookerRef, { wallet: increment(-amount) }, { merge: true });
-	          if (hostRef && resolvedHostId !== user.uid) {
-	            tx.set(hostRef, { wallet: increment(amount) }, { merge: true });
-	          }
-	        }
-	        if (free) {
-	          const bookerSnap = await tx.get(bookerRef);
-	          const bookerData = bookerSnap.exists() ? bookerSnap.data() : {};
-	          const currentHeartsRaw = Number(bookerData?.premiumParks);
-	          const currentHearts = Number.isFinite(currentHeartsRaw) ? currentHeartsRaw : PREMIUM_PARKS_MAX;
-	          if (currentHearts <= 0) {
-	            const err = new Error('no_premium_parks');
-	            err.code = 'no_premium_parks';
-	            throw err;
-	          }
-	        }
-
-	        tx.update(spotRef, {
-	          status: 'booked',
-	          bookingSessionId,
-	          bookedAt: serverTimestamp(),
-	          bookOpId,
-	          bookOpAt: serverTimestamp(),
-	          bookerId: user.uid,
-	          bookerName: user.displayName || 'Seeker',
-	          bookerAccepted: false,
-	          bookerAcceptedAt: null,
-	          navOpId: null,
-	          navOpAt: null,
-	          bookerVehiclePlate: selectedVehicle?.plate || null,
-	          bookerVehicleId: selectedVehicle?.id || null,
-	          premiumParksAppliedAt: null,
-	          premiumParksAppliedBy: null,
-	          premiumParksBookerDelta: null,
-	          premiumParksBookerAfter: null,
-	          premiumParksHostDelta: null,
-	          premiumParksHostAfter: null,
-	          hostVerifiedBookerPlate: false,
-	          hostVerifiedBookerPlateAt: null,
-	          hostConfirmedBookerPlate: null,
-	          hostConfirmedBookerPlateNorm: null,
-	          bookerVerifiedHostPlate: false,
-	          bookerVerifiedHostPlateAt: null,
-	          bookerConfirmedHostPlate: null,
-	          bookerConfirmedHostPlateNorm: null,
-	          plateConfirmed: false,
-	          completedAt: null,
-	          cancelledAt: null,
-	          cancelledBy: null,
-	          cancelledByRole: null,
-	          cancelledFor: null,
-	          cancelledForName: null,
-	        });
-
-	        return { isFree: free, hostId: resolvedHostId, bookingSessionId };
-	      });
+	      const callable = httpsCallable(functions, 'bookSpotSecure');
+        const res = await callable({
+          spotId: spot.id,
+          bookingSessionId,
+          bookOpId,
+          bookerName: user.displayName || 'Seeker',
+          bookerVehiclePlate: selectedVehicle?.plate || null,
+          bookerVehicleId: selectedVehicle?.id || null,
+        });
+        const payload = res?.data || {};
+        if (payload?.ok === false) {
+          return payload;
+        }
+        const isFree = payload?.isFree ?? isFreeSpot(spot);
+        const hostId = payload?.hostId || spot.hostId || null;
+        const confirmedSessionId = payload?.bookingSessionId || bookingSessionId;
 	      setSelectedSearchSpot((prev) =>
 	        prev?.id === spot.id ? { ...prev, bookingSessionId: confirmedSessionId } : prev,
 	      );
@@ -1715,7 +1720,13 @@ export default function ParkSwapApp() {
 	      return { ok: true, isFree, bookingSessionId: confirmedSessionId };
 	    } catch (err) {
 	      console.error('Error booking spot:', err);
-	      return { ok: false, code: err?.code || err?.message || 'unknown_error' };
+        const detailsCode = err?.details?.code;
+        const messageCode = typeof err?.message === 'string' ? err.message : '';
+        const rawCode =
+          detailsCode ||
+          messageCode ||
+          (typeof err?.code === 'string' ? err.code.replace('functions/', '') : '');
+	      return { ok: false, code: rawCode || 'unknown_error' };
 	    }
 	  };
 
@@ -2474,6 +2485,7 @@ export default function ParkSwapApp() {
           onSelectVehicle={handleSelectVehicle}
           onUpdateProfile={handleUpdateProfile}
           onAddWallet={handleAddWallet}
+          walletPending={walletTopupPending}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}
@@ -2789,6 +2801,7 @@ export default function ParkSwapApp() {
           onSelectVehicle={handleSelectVehicle}
           onUpdateProfile={handleUpdateProfile}
           onAddWallet={handleAddWallet}
+          walletPending={walletTopupPending}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}
@@ -2942,7 +2955,7 @@ export default function ParkSwapApp() {
           userCoords={userCoords}
         />
       )}
-      {activeTab === 'search' && searchMapOpen && (
+{activeTab === 'search' && searchMapOpen && (
         <MapSearchView
           spots={visibleSpots}
           userCoords={userCoords}
@@ -2955,6 +2968,7 @@ export default function ParkSwapApp() {
           showPublicParkings={showPublicParkings}
         />
       )}
+      <FirestoreDebugOverlay />
       <TapDebugOverlay />
     </div>
   );

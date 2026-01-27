@@ -24,14 +24,13 @@ const auth = getAuth(app);
 const functions = getFunctions(app);
 
 // Robust Firestore initialization
+// Using default Firestore configuration to avoid CORS issues on Netlify
 let db;
 try {
-  db = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-    useFetchStreams: false,
-  });
-} catch (e) {
   db = getFirestore(app);
+} catch (e) {
+  // Fallback if getFirestore fails
+  db = initializeFirestore(app, {});
 }
 
 // --- EMULATEURS EN DEV ---

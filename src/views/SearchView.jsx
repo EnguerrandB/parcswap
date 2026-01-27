@@ -681,10 +681,14 @@ const SearchView = ({
   };
 
   const fetchPublicParkings = useCallback((center, { force = false } = {}) => {
-    if (!showPublicParkingsRef.current) return;
+    if (!showPublicParkingsRef.current) {
+      return;
+    }
     const safeLng = Number(center?.lng);
     const safeLat = Number(center?.lat);
-    if (!center || !isValidCoord(safeLng, safeLat)) return;
+    if (!center || !isValidCoord(safeLng, safeLat)) {
+      return;
+    }
     const now = Date.now();
     const last = lastParkingFetchRef.current;
     const moved = last.lat == null ? Infinity : getDistanceMetersBetween(last, { lng: safeLng, lat: safeLat });
@@ -793,13 +797,13 @@ const SearchView = ({
           if (!unique.has(item.id)) unique.set(item.id, item);
         });
         const list = Array.from(unique.values());
-          if (isMountedRef.current && showPublicParkingsRef.current) {
-            setPublicParkings(list);
-          }
-        })
+        if (isMountedRef.current && showPublicParkingsRef.current) {
+          setPublicParkings(list);
+        }
+      })
       .catch((err) => {
+        console.error('[SearchView] Error fetching public parkings:', err);
         if (!isMountedRef.current) return;
-        console.error('[SearchView] parking fetch error:', err);
       })
       .finally(() => {
         parkingFetchInFlightRef.current = false;
@@ -1025,7 +1029,9 @@ const SearchView = ({
     return map;
   }, [availableSpots, availableColors]);
   const publicParkingCards = useMemo(() => {
-    if (!showPublicParkings) return [];
+    if (!showPublicParkings) {
+      return [];
+    }
     const maxRadiusMeters = radius == null ? PARKING_FETCH_RADIUS_M : Number(radius) * 1000;
     const maxPrice = priceMax == null ? null : Number(priceMax);
     const sorted = [...(publicParkings || [])]
@@ -1038,18 +1044,19 @@ const SearchView = ({
         return true;
       })
       .sort((a, b) => (a?.distanceMeters ?? Infinity) - (b?.distanceMeters ?? Infinity));
-    return sorted.map((parking, idx) => ({
+    const cards = sorted.map((parking, idx) => ({
       ...parking,
       id: `public-parking-${parking?.id || idx}`,
       parkingId: parking?.id,
       isPublicParking: true,
       price: parking?.tarif1h,
     }));
+    return cards;
   }, [publicParkings, showPublicParkings, radius, priceMax]);
-  const availableCards = useMemo(
-    () => [...availableSpots, ...publicParkingCards],
-    [availableSpots, publicParkingCards],
-  );
+  const availableCards = useMemo(() => {
+    const cards = [...availableSpots, ...publicParkingCards];
+    return cards;
+  }, [availableSpots, publicParkingCards]);
   const outOfCards = currentIndex >= availableCards.length;
   const visibleSpots = outOfCards ? [] : availableCards.slice(currentIndex, currentIndex + 3); // show 3 at once
   const noSpots = availableCards.length === 0;

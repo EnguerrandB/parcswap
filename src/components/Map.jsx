@@ -20,6 +20,23 @@ import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from
 import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
 import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
 
+// --- SAFE NUMERIC HELPERS ---
+// These helpers prevent NaN/Infinity from being written to Firestore, which would cause 400 errors.
+const safeNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) && !Number.isNaN(n) ? n : fallback;
+};
+
+const safePrice = (value) => safeNumber(value, 0);
+
+const safeCoord = (value, fallback = 0) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || Number.isNaN(n)) return fallback;
+  // Clamp to reasonable bounds for coordinates
+  if (Math.abs(n) > 180) return fallback;
+  return n;
+};
+
 // --- Helpers ---
 const PERSISTENT_MAP_KEY = 'main-map';
 
@@ -874,12 +891,15 @@ useEffect(() => {
     const now = Date.now();
     if (now - lastPersistTsRef.current < 3000) return; // throttle
     lastPersistTsRef.current = now;
+    // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
+    const safeLat = safeCoord(coords?.lat, 48.8738);
+    const safeLng = safeCoord(coords?.lng, 2.295);
     try {
       await setDoc(
         doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', currentUserId),
         {
-          lat: coords.lat,
-          lng: coords.lng,
+          lat: safeLat,
+          lng: safeLng,
           displayName: currentUserName || 'User',
           updatedAt: serverTimestamp(),
         },

@@ -577,6 +577,7 @@ export default function ParkSwapApp() {
   const [walletTopupToast, setWalletTopupToast] = useState('');
   const [walletTopupPending, setWalletTopupPending] = useState(false);
   const walletPendingBaseRef = useRef(null);
+  const [insufficientFundsModal, setInsufficientFundsModal] = useState(null);
   const [selectionSnapshot, setSelectionSnapshot] = useState(null);
   const suppressSelectionRestoreUntilRef = useRef(0);
   const [userCoords, setUserCoords] = useState(null);
@@ -1672,6 +1673,24 @@ export default function ParkSwapApp() {
 
 	  const handleBookSpot = async (spot, meta = {}) => {
 	    if (!spot || !user) return { ok: false, code: 'missing_input' };
+	    
+	    // Pre-validate wallet balance for paid spots
+	    const spotPriceCents = safePrice(spot?.price) * 100;
+	    const isFreeSpot = spotPriceCents <= 0;
+	    if (!isFreeSpot) {
+	      const availableCents = user?.walletCents ?? 0;
+	      if (availableCents < spotPriceCents) {
+	        const requiredEuros = (spotPriceCents / 100).toFixed(2);
+	        const availableEuros = (availableCents / 100).toFixed(2);
+	        setInsufficientFundsModal({
+	          required: requiredEuros,
+	          available: availableEuros,
+	          spotId: spot.id,
+	        });
+	        return { ok: false, code: 'insufficient_funds' };
+	      }
+	    }
+	    
 	    const bookingSessionId =
 	      typeof meta?.bookingSessionId === 'string' && meta.bookingSessionId
 	        ? meta.bookingSessionId
@@ -1726,6 +1745,20 @@ export default function ParkSwapApp() {
           detailsCode ||
           messageCode ||
           (typeof err?.code === 'string' ? err.code.replace('functions/', '') : '');
+        
+        // Show insufficient funds modal if that's the error
+        if (rawCode === 'insufficient_funds') {
+          const spotPriceCents = safePrice(spot?.price) * 100;
+          const availableCents = user?.walletCents ?? 0;
+          const requiredEuros = (spotPriceCents / 100).toFixed(2);
+          const availableEuros = (availableCents / 100).toFixed(2);
+          setInsufficientFundsModal({
+            required: requiredEuros,
+            available: availableEuros,
+            spotId: spot.id,
+          });
+        }
+        
 	      return { ok: false, code: rawCode || 'unknown_error' };
 	    }
 	  };
@@ -2816,55 +2849,141 @@ export default function ParkSwapApp() {
     </div>
   </div>
 	)}
-      {cancelledNotice && (
-        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
-          <div
-            className={`absolute inset-0 backdrop-blur-sm ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
-            onClick={() => setCancelledNotice(null)}
-          />
-          <div
-            className="
-              relative w-full max-w-md
-              rounded-[28px] border
-              shadow-[0_30px_90px_rgba(15,23,42,0.35)]
-              p-6 text-center
-            "
-            style={
-              isDark
-                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.78)', borderColor: 'rgba(255,255,255,0.12)' }
-                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.85)', borderColor: 'rgba(255,255,255,0.6)' }
-            }
-            role="dialog"
-            aria-modal="true"
-            aria-label="Cancellation notice"
-          >
-            <p className={`text-xs uppercase tracking-[0.18em] font-semibold mb-2 ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
-              {i18n.t('update', 'Mise à jour')}
-            </p>
-            <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              {i18n.t('offerCancelledTitle', 'Proposition annulée')}
-            </h3>
-            <p className={`mt-3 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
-              {i18n.t(
-                'offerCancelledBody',
-                "L'utilisateur a annulé sa proposition. Tu es de retour à l'accueil.",
-              )}
-            </p>
-            <button
-              type="button"
-              onClick={() => setCancelledNotice(null)}
-              className={`
-                mt-5 w-full h-12 rounded-2xl
-                text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
-                hover:brightness-110 transition active:scale-[0.99]
-                ${isDark ? 'bg-gradient-to-r from-orange-400 to-amber-400' : 'bg-gradient-to-r from-orange-500 to-amber-500'}
-              `}
-            >
-              OK
-            </button>
-          </div>
-        </div>
-      )}
+	      {insufficientFundsModal && (
+	        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
+	          <div
+	            className={`absolute inset-0 backdrop-blur-sm ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
+	            onClick={() => setInsufficientFundsModal(null)}
+	          />
+	          <div
+	            className="
+	              relative w-full max-w-md
+	              rounded-[28px] border
+	              shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+	              p-6 text-center
+	            "
+	            style={
+	              isDark
+	                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.78)', borderColor: 'rgba(255,255,255,0.12)' }
+	                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.85)', borderColor: 'rgba(255,255,255,0.6)' }
+	            }
+	            role="dialog"
+	            aria-modal="true"
+	            aria-label="Insufficient funds"
+	          >
+	            <p className={`text-xs uppercase tracking-[0.18em] font-semibold mb-2 ${isDark ? 'text-red-300' : 'text-red-600'}`}>
+	              {i18n.t('insufficientFunds', 'Solde insuffisant')}
+	            </p>
+	            <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+	              {i18n.t('needMoreFunds', 'Recharge ton portefeuille')}
+	            </h3>
+	            <div className={`mt-4 p-4 rounded-2xl ${isDark ? 'bg-slate-800/50' : 'bg-slate-50'}`}>
+	              <div className="flex justify-between items-center mb-2">
+	                <span className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+	                  {i18n.t('required', 'Requis')}:
+	                </span>
+	                <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+	                  {insufficientFundsModal.required}€
+	                </span>
+	              </div>
+	              <div className="flex justify-between items-center">
+	                <span className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+	                  {i18n.t('available', 'Disponible')}:
+	                </span>
+	                <span className={`text-lg font-bold ${isDark ? 'text-red-300' : 'text-red-600'}`}>
+	                  {insufficientFundsModal.available}€
+	                </span>
+	              </div>
+	            </div>
+	            <p className={`mt-3 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
+	              {i18n.t(
+	                'topupPrompt',
+	                'Recharge ton portefeuille pour réserver cette place.',
+	              )}
+	            </p>
+	            <div className="flex gap-3 mt-5">
+	              <button
+	                type="button"
+	                onClick={() => setInsufficientFundsModal(null)}
+	                className={`
+	                  flex-1 h-12 rounded-2xl font-bold transition active:scale-[0.99]
+	                  ${isDark 
+	                    ? 'bg-slate-700 text-slate-200 hover:bg-slate-600' 
+	                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+	                  }
+	                `}
+	              >
+	                {i18n.t('cancel', 'Annuler')}
+	              </button>
+	              <button
+	                type="button"
+	                onClick={() => {
+	                  setInsufficientFundsModal(null);
+	                  handleMenuClick();
+	                  setActiveTab('profile');
+	                }}
+	                className={`
+	                  flex-1 h-12 rounded-2xl
+	                  text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
+	                  hover:brightness-110 transition active:scale-[0.99]
+	                  ${isDark ? 'bg-gradient-to-r from-orange-400 to-amber-400' : 'bg-gradient-to-r from-orange-500 to-amber-500'}
+	                `}
+	              >
+	                {i18n.t('topupWallet', 'Recharger')}
+	              </button>
+	            </div>
+	          </div>
+	        </div>
+	      )}
+	      {cancelledNotice && (
+	        <div className="fixed inset-0 z-[180] flex items-center justify-center px-6">
+	          <div
+	            className={`absolute inset-0 backdrop-blur-sm ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
+	            onClick={() => setCancelledNotice(null)}
+	          />
+	          <div
+	            className="
+	              relative w-full max-w-md
+	              rounded-[28px] border
+	              shadow-[0_30px_90px_rgba(15,23,42,0.35)]
+	              p-6 text-center
+	            "
+	            style={
+	              isDark
+	                ? { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(15,23,42,0.78)', borderColor: 'rgba(255,255,255,0.12)' }
+	                : { WebkitBackdropFilter: 'blur(24px) saturate(180%)', backgroundColor: 'rgba(255,255,255,0.85)', borderColor: 'rgba(255,255,255,0.6)' }
+	            }
+	            role="dialog"
+	            aria-modal="true"
+	            aria-label="Cancellation notice"
+	          >
+	            <p className={`text-xs uppercase tracking-[0.18em] font-semibold mb-2 ${isDark ? 'text-orange-300' : 'text-orange-600'}`}>
+	              {i18n.t('update', 'Mise à jour')}
+	            </p>
+	            <h3 className={`text-2xl font-extrabold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+	              {i18n.t('offerCancelledTitle', 'Proposition annulée')}
+	            </h3>
+	            <p className={`mt-3 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-700'}`}>
+	              {i18n.t(
+	                'offerCancelledBody',
+	                "L'utilisateur a annulé sa proposition. Tu es de retour à l'accueil.",
+	              )}
+	            </p>
+	            <button
+	              type="button"
+	              onClick={() => setCancelledNotice(null)}
+	              className={`
+	                mt-5 w-full h-12 rounded-2xl
+	                text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]
+	                hover:brightness-110 transition active:scale-[0.99]
+	                ${isDark ? 'bg-gradient-to-r from-orange-400 to-amber-400' : 'bg-gradient-to-r from-orange-500 to-amber-500'}
+	              `}
+	            >
+	              OK
+	            </button>
+	          </div>
+	        </div>
+	      )}
 	      {celebration && <ConfettiOverlay seedKey={`${celebration.spotId}:${user?.uid || 'user'}`} />}
 	      {showInvite && (
 	        <div className="fixed inset-0 z-[120] flex items-center justify-center px-6">

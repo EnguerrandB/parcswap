@@ -42,12 +42,47 @@ const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
 const PARKING_FETCH_MIN_DISTANCE_M = 250;
 const PARKING_FETCH_RADIUS_M = 2000;
 const PERSISTENT_MAP_KEY = 'map-search';
+const PARKING_CACHE_KEY_PREFIX = 'parkswap_parking_cache_';
+const PARKING_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const formatEuro = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '0';
   const rounded = Math.round(n * 100) / 100;
   return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
+};
+
+const getParkingCacheKey = (lng, lat) => {
+  const roundedLng = Math.round(lng * 100) / 100;
+  const roundedLat = Math.round(lat * 100) / 100;
+  return `${PARKING_CACHE_KEY_PREFIX}${roundedLng}_${roundedLat}`;
+};
+
+const saveParkingCache = (lng, lat, parkings) => {
+  try {
+    const key = getParkingCacheKey(lng, lat);
+    const data = {
+      parkings,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    // ignore
+  }
+};
+
+const loadParkingCache = (lng, lat) => {
+  try {
+    const key = getParkingCacheKey(lng, lat);
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.parkings) || !data.timestamp) return null;
+    if (Date.now() - data.timestamp > PARKING_CACHE_DURATION_MS) return null;
+    return data.parkings;
+  } catch (e) {
+    return null;
+  }
 };
 
 const normalizeParkingText = (value) =>
@@ -261,6 +296,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const prefsFlushRequestedRef = useRef(false);
   const prefsLastSavedRef = useRef({ radius: null, priceMax: null });
   const [actionToast, setActionToast] = useState('');
+  const [parkingLoading, setParkingLoading] = useState(false);
   const [publicParkings, setPublicParkings] = useState([]);
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
@@ -712,6 +748,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
       lastParkingFetchRef.current = { at: now, lat: safeLat, lng: safeLng };
       parkingFetchInFlightRef.current = true;
+      setParkingLoading(true);
       const params = new URLSearchParams();
       params.set(
         'where',
@@ -821,6 +858,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           const list = Array.from(unique.values());
           if (isMountedRef.current && showPublicParkingsRef.current) {
             setPublicParkings(list);
+            saveParkingCache(safeLng, safeLat, list);
           }
         })
         .catch((err) => {
@@ -829,6 +867,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         })
         .finally(() => {
           parkingFetchInFlightRef.current = false;
+          setParkingLoading(false);
           const queued = parkingFetchQueuedRef.current;
           if (queued) {
             parkingFetchQueuedRef.current = null;
@@ -846,6 +885,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       setPublicParkings([]);
       return undefined;
     }
+    // Load from cache immediately
+    const cached = loadParkingCache(safeLng, safeLat);
+    if (cached) {
+      setPublicParkings(cached);
+    }
+    // Then fetch fresh data
     fetchPublicParkings({ lng: safeLng, lat: safeLat });
     return undefined;
   }, [showPublicParkings, userCoords?.lng, userCoords?.lat, fetchPublicParkings]);
@@ -853,6 +898,11 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   useEffect(() => {
     if (!showPublicParkings || !mapLoaded || !mapRef.current) return;
     const center = mapRef.current.getCenter();
+    // Load from cache if available
+    const cached = loadParkingCache(center.lng, center.lat);
+    if (cached) {
+      setPublicParkings(cached);
+    }
     fetchPublicParkings({ lng: center.lng, lat: center.lat }, { force: true });
   }, [showPublicParkings, mapLoaded, fetchPublicParkings]);
 
@@ -1330,6 +1380,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         }
       `}</style>
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
+      {parkingLoading && publicParkings.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-[70]">
+          <div className="bg-white rounded-full p-4 shadow-lg">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+          </div>
+        </div>
+      )}
       {mapLoaded && userCoords && isValidCoord(userCoords.lng, userCoords.lat) && (
         <div
           className="absolute z-[80] pointer-events-auto"

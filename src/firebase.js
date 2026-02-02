@@ -11,7 +11,7 @@ import {
 // --- FIREBASE SETUP ---
 const firebaseConfig = {
   apiKey: "AIzaSyAHL4hpdTDymjXeJCCjCxrsLv-nk33MTEY",
-  authDomain: "parcswap.netlify.app",
+  authDomain: "parkswap-36bb2.firebaseapp.com",
   projectId: "parkswap-36bb2",
   storageBucket: "parkswap-36bb2.firebasestorage.app",
   messagingSenderId: "931109766836",

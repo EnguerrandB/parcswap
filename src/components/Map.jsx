@@ -880,10 +880,12 @@ useEffect(() => {
       setPremiumParksToast({ from: Number(res.bookerBefore), to: Number(res.bookerAfter) });
     }
 
-    setShowRoute(true);
-    setShowSteps(true);
-    console.log('[Map] Accept clicked -> nav_started');
-    setAcceptingNav(false);
+setShowRoute(true);
+setShowSteps(true);
+console.group('🚀 ParkSwap:NavStart');
+console.log('Accept nav - proceeding to nav_started');
+console.groupEnd();
+setAcceptingNav(false);
   };
 
   const persistUserLocation = async (coords) => {
@@ -1023,13 +1025,36 @@ useEffect(() => {
       );
     };
 
-    const handleStyleLoad = () => {
-      applyDayNightPreset(map);
-      patchSizerankInStyle(map);
-      const last = lastRainCheckRef.current?.isRaining;
-      if (last === true) enableRainEffect(map);
-      add3DBuildings();
-    };
+const handleStyleLoad = () => {
+  console.group('🗺️ ParkSwap: Style loaded');
+  applyDayNightPreset(map);
+  patchSizerankInStyle(map);
+  
+  // Load missing images for place-labels
+  const rankImages = [
+    { id: 'icon', path: '/ranks/rank1.png' },
+    { id: 'background', path: '/ranks/rank2.png' },
+    { id: 'background-stroke', path: '/ranks/rank3.png' },
+  ];
+  rankImages.forEach(({ id, path }) => {
+    if (!map.hasImage(id)) {
+      const imgUrl = new URL(path, window.location.origin).href;
+      map.loadImage(imgUrl, (err, imgData) => {
+        if (err) {
+          console.warn(`Failed to load image ${id}:`, err);
+        } else {
+          map.addImage(id, imgData);
+          console.log(`✅ Loaded image: ${id}`);
+        }
+      });
+    }
+  });
+  
+  const last = lastRainCheckRef.current?.isRaining;
+  if (last === true) enableRainEffect(map);
+  add3DBuildings();
+  console.groupEnd();
+};
 
     const handleLoad = () => {
       setMapLoaded(true);
@@ -1040,6 +1065,10 @@ useEffect(() => {
     const handleError = () => setMapLoaded(false);
 
     map.on('style.load', handleStyleLoad);
+    map.on('idle', () => {
+      console.log('🛋️ ParkSwap: Map idle - repatching sizerank');
+      patchSizerankInStyle(map);
+    });
     map.on('error', handleError);
     if (map.loaded()) {
       handleLoad();

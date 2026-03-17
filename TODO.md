@@ -1,9 +1,13 @@
-# TODO - Logs erreur booking INTERNAL (FR + emojis)
+# ParkSwap Task: Fix Mapbox Errors & Logging
 
-- [x] Ajouter des logs de pré-appel Cloud Function dans `handleBookSpot` (`src/App.jsx`)
-- [x] Ajouter des logs d’erreur enrichis dans le `catch` de `handleBookSpot`:
-  - [x] contexte booking (spot, user, session, opId, véhicule)
-  - [x] détails Firebase (`code`, `message`, `details`, `name`, `stack`)
-  - [x] code normalisé renvoyé au front
-- [x] Utiliser des messages en français avec des indications claires et des emojis
-- [x] Vérifier qu’aucun comportement métier n’est modifié (observabilité uniquement)
+## Plan Steps
+
+- [x] Step 1: Enhance mapboxStylePatch.js - Add logging + idle event patch
+- [x] Step 2: Update Map.jsx - Load missing images (icon/background/background-stroke from ranks/) + patch timing + log groups
+- [ ] Step 3: Test console - Verify no sizerank/image errors, logs visible
+- [ ] Step 3: Test console - Verify no sizerank/image errors, logs visible
+- [ ] Step 4: Document fixes in this TODO + attempt_completion
+
+## Current Status
+
+Approved plan ready for implementation. No backend changes needed.

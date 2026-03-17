@@ -362,12 +362,12 @@ const ProfileView = ({
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <CreditCard size={20} style={iconStyle('stripe')} />
               </div>
-	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-	                {t('stripeConnection', 'Stripe Connection')}
-	              </span>
-	            </div>
-            <span className="text-xs text-green-500 font-bold bg-green-100 px-2 py-1 rounded">
-              {t('stripeActive', 'Active')}
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('walletTestMode', 'Mode test wallet')}
+              </span>
+            </div>
+            <span className="text-xs text-emerald-600 font-bold bg-emerald-100 px-2 py-1 rounded">
+              {t('walletInstantCredits', 'Crédits instantanés')}
             </span>
           </div>
 

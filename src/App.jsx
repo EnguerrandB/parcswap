@@ -2281,17 +2281,46 @@ export default function ParkSwapApp() {
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return { ok: false };
     if (value < 1 || value > 100) return { ok: false };
+
+    const amountCents = Math.round(value * 100);
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+
     try {
-      const callable = httpsCallable(functions, 'createWalletTopupSession');
-      const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
-      const result = await callable({ amount: value, returnUrl });
-      const url = result?.data?.url;
-      if (url && typeof window !== 'undefined') {
-        window.location.assign(url);
-      }
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(userRef);
+        const data = snap.exists() ? snap.data() : {};
+        const currentAvailable = walletCentsFromData(data);
+        const currentReserved = walletReservedCentsFromData(data);
+        const nextAvailable = currentAvailable + amountCents;
+
+        tx.set(
+          userRef,
+          {
+            walletAvailableCents: nextAvailable,
+            walletReservedCents: currentReserved,
+            walletVersion: 1,
+            wallet: nextAvailable / 100,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      });
+
+      setUser((prev) => {
+        if (!prev) return prev;
+        const current = Number(prev.walletCents) || 0;
+        const next = current + amountCents;
+        return {
+          ...prev,
+          walletCents: next,
+          wallet: next / 100,
+        };
+      });
+
+      setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuée'));
       return { ok: true };
     } catch (err) {
-      console.error('Error adding wallet funds:', err);
+      console.error('Error adding wallet funds in test mode:', err);
       return { ok: false, error: err };
     }
   };
@@ -3060,7 +3089,7 @@ export default function ParkSwapApp() {
       )}
         </div>
       </div>
-      {selectedSearchSpot && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0) && (
+      {selectedSearchSpot && !insufficientFundsModal && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0) && (
         <Map
           spot={selectedSearchSpot}
           onClose={closeMap}
@@ -3074,7 +3103,7 @@ export default function ParkSwapApp() {
           userCoords={userCoords}
         />
       )}
-{activeTab === 'search' && searchMapOpen && (
+{activeTab === 'search' && searchMapOpen && !insufficientFundsModal && (
         <MapSearchView
           spots={visibleSpots}
           userCoords={userCoords}

@@ -1,10 +1,9 @@
-# TODO - Fil d'Ariane console des vues
+# TODO - Logs erreur booking INTERNAL (FR + emojis)
 
-- [ ] Ajouter un helper de log visuel (breadcrumb) dans `src/App.jsx`
-- [ ] Brancher un `useEffect` sur `activeTab` pour logger la vue courante (Search/Propose/Profile)
-- [ ] Logger aussi les overlays/vues secondaires:
-  - [ ] `AuthView` (utilisateur non connecté)
-  - [ ] `Map` (quand `selectedSearchSpot` est actif)
-  - [ ] `MapSearchView` (quand `searchMapOpen` est actif)
-  - [ ] `WaitingView` implicite (quand `activeTab=propose` et `myActiveSpot` actif)
-- [ ] Vérifier qu’on n’introduit pas de régression (logs uniquement, sans impact UI)
+- [x] Ajouter des logs de pré-appel Cloud Function dans `handleBookSpot` (`src/App.jsx`)
+- [x] Ajouter des logs d’erreur enrichis dans le `catch` de `handleBookSpot`:
+  - [x] contexte booking (spot, user, session, opId, véhicule)
+  - [x] détails Firebase (`code`, `message`, `details`, `name`, `stack`)
+  - [x] code normalisé renvoyé au front
+- [x] Utiliser des messages en français avec des indications claires et des emojis
+- [x] Vérifier qu’aucun comportement métier n’est modifié (observabilité uniquement)

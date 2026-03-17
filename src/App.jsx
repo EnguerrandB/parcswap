@@ -1832,14 +1832,24 @@ export default function ParkSwapApp() {
 	    logCurrentLocation('book_spot');
 	    try {
 	      const callable = httpsCallable(functions, 'bookSpotSecure');
-        const res = await callable({
+        const requestPayload = {
           spotId: spot.id,
           bookingSessionId,
           bookOpId,
           bookerName: user.displayName || 'Seeker',
           bookerVehiclePlate: selectedVehicle?.plate || null,
           bookerVehicleId: selectedVehicle?.id || null,
+        };
+        console.log('🚀 [Réservation] Appel de bookSpotSecure en cours...', {
+          flowId: bookFlowId,
+          spotId: spot?.id || null,
+          userId: user?.uid || null,
+          bookingSessionId,
+          bookOpId,
+          vehicleId: selectedVehicle?.id || null,
+          hasVehiclePlate: Boolean(selectedVehicle?.plate),
         });
+        const res = await callable(requestPayload);
         const payload = res?.data || {};
         console.log('[BookSpot] callable response', {
           bookFlowId,
@@ -1873,7 +1883,7 @@ export default function ParkSwapApp() {
 	      saveSelectionStep('booked', { ...spot, bookingSessionId: confirmedSessionId });
 	      return { ok: true, isFree, bookingSessionId: confirmedSessionId };
 	    } catch (err) {
-	      console.error('Error booking spot:', err);
+	      console.error('❌ [Réservation] Erreur lors de la réservation du spot', err);
         const detailsCode = err?.details?.code;
         const messageCode = typeof err?.message === 'string' ? err.message : '';
         const firebaseFnCode =
@@ -1886,6 +1896,42 @@ export default function ParkSwapApp() {
           rawCode === 'internal' || firebaseFnCode === 'internal'
             ? 'internal_booking_error'
             : rawCode;
+
+        console.error('🧭 [Réservation] Diagnostic complet Firebase Functions', {
+          flowId: bookFlowId,
+          spotId: spot?.id || null,
+          userId: user?.uid || null,
+          bookingSessionId,
+          bookOpId,
+          selectedVehicleId: selectedVehicle?.id || null,
+          selectedVehiclePlate: selectedVehicle?.plate || null,
+          firebaseError: {
+            name: err?.name || null,
+            code: err?.code || null,
+            message: err?.message || null,
+            details: err?.details || null,
+            stack: err?.stack || null,
+          },
+          extraction: {
+            detailsCode: detailsCode || null,
+            messageCode: messageCode || null,
+            firebaseFnCode: firebaseFnCode || null,
+            rawCode: rawCode || null,
+            normalizedCode: normalizedCode || 'unknown_error',
+          },
+        });
+
+        if (normalizedCode === 'internal_booking_error') {
+          console.error(
+            '🔥 [Réservation] Erreur INTERNAL détectée côté Firebase. Vérifier les logs Cloud Functions avec flowId/bookingSessionId.',
+            {
+              flowId: bookFlowId,
+              bookingSessionId,
+              bookOpId,
+              spotId: spot?.id || null,
+            },
+          );
+        }
         
         // Show insufficient funds modal if that's the error
         if (normalizedCode === 'insufficient_funds') {

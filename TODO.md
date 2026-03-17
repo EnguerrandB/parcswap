@@ -1,5 +1,10 @@
-# TODO - Fix FirebaseError INTERNAL on booking
+# TODO - Fil d'Ariane console des vues
 
-- [x] Harden Cloud Function `bookSpotSecure` with defensive error handling and structured logs.
-- [x] Add client-side fallback mapping for `functions/internal` in `src/App.jsx` (`handleBookSpot`).
-- [x] Verify consistency and update todo completion status.
+- [ ] Ajouter un helper de log visuel (breadcrumb) dans `src/App.jsx`
+- [ ] Brancher un `useEffect` sur `activeTab` pour logger la vue courante (Search/Propose/Profile)
+- [ ] Logger aussi les overlays/vues secondaires:
+  - [ ] `AuthView` (utilisateur non connecté)
+  - [ ] `Map` (quand `selectedSearchSpot` est actif)
+  - [ ] `MapSearchView` (quand `searchMapOpen` est actif)
+  - [ ] `WaitingView` implicite (quand `activeTab=propose` et `myActiveSpot` actif)
+- [ ] Vérifier qu’on n’introduit pas de régression (logs uniquement, sans impact UI)

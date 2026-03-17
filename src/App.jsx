@@ -291,6 +291,29 @@ const measureBottomSafeOffset = () => {
   return Math.round(rect.height);
 };
 
+const VIEW_BREADCRUMB_STYLES = {
+  badge: 'background: linear-gradient(135deg, #f97316, #fb923c); color: #fff; font-weight: 800; padding: 3px 8px; border-radius: 999px;',
+  from: 'color: #94a3b8; font-weight: 600;',
+  arrow: 'color: #f97316; font-weight: 900;',
+  to: 'color: #22c55e; font-weight: 800;',
+  info: 'color: #38bdf8; font-weight: 700;',
+};
+
+const logViewBreadcrumb = ({ from = '—', to = '—', meta = '' }) => {
+  if (typeof console === 'undefined') return;
+  console.log(
+    '%cPARKSWAP VIEW%c %c%s%c → %c%s%c %s',
+    VIEW_BREADCRUMB_STYLES.badge,
+    '',
+    VIEW_BREADCRUMB_STYLES.from,
+    from,
+    VIEW_BREADCRUMB_STYLES.arrow,
+    to,
+    VIEW_BREADCRUMB_STYLES.info,
+    meta ? `• ${meta}` : '',
+  );
+};
+
 export default function ParkSwapApp() {
   const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
@@ -2575,6 +2598,10 @@ export default function ParkSwapApp() {
   }, [cancelledNotice]);
 
   useEffect(() => {
+    const from = prevTabRef.current;
+    if (from !== activeTab) {
+      logViewBreadcrumb({ from, to: activeTab, meta: 'tab change' });
+    }
     prevTabRef.current = activeTab;
   }, [activeTab]);
 
@@ -2701,6 +2728,7 @@ export default function ParkSwapApp() {
 }
 
   if (!user) {
+    logViewBreadcrumb({ from: 'app', to: 'auth', meta: 'user not connected' });
     return (
       <div
         className={`relative h-screen w-full overflow-hidden flex items-center justify-center ${
@@ -3221,7 +3249,7 @@ export default function ParkSwapApp() {
           userCoords={userCoords}
         />
       )}
-{activeTab === 'search' && searchMapOpen && !insufficientFundsModal && (
+      {activeTab === 'search' && searchMapOpen && !insufficientFundsModal && (
         <MapSearchView
           spots={visibleSpots}
           userCoords={userCoords}

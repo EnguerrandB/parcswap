@@ -1496,7 +1496,7 @@ export default function ParkSwapApp() {
 	    }
 	  };
 
-		  const handleSelectionStep = async (step, spot, meta = {}) => {
+	  const handleSelectionStep = async (step, spot, meta = {}) => {
 		    if (step !== 'nav_started') {
 		      saveSelectionStep(step, spot, meta);
 		      return { ok: true };
@@ -1519,8 +1519,8 @@ export default function ParkSwapApp() {
 	        ? meta.opId
 	        : fallbackSessionId;
 
-	    try {
-	      const result = await runTransaction(db, async (tx) => {
+	    const runNavStartTransaction = async () =>
+	      runTransaction(db, async (tx) => {
 	        const snap = await tx.get(spotRef);
 	        if (!snap.exists()) {
 	          const err = new Error('spot_missing');
@@ -1657,6 +1657,27 @@ export default function ParkSwapApp() {
 	          hostDelta,
 	        };
 	      });
+
+	    try {
+	      const retryDelaysMs = [200, 350, 500];
+	      let result = null;
+	      let lastErr = null;
+
+	      for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+	        try {
+	          result = await runNavStartTransaction();
+	          lastErr = null;
+	          break;
+	        } catch (err) {
+	          lastErr = err;
+	          const code = err?.code || err?.message;
+	          const canRetry = code === 'spot_not_booked' && attempt < retryDelaysMs.length;
+	          if (!canRetry) throw err;
+	          await new Promise((resolve) => window.setTimeout(resolve, retryDelaysMs[attempt]));
+	        }
+	      }
+
+	      if (!result && lastErr) throw lastErr;
 
 	      const persistedSessionId = result?.bookingSessionId || bookingSessionId || spot?.bookingSessionId || null;
 	      saveSelectionStep(

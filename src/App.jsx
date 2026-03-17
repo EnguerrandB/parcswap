@@ -1518,11 +1518,26 @@ export default function ParkSwapApp() {
 	      typeof meta?.opId === 'string' && meta.opId
 	        ? meta.opId
 	        : fallbackSessionId;
+	    const navFlowId = `${spot?.id || 'unknown'}:${fallbackSessionId}:${Date.now()}`;
 
-	    const runNavStartTransaction = async () =>
+	    console.log('[NavStart] start', {
+	      navFlowId,
+	      step,
+	      spotId: spot?.id || null,
+	      userId: user?.uid || null,
+	      bookingSessionId,
+	      fallbackSessionId,
+	      navOpId,
+	      selectedVehicleId: selectedVehicle?.id || null,
+	      selectedVehiclePlate: selectedVehicle?.plate || null,
+	      meta,
+	    });
+
+	    const runNavStartTransaction = async (attempt) =>
 	      runTransaction(db, async (tx) => {
 	        const snap = await tx.get(spotRef);
 	        if (!snap.exists()) {
+	          console.warn('[NavStart] spot_missing before nav start', { navFlowId, spotId: spot?.id || null, attempt });
 	          const err = new Error('spot_missing');
 	          err.code = 'spot_missing';
 	          throw err;
@@ -1530,12 +1545,41 @@ export default function ParkSwapApp() {
 
 	        const liveSpot = { id: spot.id, ...snap.data() };
 	        const status = liveSpot.status;
+	        console.log('[NavStart] live spot snapshot', {
+	          navFlowId,
+	          attempt,
+	          spotId: liveSpot.id,
+	          status: liveSpot.status,
+	          liveBookerId: liveSpot.bookerId || null,
+	          expectedBookerId: user?.uid || null,
+	          liveBookingSessionId: liveSpot.bookingSessionId || null,
+	          requestedBookingSessionId: bookingSessionId || null,
+	          navOpId: liveSpot.navOpId || null,
+	          navOpAt: liveSpot.navOpAt || null,
+	          bookedAt: liveSpot.bookedAt || null,
+	          bookOpId: liveSpot.bookOpId || null,
+	        });
 	        if (status !== 'booked') {
+	          console.warn('[NavStart] rejecting nav start: spot_not_booked', {
+	            navFlowId,
+	            attempt,
+	            spotId: liveSpot.id,
+	            status,
+	            liveBookerId: liveSpot.bookerId || null,
+	            liveBookingSessionId: liveSpot.bookingSessionId || null,
+	          });
 	          const err = new Error('spot_not_booked');
 	          err.code = 'spot_not_booked';
 	          throw err;
 	        }
 	        if (liveSpot.bookerId !== user.uid) {
+	          console.warn('[NavStart] rejecting nav start: not_booker', {
+	            navFlowId,
+	            attempt,
+	            spotId: liveSpot.id,
+	            liveBookerId: liveSpot.bookerId || null,
+	            expectedBookerId: user?.uid || null,
+	          });
 	          const err = new Error('not_booker');
 	          err.code = 'not_booker';
 	          throw err;
@@ -1546,6 +1590,13 @@ export default function ParkSwapApp() {
 	            ? liveSpot.bookingSessionId
 	            : null;
 	        if (bookingSessionId && liveSessionId && bookingSessionId !== liveSessionId) {
+	          console.warn('[NavStart] rejecting nav start: session_mismatch', {
+	            navFlowId,
+	            attempt,
+	            spotId: liveSpot.id,
+	            requestedBookingSessionId: bookingSessionId,
+	            liveBookingSessionId: liveSessionId,
+	          });
 	          const err = new Error('session_mismatch');
 	          err.code = 'session_mismatch';
 	          throw err;
@@ -1665,13 +1716,23 @@ export default function ParkSwapApp() {
 
 	      for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
 	        try {
-	          result = await runNavStartTransaction();
+	          console.log('[NavStart] transaction attempt', { navFlowId, attempt, spotId: spot?.id || null });
+	          result = await runNavStartTransaction(attempt);
 	          lastErr = null;
+	          console.log('[NavStart] transaction success', { navFlowId, attempt, spotId: spot?.id || null, result });
 	          break;
 	        } catch (err) {
 	          lastErr = err;
 	          const code = err?.code || err?.message;
 	          const canRetry = code === 'spot_not_booked' && attempt < retryDelaysMs.length;
+	          console.warn('[NavStart] transaction failure', {
+	            navFlowId,
+	            attempt,
+	            spotId: spot?.id || null,
+	            code,
+	            canRetry,
+	            nextDelayMs: canRetry ? retryDelaysMs[attempt] : null,
+	          });
 	          if (!canRetry) throw err;
 	          await new Promise((resolve) => window.setTimeout(resolve, retryDelaysMs[attempt]));
 	        }
@@ -1680,6 +1741,12 @@ export default function ParkSwapApp() {
 	      if (!result && lastErr) throw lastErr;
 
 	      const persistedSessionId = result?.bookingSessionId || bookingSessionId || spot?.bookingSessionId || null;
+	      console.log('[NavStart] persisting selection step', {
+	        navFlowId,
+	        step,
+	        spotId: spot?.id || null,
+	        persistedSessionId,
+	      });
 	      saveSelectionStep(
 	        step,
 	        spot ? { ...spot, bookingSessionId: persistedSessionId } : spot,
@@ -1688,6 +1755,14 @@ export default function ParkSwapApp() {
 	      return result;
 	    } catch (err) {
 	      console.error('Error marking nav started on spot', err);
+	      console.error('[NavStart] final failure', {
+	        navFlowId,
+	        spotId: spot?.id || null,
+	        code: err?.code || err?.message || 'unknown_error',
+	        bookingSessionId,
+	        fallbackSessionId,
+	        navOpId,
+	      });
 	      return { ok: false, code: err?.code || err?.message || 'unknown_error' };
 	    }
 	  };
@@ -1720,6 +1795,17 @@ export default function ParkSwapApp() {
 	      typeof meta?.opId === 'string' && meta.opId
 	        ? meta.opId
 	        : bookingSessionId;
+	    const bookFlowId = `${spot?.id || 'unknown'}:${bookingSessionId}:${Date.now()}`;
+	    console.log('[BookSpot] start', {
+	      bookFlowId,
+	      spotId: spot?.id || null,
+	      userId: user?.uid || null,
+	      bookingSessionId,
+	      bookOpId,
+	      selectedVehicleId: selectedVehicle?.id || null,
+	      selectedVehiclePlate: selectedVehicle?.plate || null,
+	      meta,
+	    });
 	    logCurrentLocation('book_spot');
 	    try {
 	      const callable = httpsCallable(functions, 'bookSpotSecure');
@@ -1732,6 +1818,11 @@ export default function ParkSwapApp() {
           bookerVehicleId: selectedVehicle?.id || null,
         });
         const payload = res?.data || {};
+        console.log('[BookSpot] callable response', {
+          bookFlowId,
+          spotId: spot?.id || null,
+          payload,
+        });
         if (payload?.ok === false) {
           return payload;
         }
@@ -1762,13 +1853,19 @@ export default function ParkSwapApp() {
 	      console.error('Error booking spot:', err);
         const detailsCode = err?.details?.code;
         const messageCode = typeof err?.message === 'string' ? err.message : '';
+        const firebaseFnCode =
+          typeof err?.code === 'string' ? err.code.replace('functions/', '') : '';
         const rawCode =
           detailsCode ||
           messageCode ||
-          (typeof err?.code === 'string' ? err.code.replace('functions/', '') : '');
+          firebaseFnCode;
+        const normalizedCode =
+          rawCode === 'internal' || firebaseFnCode === 'internal'
+            ? 'internal_booking_error'
+            : rawCode;
         
         // Show insufficient funds modal if that's the error
-        if (rawCode === 'insufficient_funds') {
+        if (normalizedCode === 'insufficient_funds') {
           const spotPriceCents = safePrice(spot?.price) * 100;
           const availableCents = user?.walletCents ?? 0;
           const requiredEuros = (spotPriceCents / 100).toFixed(2);
@@ -1780,7 +1877,7 @@ export default function ParkSwapApp() {
           });
         }
         
-	      return { ok: false, code: rawCode || 'unknown_error' };
+	      return { ok: false, code: normalizedCode || 'unknown_error' };
 	    }
 	  };
 

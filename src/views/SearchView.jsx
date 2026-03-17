@@ -1244,10 +1244,52 @@ const SearchView = ({
         return;
       }
       const bookingSessionId = newId();
+      const flowId = `${spot?.id || 'unknown'}:${bookingSessionId}:${Date.now()}`;
       const spotWithSession = { ...spot, bookingSessionId };
+      console.log('[SearchSwipe] selected -> start booking flow', {
+        flowId,
+        spotId: spot?.id || null,
+        bookingSessionId,
+        currentUserId,
+        spotStatus: spot?.status || null,
+        spotBookerId: spot?.bookerId || null,
+      });
       onSelectionStep?.('selected', spotWithSession, { bookingSessionId });
-      onBookSpot?.(spot, { bookingSessionId, opId: bookingSessionId });
       setSelectedSpot(spotWithSession);
+      (async () => {
+        console.log('[SearchSwipe] calling onBookSpot', {
+          flowId,
+          spotId: spot?.id || null,
+          bookingSessionId,
+          opId: bookingSessionId,
+        });
+        const bookRes = await onBookSpot?.(spot, { bookingSessionId, opId: bookingSessionId });
+        console.log('[SearchSwipe] onBookSpot result', {
+          flowId,
+          spotId: spot?.id || null,
+          bookRes,
+        });
+        if (bookRes && bookRes.ok === false) {
+          console.warn('[SearchSwipe] booking failed, nav_started skipped', {
+            flowId,
+            spotId: spot?.id || null,
+            code: bookRes?.code || null,
+          });
+          return;
+        }
+        const resolvedSessionId = bookRes?.bookingSessionId || bookingSessionId;
+        const navOpId = newId();
+        console.log('[SearchSwipe] calling onSelectionStep(nav_started)', {
+          flowId,
+          spotId: spot?.id || null,
+          bookingSessionId: resolvedSessionId,
+          opId: navOpId,
+        });
+        await onSelectionStep?.('nav_started', spotWithSession, {
+          bookingSessionId: resolvedSessionId,
+          opId: navOpId,
+        });
+      })();
       setCurrentIndex((prev) => prev + 1);
     } else {
       setCurrentIndex((prev) => prev + 1);

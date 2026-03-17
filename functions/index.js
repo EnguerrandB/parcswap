@@ -169,219 +169,278 @@ exports.bookSpotSecure = functions
     cors: true,
   })
   .https.onCall(async (data, context) => {
-    if (!context.auth) {
-      throw new functions.https.HttpsError(
-        "unauthenticated",
-        "Authentication required.",
-      );
-    }
-
-    const uid = context.auth.uid;
-    const spotId = typeof data?.spotId === "string" ? data.spotId.trim() : "";
-    if (!spotId) {
-      throw buildHttpsError("invalid-argument", "spot_missing");
-    }
-
-    const requestedSessionId =
-      typeof data?.bookingSessionId === "string" && data.bookingSessionId
-        ? data.bookingSessionId
-        : null;
-    const requestedBookOpId =
-      typeof data?.bookOpId === "string" && data.bookOpId
-        ? data.bookOpId
-        : null;
-    const bookingSessionId = requestedSessionId || makeId();
-    const bookOpId = requestedBookOpId || bookingSessionId;
-
-    const bookerName = getSafeBookerName(data?.bookerName);
-    const bookerVehiclePlate =
-      typeof data?.bookerVehiclePlate === "string"
-        ? data.bookerVehiclePlate
-        : null;
-    const bookerVehicleId =
-      typeof data?.bookerVehicleId === "string" ? data.bookerVehicleId : null;
-
-    const spotRef = admin
-      .firestore()
-      .doc(`artifacts/${projectId}/public/data/spots/${spotId}`);
-    const bookerRef = getUserRef(uid);
-
-    const result = await admin.firestore().runTransaction(async (tx) => {
-      const spotSnap = await tx.get(spotRef);
-      if (!spotSnap.exists) {
-        throw buildHttpsError("not-found", "spot_missing");
+    const traceId = makeId();
+    try {
+      if (!context.auth) {
+        throw new functions.https.HttpsError(
+          "unauthenticated",
+          "Authentication required.",
+        );
       }
 
-      const liveSpot = spotSnap.data() || {};
-      const status = liveSpot.status;
-      const liveSessionId =
-        typeof liveSpot.bookingSessionId === "string"
-          ? liveSpot.bookingSessionId
+      const uid = context.auth.uid;
+      const spotId = typeof data?.spotId === "string" ? data.spotId.trim() : "";
+      if (!spotId) {
+        throw buildHttpsError("invalid-argument", "spot_missing");
+      }
+
+      const requestedSessionId =
+        typeof data?.bookingSessionId === "string" && data.bookingSessionId
+          ? data.bookingSessionId
           : null;
-      const liveBookOpId =
-        typeof liveSpot.bookOpId === "string" ? liveSpot.bookOpId : null;
+      const requestedBookOpId =
+        typeof data?.bookOpId === "string" && data.bookOpId
+          ? data.bookOpId
+          : null;
+      const bookingSessionId = requestedSessionId || makeId();
+      const bookOpId = requestedBookOpId || bookingSessionId;
 
-      if (status && status !== "available") {
-        if (
-          status === "booked" &&
-          liveSpot.bookerId === uid &&
-          liveSessionId === bookingSessionId &&
-          liveBookOpId === bookOpId
-        ) {
-          const priceCents = parsePriceToCents(liveSpot?.price);
-          const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
-          return {
-            ok: true,
-            isFree: amountCents <= 0,
-            bookingSessionId: liveSessionId,
-            alreadyBooked: true,
-            hostId: liveSpot.hostId || null,
-          };
-        }
-        throw buildHttpsError("failed-precondition", "spot_not_available");
-      }
+      const bookerName = getSafeBookerName(data?.bookerName);
+      const bookerVehiclePlate =
+        typeof data?.bookerVehiclePlate === "string"
+          ? data.bookerVehiclePlate
+          : null;
+      const bookerVehicleId =
+        typeof data?.bookerVehicleId === "string" ? data.bookerVehicleId : null;
 
-      const priceCents = parsePriceToCents(liveSpot?.price);
-      const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
-      const isFree = amountCents <= 0;
-      const hostId = liveSpot.hostId || null;
-      const hostRef = hostId ? getUserRef(hostId) : null;
+      functions.logger.info("bookSpotSecure:start", {
+        traceId,
+        uid,
+        spotId,
+        bookingSessionId,
+        bookOpId,
+      });
 
-      const bookerSnap = await tx.get(bookerRef);
-      const bookerData = bookerSnap.exists ? bookerSnap.data() : {};
-      const { available: bookerAvailable } = ensureWalletFields(
-        tx,
-        bookerRef,
-        bookerData,
-      );
+      const spotRef = admin
+        .firestore()
+        .doc(`artifacts/${projectId}/public/data/spots/${spotId}`);
+      const bookerRef = getUserRef(uid);
 
-      if (isFree) {
-        const currentHeartsRaw = Number(bookerData?.premiumParks);
-        const currentHearts = Number.isFinite(currentHeartsRaw)
-          ? currentHeartsRaw
-          : PREMIUM_PARKS_MAX;
-        if (currentHearts <= 0) {
-          throw buildHttpsError("failed-precondition", "no_premium_parks");
-        }
-      }
-
-      if (amountCents > 0) {
-        if (bookerAvailable < amountCents) {
-          throw buildHttpsError("failed-precondition", "insufficient_funds");
+      const result = await admin.firestore().runTransaction(async (tx) => {
+        const spotSnap = await tx.get(spotRef);
+        if (!spotSnap.exists) {
+          throw buildHttpsError("not-found", "spot_missing");
         }
 
-        const nextBookerAvailable = bookerAvailable - amountCents;
-        tx.set(
+        const liveSpot = spotSnap.data() || {};
+        const status = liveSpot.status;
+        const liveSessionId =
+          typeof liveSpot.bookingSessionId === "string"
+            ? liveSpot.bookingSessionId
+            : null;
+        const liveBookOpId =
+          typeof liveSpot.bookOpId === "string" ? liveSpot.bookOpId : null;
+
+        functions.logger.debug("bookSpotSecure:spot_snapshot", {
+          traceId,
+          uid,
+          spotId,
+          status: status || null,
+          liveSessionId,
+          liveBookOpId,
+          liveBookerId: liveSpot.bookerId || null,
+          hostId: liveSpot.hostId || null,
+        });
+
+        if (status && status !== "available") {
+          if (
+            status === "booked" &&
+            liveSpot.bookerId === uid &&
+            liveSessionId === bookingSessionId &&
+            liveBookOpId === bookOpId
+          ) {
+            const priceCents = parsePriceToCents(liveSpot?.price);
+            const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
+            return {
+              ok: true,
+              isFree: amountCents <= 0,
+              bookingSessionId: liveSessionId,
+              alreadyBooked: true,
+              hostId: liveSpot.hostId || null,
+            };
+          }
+          throw buildHttpsError("failed-precondition", "spot_not_available");
+        }
+
+        const priceCents = parsePriceToCents(liveSpot?.price);
+        const amountCents = Number.isFinite(priceCents) ? priceCents : 0;
+        const isFree = amountCents <= 0;
+        const hostId = liveSpot.hostId || null;
+        const hostRef = hostId ? getUserRef(hostId) : null;
+
+        const bookerSnap = await tx.get(bookerRef);
+        const bookerData = bookerSnap.exists ? bookerSnap.data() : {};
+        const { available: bookerAvailable } = ensureWalletFields(
+          tx,
           bookerRef,
-          {
-            [WALLET_AVAILABLE_FIELD]: nextBookerAvailable,
-            walletVersion: WALLET_VERSION,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            [WALLET_LEGACY_FIELD]: nextBookerAvailable / 100,
-          },
-          { merge: true },
+          bookerData,
         );
 
-        if (hostRef && hostId !== uid) {
-          const hostSnap = await tx.get(hostRef);
-          const hostData = hostSnap.exists ? hostSnap.data() : {};
-          const { available: hostAvailable } = ensureWalletFields(
-            tx,
-            hostRef,
-            hostData,
-          );
-          const nextHostAvailable = hostAvailable + amountCents;
+        functions.logger.debug("bookSpotSecure:wallet_snapshot", {
+          traceId,
+          uid,
+          spotId,
+          amountCents,
+          isFree,
+          bookerAvailable,
+          hostId,
+        });
+
+        if (isFree) {
+          const currentHeartsRaw = Number(bookerData?.premiumParks);
+          const currentHearts = Number.isFinite(currentHeartsRaw)
+            ? currentHeartsRaw
+            : PREMIUM_PARKS_MAX;
+          if (currentHearts <= 0) {
+            throw buildHttpsError("failed-precondition", "no_premium_parks");
+          }
+        }
+
+        if (amountCents > 0) {
+          if (bookerAvailable < amountCents) {
+            throw buildHttpsError("failed-precondition", "insufficient_funds");
+          }
+
+          const nextBookerAvailable = bookerAvailable - amountCents;
           tx.set(
-            hostRef,
+            bookerRef,
             {
-              [WALLET_AVAILABLE_FIELD]: nextHostAvailable,
+              [WALLET_AVAILABLE_FIELD]: nextBookerAvailable,
               walletVersion: WALLET_VERSION,
               updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              [WALLET_LEGACY_FIELD]: nextHostAvailable / 100,
+              [WALLET_LEGACY_FIELD]: nextBookerAvailable / 100,
             },
             { merge: true },
           );
 
-          const hostLedgerId = `booking_${spotId}_${bookingSessionId}_${hostId}_credit`;
+          if (hostRef && hostId !== uid) {
+            const hostSnap = await tx.get(hostRef);
+            const hostData = hostSnap.exists ? hostSnap.data() : {};
+            const { available: hostAvailable } = ensureWalletFields(
+              tx,
+              hostRef,
+              hostData,
+            );
+            const nextHostAvailable = hostAvailable + amountCents;
+            tx.set(
+              hostRef,
+              {
+                [WALLET_AVAILABLE_FIELD]: nextHostAvailable,
+                walletVersion: WALLET_VERSION,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                [WALLET_LEGACY_FIELD]: nextHostAvailable / 100,
+              },
+              { merge: true },
+            );
+
+            const hostLedgerId = `booking_${spotId}_${bookingSessionId}_${hostId}_credit`;
+            tx.set(
+              buildWalletLedgerRef(hostLedgerId),
+              {
+                uid: hostId,
+                spotId,
+                bookingSessionId,
+                type: "booking_credit",
+                amountCents,
+                balanceAfterCents: nextHostAvailable,
+                counterpartyUid: uid,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true },
+            );
+          }
+
+          const bookerLedgerId = `booking_${spotId}_${bookingSessionId}_${uid}_debit`;
           tx.set(
-            buildWalletLedgerRef(hostLedgerId),
+            buildWalletLedgerRef(bookerLedgerId),
             {
-              uid: hostId,
+              uid,
               spotId,
               bookingSessionId,
-              type: "booking_credit",
+              type: "booking_debit",
               amountCents,
-              balanceAfterCents: nextHostAvailable,
-              counterpartyUid: uid,
+              balanceAfterCents: nextBookerAvailable,
+              counterpartyUid: hostId,
               createdAt: admin.firestore.FieldValue.serverTimestamp(),
             },
             { merge: true },
           );
         }
 
-        const bookerLedgerId = `booking_${spotId}_${bookingSessionId}_${uid}_debit`;
-        tx.set(
-          buildWalletLedgerRef(bookerLedgerId),
-          {
-            uid,
-            spotId,
-            bookingSessionId,
-            type: "booking_debit",
-            amountCents,
-            balanceAfterCents: nextBookerAvailable,
-            counterpartyUid: hostId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true },
-        );
-      }
+        tx.update(spotRef, {
+          status: "booked",
+          bookingSessionId,
+          bookedAt: admin.firestore.FieldValue.serverTimestamp(),
+          bookOpId,
+          bookOpAt: admin.firestore.FieldValue.serverTimestamp(),
+          bookerId: uid,
+          bookerName,
+          bookerAccepted: false,
+          bookerAcceptedAt: null,
+          navOpId: null,
+          navOpAt: null,
+          bookerVehiclePlate: bookerVehiclePlate || null,
+          bookerVehicleId: bookerVehicleId || null,
+          premiumParksAppliedAt: null,
+          premiumParksAppliedBy: null,
+          premiumParksBookerDelta: null,
+          premiumParksBookerAfter: null,
+          premiumParksHostDelta: null,
+          premiumParksHostAfter: null,
+          hostVerifiedBookerPlate: false,
+          hostVerifiedBookerPlateAt: null,
+          hostConfirmedBookerPlate: null,
+          hostConfirmedBookerPlateNorm: null,
+          bookerVerifiedHostPlate: false,
+          bookerVerifiedHostPlateAt: null,
+          bookerConfirmedHostPlate: null,
+          bookerConfirmedHostPlateNorm: null,
+          plateConfirmed: false,
+          completedAt: null,
+          cancelledAt: null,
+          cancelledBy: null,
+          cancelledByRole: null,
+          cancelledFor: null,
+          cancelledForName: null,
+        });
 
-      tx.update(spotRef, {
-        status: "booked",
-        bookingSessionId,
-        bookedAt: admin.firestore.FieldValue.serverTimestamp(),
-        bookOpId,
-        bookOpAt: admin.firestore.FieldValue.serverTimestamp(),
-        bookerId: uid,
-        bookerName,
-        bookerAccepted: false,
-        bookerAcceptedAt: null,
-        navOpId: null,
-        navOpAt: null,
-        bookerVehiclePlate: bookerVehiclePlate || null,
-        bookerVehicleId: bookerVehicleId || null,
-        premiumParksAppliedAt: null,
-        premiumParksAppliedBy: null,
-        premiumParksBookerDelta: null,
-        premiumParksBookerAfter: null,
-        premiumParksHostDelta: null,
-        premiumParksHostAfter: null,
-        hostVerifiedBookerPlate: false,
-        hostVerifiedBookerPlateAt: null,
-        hostConfirmedBookerPlate: null,
-        hostConfirmedBookerPlateNorm: null,
-        bookerVerifiedHostPlate: false,
-        bookerVerifiedHostPlateAt: null,
-        bookerConfirmedHostPlate: null,
-        bookerConfirmedHostPlateNorm: null,
-        plateConfirmed: false,
-        completedAt: null,
-        cancelledAt: null,
-        cancelledBy: null,
-        cancelledByRole: null,
-        cancelledFor: null,
-        cancelledForName: null,
+        return {
+          ok: true,
+          isFree,
+          bookingSessionId,
+          hostId,
+        };
       });
 
-      return {
-        ok: true,
-        isFree,
-        bookingSessionId,
-        hostId,
-      };
-    });
+      functions.logger.info("bookSpotSecure:success", {
+        traceId,
+        uid,
+        spotId,
+        bookingSessionId: result?.bookingSessionId || bookingSessionId,
+        isFree: result?.isFree ?? null,
+        alreadyBooked: !!result?.alreadyBooked,
+      });
 
-    return result;
+      return result;
+    } catch (err) {
+      const errCode = err?.code || null;
+      const errMessage = err?.message || "unknown_error";
+      functions.logger.error("bookSpotSecure:error", {
+        traceId,
+        errCode,
+        errMessage,
+        stack: err?.stack || null,
+      });
+
+      if (err instanceof functions.https.HttpsError) {
+        throw err;
+      }
+      throw new functions.https.HttpsError(
+        "internal",
+        "internal_booking_error",
+        { code: "internal_booking_error", traceId },
+      );
+    }
   });
 
 exports.createKycSession = functions

@@ -2757,43 +2757,14 @@ export default function ParkSwapApp() {
   const getActiveViewName = () => {
     if (initializing) return 'Initializing';
     if (!user) return 'AuthView';
-    
     // Check for Map overlay (highest priority)
-    const hasSelectedSpot = !!selectedSearchSpot;
-    const noInsufficientFundsModal = !insufficientFundsModal;
-    const remainingMs = selectedSearchSpot ? getRemainingMs(selectedSearchSpot) : null;
-    const isValidSpot = selectedSearchSpot?.mapOnly || (Number.isFinite(remainingMs) && remainingMs > 0);
-    const isMapVisible = hasSelectedSpot && noInsufficientFundsModal && isValidSpot;
-    
-    console.log('[getActiveViewName] Map detection:', {
-      hasSelectedSpot,
-      noInsufficientFundsModal,
-      mapOnly: selectedSearchSpot?.mapOnly,
-      remainingMs,
-      isValidSpot,
-      isMapVisible,
-      selectedSpotId: selectedSearchSpot?.id
-    });
-    
-    if (isMapVisible) {
-      console.log('[getActiveViewName] ✅ Map is visible');
+    if (selectedSearchSpot && !insufficientFundsModal && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0)) {
       return 'Map';
     }
-    
     // Check for MapSearchView
-    const isMapSearchViewVisible = activeTab === 'search' && searchMapOpen && !insufficientFundsModal;
-    console.log('[getActiveViewName] MapSearchView detection:', {
-      activeTabIsSearch: activeTab === 'search',
-      searchMapOpen,
-      noInsufficientFundsModal,
-      isMapSearchViewVisible
-    });
-    
-    if (isMapSearchViewVisible) {
-      console.log('[getActiveViewName] ✅ MapSearchView is visible');
+    if (activeTab === 'search' && searchMapOpen && !insufficientFundsModal) {
       return 'MapSearchView';
     }
-    
     // Tab views
     if (activeTab === 'search') return 'SearchView';
     if (activeTab === 'propose') return 'ProposeView';

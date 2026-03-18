@@ -120,16 +120,12 @@ const normalizeWalletCents = (data = {}) => {
 const ensureWalletFields = (tx, userRef, data) => {
   const normalized = normalizeWalletCents(data);
   if (normalized.migrated) {
-    tx.set(
-      userRef,
-      {
-        [WALLET_AVAILABLE_FIELD]: normalized.available,
-        [WALLET_RESERVED_FIELD]: normalized.reserved,
-        walletVersion: WALLET_VERSION,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
+    tx.update(userRef, {
+      [WALLET_AVAILABLE_FIELD]: normalized.available,
+      [WALLET_RESERVED_FIELD]: normalized.reserved,
+      walletVersion: WALLET_VERSION,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
   }
   return normalized;
 };
@@ -268,8 +264,18 @@ exports.bookSpotSecure = functions
         const hostId = liveSpot.hostId || null;
         const hostRef = hostId ? getUserRef(hostId) : null;
 
+        // READ ALL DATA BEFORE ANY WRITES (Firestore transaction requirement)
         const bookerSnap = await tx.get(bookerRef);
         const bookerData = bookerSnap.exists ? bookerSnap.data() : {};
+
+        // Read host wallet BEFORE any writes if payment is needed
+        let hostSnap = null;
+        let hostData = {};
+        if (amountCents > 0 && hostRef && hostId !== uid) {
+          hostSnap = await tx.get(hostRef);
+          hostData = hostSnap.exists ? hostSnap.data() : {};
+        }
+
         const { available: bookerAvailable } = ensureWalletFields(
           tx,
           bookerRef,
@@ -314,8 +320,6 @@ exports.bookSpotSecure = functions
           );
 
           if (hostRef && hostId !== uid) {
-            const hostSnap = await tx.get(hostRef);
-            const hostData = hostSnap.exists ? hostSnap.data() : {};
             const { available: hostAvailable } = ensureWalletFields(
               tx,
               hostRef,
@@ -435,11 +439,10 @@ exports.bookSpotSecure = functions
       if (err instanceof functions.https.HttpsError) {
         throw err;
       }
-      throw new functions.https.HttpsError(
-        "internal",
-        "internal_booking_error",
-        { code: "internal_booking_error", traceId },
-      );
+      throw new functions.https.HttpsError("internal", errMessage, {
+        code: "internal_booking_error",
+        traceId,
+      });
     }
   });
 

@@ -31,6 +31,7 @@ import { db, appId, auth, functions } from './firebase';
 import BottomNav from './components/BottomNav';
 import TapDebugOverlay from './components/TapDebugOverlay';
 import FirestoreDebugOverlay from './components/FirestoreDebugOverlay';
+import ActiveViewNameOverlay from './components/ActiveViewNameOverlay';
 import SearchView from './views/SearchView';
 import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
@@ -1733,7 +1734,7 @@ export default function ParkSwapApp() {
 	      });
 
 	    try {
-	      const retryDelaysMs = [200, 350, 500];
+	      const retryDelaysMs = [300, 600, 900, 1200];
 	      let result = null;
 	      let lastErr = null;
 
@@ -2753,6 +2754,53 @@ export default function ParkSwapApp() {
     );
   };
 
+  const getActiveViewName = () => {
+    if (initializing) return 'Initializing';
+    if (!user) return 'AuthView';
+    
+    // Check for Map overlay (highest priority)
+    const hasSelectedSpot = !!selectedSearchSpot;
+    const noInsufficientFundsModal = !insufficientFundsModal;
+    const remainingMs = selectedSearchSpot ? getRemainingMs(selectedSearchSpot) : null;
+    const isValidSpot = selectedSearchSpot?.mapOnly || (Number.isFinite(remainingMs) && remainingMs > 0);
+    const isMapVisible = hasSelectedSpot && noInsufficientFundsModal && isValidSpot;
+    
+    console.log('[getActiveViewName] Map detection:', {
+      hasSelectedSpot,
+      noInsufficientFundsModal,
+      mapOnly: selectedSearchSpot?.mapOnly,
+      remainingMs,
+      isValidSpot,
+      isMapVisible,
+      selectedSpotId: selectedSearchSpot?.id
+    });
+    
+    if (isMapVisible) {
+      console.log('[getActiveViewName] ✅ Map is visible');
+      return 'Map';
+    }
+    
+    // Check for MapSearchView
+    const isMapSearchViewVisible = activeTab === 'search' && searchMapOpen && !insufficientFundsModal;
+    console.log('[getActiveViewName] MapSearchView detection:', {
+      activeTabIsSearch: activeTab === 'search',
+      searchMapOpen,
+      noInsufficientFundsModal,
+      isMapSearchViewVisible
+    });
+    
+    if (isMapSearchViewVisible) {
+      console.log('[getActiveViewName] ✅ MapSearchView is visible');
+      return 'MapSearchView';
+    }
+    
+    // Tab views
+    if (activeTab === 'search') return 'SearchView';
+    if (activeTab === 'propose') return 'ProposeView';
+    if (activeTab === 'profile') return 'ProfileView';
+    return 'Unknown';
+  };
+
   // keep i18n in sync when profile already has a language
   useEffect(() => {
     if (user?.language) {
@@ -2769,6 +2817,7 @@ export default function ParkSwapApp() {
       }`}
     >
       <OrientationBlockedOverlay visible={orientationBlocked} />
+      <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
     </div>
   );
 }
@@ -2787,6 +2836,7 @@ export default function ParkSwapApp() {
        {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name="" />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
        <OrientationBlockedOverlay visible={orientationBlocked} />
+       <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
       </div>
     );
   }
@@ -3310,6 +3360,7 @@ export default function ParkSwapApp() {
       )}
       <FirestoreDebugOverlay />
       <TapDebugOverlay />
+      <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
     </div>
   );
 }

@@ -1,32 +1,21 @@
 // src/components/ActiveViewNameOverlay.jsx
 import React, { useEffect, useState } from 'react';
 
-const STORAGE_KEY = 'parkswap.debugViewName';
-
-const readEnabledFromUrlOrStorage = () => {
+const readEnabledFromUrl = () => {
   try {
     const url = new URL(window.location.href);
-    const fromUrl = url.searchParams.get('debugViewName');
-    if (fromUrl === '1') {
-      localStorage.setItem(STORAGE_KEY, '1');
-      return true;
-    }
-    if (fromUrl === '0') {
-      localStorage.removeItem(STORAGE_KEY);
-      return false;
-    }
-    return localStorage.getItem(STORAGE_KEY) === '1';
+    return url.searchParams.has('debugViewName');
   } catch {
     return false;
   }
 };
 
 const ActiveViewNameOverlay = ({ activeViewName = 'Unknown' }) => {
-  const [enabled, setEnabled] = useState(() => readEnabledFromUrlOrStorage());
+  const [enabled, setEnabled] = useState(() => readEnabledFromUrl());
 
   useEffect(() => {
     const handleUrlChange = () => {
-      setEnabled(readEnabledFromUrlOrStorage());
+      setEnabled(readEnabledFromUrl());
     };
 
     window.addEventListener('popstate', handleUrlChange);

@@ -102,6 +102,7 @@ const ProfileView = ({
   const [voiceUri, setVoiceUri] = useState(() => getVoicePreference().voiceUri || '');
   const [voices, setVoices] = useState([]);
   const [kycLoading, setKycLoading] = useState(false);
+  const [currency, setCurrency] = useState(user?.currency || 'EUR');
 
   useEffect(() => {
     if (showRankInfo) setClosingRank(false);

@@ -150,6 +150,12 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const normalizeFiniteNumberOrNull = (value) => {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
 const getSpotMarkerId = (spot, idx) => spot?.id || `spot-${idx}`;
 
 const getDistanceMetersBetween = (a, b) => {
@@ -437,7 +443,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             : nextRadiusRaw >= RADIUS_MAX_KM - 1e-6
               ? null
               : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, nextRadiusRaw));
-        const nextPriceMax = data.priceMax == null ? null : Number(data.priceMax);
+        const nextPriceMax = normalizeFiniteNumberOrNull(data.priceMax);
 
         if (!prefsTouchedRef.current) {
           if (nextRadius == null || (Number.isFinite(nextRadius) && nextRadius > 0)) {
@@ -466,11 +472,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     if (!currentUserId) return undefined;
     if (!prefsHydratedRef.current && !prefsTouchedRef.current) return undefined;
 
+    const radiusNumber = normalizeFiniteNumberOrNull(radius);
     const safeRadius =
-      radius == null
+      radiusNumber == null
         ? null
-        : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, Number(radius) || DEFAULT_RADIUS_KM));
-    const safePriceMax = priceMax == null ? null : Number(priceMax);
+        : Math.max(RADIUS_MIN_KM, Math.min(RADIUS_MAX_KM, radiusNumber));
+    const safePriceMax = normalizeFiniteNumberOrNull(priceMax);
 
     const last = prefsLastSavedRef.current;
     if (last.radius === safeRadius && last.priceMax === safePriceMax) return undefined;

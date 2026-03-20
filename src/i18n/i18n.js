@@ -1,7 +1,7 @@
-import i18n from 'i18next';
-import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
-import HttpBackend from 'i18next-http-backend';
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+import LanguageDetector from "i18next-browser-languagedetector";
+import HttpBackend from "i18next-http-backend";
 
 if (!i18n.isInitialized) {
   i18n
@@ -9,25 +9,25 @@ if (!i18n.isInitialized) {
     .use(LanguageDetector)
     .use(initReactI18next)
     .init({
-      fallbackLng: 'en',
-      supportedLngs: ['en', 'fr', 'he'],
-      ns: ['common'],
-      defaultNS: 'common',
-      fallbackNS: 'common',
+      fallbackLng: "en",
+      supportedLngs: ["en", "fr", "he"],
+      ns: ["common"],
+      defaultNS: "common",
+      fallbackNS: "common",
       interpolation: {
         escapeValue: false,
       },
       backend: {
-        loadPath: '/locales/{{lng}}/{{ns}}.json',
+        loadPath: "/locales/{{lng}}/{{ns}}.json",
       },
       detection: {
-        order: ['querystring', 'localStorage', 'navigator'],
-        caches: ['localStorage'],
+        order: ["querystring", "localStorage", "navigator"],
+        caches: ["localStorage"],
       },
       react: {
         useSuspense: true,
       },
-      load: 'currentOnly',
+      load: "currentOnly",
       debug: false,
     });
 }

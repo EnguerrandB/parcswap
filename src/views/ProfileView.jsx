@@ -182,6 +182,16 @@ const ProfileView = ({
       phoneVerified: user?.phoneVerified,
     });
   };
+  const handleChangeCurrency = async (cur) => {
+    if (!cur) return;
+    setCurrency(cur);
+    if (!user?.uid) return;
+    await onUpdateProfile?.({
+      ...user,
+      currency: cur,
+    });
+  };
+
   const handleWalletAdd = () => {
     if (!onAddWallet) return;
     const normalized = String(walletInput || '').replace(',', '.').replace(/[^0-9.]/g, '');

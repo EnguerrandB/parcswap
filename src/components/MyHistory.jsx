@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Clock, History, Share, X } from 'lucide-react';
+import { formatCurrencyAmount } from '../utils/currency';
 
 const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onCollapse }) => {
   const { t } = useTranslation('common');
+  const currency = user?.currency || 'EUR';
   const [showHistory, setShowHistory] = useState(false);
   const [closingHistory, setClosingHistory] = useState(false);
 
@@ -136,7 +138,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                           isIncoming ? 'text-orange-600' : 'text-gray-900'
                         }`}
                       >
-                        {isIncoming ? '+' : ''}{tx.amount != null ? `${tx.amount} €` : ''}
+                        {isIncoming ? '+' : ''}{tx.amount != null ? formatCurrencyAmount(tx.amount, currency) : ''}
                       </span>
 
                       <div className="flex items-center space-x-2">
@@ -151,7 +153,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const body = `ParkSwap: ${displayTitle} - ${tx.amount}€`;
+                            const body = `ParkSwap: ${displayTitle} - ${formatCurrencyAmount(tx.amount, currency)}`;
                             if (navigator.share) {
                               navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
                             } else {

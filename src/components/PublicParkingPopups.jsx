@@ -1,3 +1,5 @@
+import { formatCurrencyAmount, getCurrencySymbol } from '../utils/currency';
+
 // src/components/PublicParkingPopups.jsx
 
 // --- Helpers (réutilisés ou adaptés) ---
@@ -39,10 +41,10 @@ const formatDistance = (meters) => {
   return `${km < 10 ? km.toFixed(1) : km.toFixed(0)} km`;
 };
 
-const formatEuro = (value) => {
+const formatEuro = (value, currency = 'EUR') => {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
-  return n.toFixed(2).replace('.', ',');
+  return formatCurrencyAmount(n, currency);
 };
 
 const formatHeight = (heightCm) => {
@@ -81,14 +83,14 @@ const buildMiniChip = (text, isDark, accent) => `
 
 // --- Core Builder ---
 
-const buildPublicParkingModel = (t, isDark, parking) => {
+const buildPublicParkingModel = (t, isDark, parking, currency = 'EUR') => {
   const name = parking?.name || t('publicParking', { defaultValue: 'Parking Public' });
   
   // Data formatting
   const distanceLabel = formatDistance(parking?.distanceMeters);
   const heightLabel = formatHeight(parking?.heightMaxCm);
   const placesLabel = formatCount(parking?.nbPlaces);
-  const priceVal = formatEuro(parking?.tarif1h);
+  const priceVal = formatEuro(parking?.tarif1h, currency);
   
   // Colors & Theme (Matching SpotPopups logic)
   // Blue accent for public parking typically
@@ -124,12 +126,12 @@ const buildPublicParkingModel = (t, isDark, parking) => {
   };
 };
 
-const buildPublicParkingInnerHTML = (model, isDark) => {
+const buildPublicParkingInnerHTML = (model, isDark, currency = 'EUR') => {
   const { name, priceVal, distanceLabel, metas, styles } = model;
   
   const priceDisplay = priceVal 
-    ? `${priceVal} €<span style="font-size:16px; font-weight:600; opacity:0.6; margin-left:4px;">/h</span>`
-    : '<span style="font-size:20px; opacity:0.5;">-- €</span>';
+    ? `${priceVal}<span style="font-size:16px; font-weight:600; opacity:0.6; margin-left:4px;">/h</span>`
+    : `<span style="font-size:20px; opacity:0.5;">-- ${getCurrencySymbol(currency)}</span>`;
 
   const metaHtml = metas.map(m => buildMiniChip(m, isDark, styles.accent)).join('<div style="width:4px"></div>');
 
@@ -204,9 +206,9 @@ const buildPublicParkingInnerHTML = (model, isDark) => {
 
 // --- Exports ---
 
-export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
-  const model = buildPublicParkingModel(t, isDark, parking);
-  const inner = buildPublicParkingInnerHTML(model, isDark);
+export const buildPublicParkingPopupHTML = (t, isDark, parking, currency = 'EUR') => {
+  const model = buildPublicParkingModel(t, isDark, parking, currency);
+  const inner = buildPublicParkingInnerHTML(model, isDark, currency);
   const s = model.styles;
 
   return `
@@ -231,9 +233,9 @@ export const buildPublicParkingPopupHTML = (t, isDark, parking) => {
   `;
 };
 
-export const buildPublicParkingActionPopupHTML = (t, isDark, parking, labelOverride = null) => {
-  const model = buildPublicParkingModel(t, isDark, parking);
-  const inner = buildPublicParkingInnerHTML(model, isDark);
+export const buildPublicParkingActionPopupHTML = (t, isDark, parking, labelOverride = null, currency = 'EUR') => {
+  const model = buildPublicParkingModel(t, isDark, parking, currency);
+  const inner = buildPublicParkingInnerHTML(model, isDark, currency);
   const s = model.styles;
 
   const label = labelOverride || t('navigate', { defaultValue: 'Y aller' });

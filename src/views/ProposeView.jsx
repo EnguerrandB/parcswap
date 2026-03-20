@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { MOCK_CARS } from '../constants';
 import WaitingView from './WaitingView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
+import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 
 const ProposeView = forwardRef(({
   myActiveSpot,
@@ -15,10 +16,12 @@ const ProposeView = forwardRef(({
   onNudgeAddVehicle,
   renewFeedbackId = 0,
   renewWaveDurationMs = 650,
+  currency = 'EUR',
   vehicles = [],
 }, ref) => {
   const { t } = useTranslation('common');
   const { isOnline, isPoorConnection } = useConnectionQuality();
+  const currencySymbol = getCurrencySymbol(currency);
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let letters1 = '';
@@ -158,6 +161,7 @@ const ProposeView = forwardRef(({
     return (
       <WaitingView
         myActiveSpot={myActiveSpot}
+        currency={currency}
         remainingMs={remainingMs}
         onCancel={onCancelSpot}
         onRenew={onRenewSpot}
@@ -437,10 +441,10 @@ const ProposeView = forwardRef(({
                   isFreePrice ? 'text-white drop-shadow-[0_12px_26px_rgba(0,0,0,0.22)]' : 'text-gray-900'
                 }`}
               >
-                {proposeForm.price}
+                {formatCurrencyNumber(proposeForm.price, currency)}
               </span>
               <span className={`text-sm font-bold uppercase tracking-wider translate-y-[-2px] ${isFreePrice ? 'text-white/80' : 'text-gray-400'}`}>
-                €
+                {currencySymbol}
               </span>
             </div>
           </div>
@@ -478,10 +482,10 @@ const ProposeView = forwardRef(({
               "
             />
             <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              0 €
+              {`0 ${currencySymbol}`}
             </div>
             <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              20 €
+              {`20 ${currencySymbol}`}
             </div>
           </div>
         </div>

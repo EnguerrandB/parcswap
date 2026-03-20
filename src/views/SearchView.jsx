@@ -7,6 +7,7 @@ import { appId, db } from '../firebase';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { newId } from '../utils/ids';
+import { formatCurrencyAmount, formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 import {
   CARD_COLOR_SALT,
   colorForSpot,
@@ -17,7 +18,6 @@ import {
 } from '../utils/spotColors';
 
 // --- UTILITAIRES ---
-const formatPrice = (price) => `${Number(price || 0).toFixed(2)} €`;
 const CARD_EXIT_ROTATION = 90; // degrés d'arc pour l'animation de sortie
 const CAR_EMOJIS = ['🚗', '🚙', '🏎️', '🚕', '🚚', '🚓', '🛺', '🚜'];
 const getDistanceMeters = (spot, userPosition = null) => {
@@ -73,19 +73,6 @@ const formatDuration = (ms) => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
-};
-
-const formatEuro = (value) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '0';
-  const rounded = Math.round(n * 100) / 100;
-  return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
-};
-
-const formatParkingPrice = (value) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '-- € / h';
-  return `${n.toFixed(2).replace('.', ',')}€ / h`;
 };
 
 const RADIUS_MIN_KM = 0;
@@ -559,6 +546,7 @@ SwipeCard.displayName = 'SwipeCard';
 // --- VUE PRINCIPALE ---
 const SearchView = ({
   spots = [],
+  currency = 'EUR',
   premiumParks = 0,
   showPublicParkings = true,
   onBookSpot,
@@ -574,6 +562,14 @@ const SearchView = ({
   setDeckIndex,
 }) => {
   const { t } = useTranslation('common');
+  const currencySymbol = getCurrencySymbol(currency);
+  const formatPrice = (price) => formatCurrencyAmount(price, currency);
+  const formatPriceNumber = (price) => formatCurrencyNumber(price, currency);
+  const formatParkingPrice = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return `-- ${currencySymbol} / h`;
+    return `${formatCurrencyAmount(n, currency)} / h`;
+  };
   const isDark =
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
     (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
@@ -1485,10 +1481,10 @@ const SearchView = ({
 
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
-                      {priceMax == null ? anyLabel : formatEuro(priceMax)}
+                      {priceMax == null ? anyLabel : formatPriceNumber(priceMax)}
                     </span>
                     <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                      {priceMax == null ? '' : '€'}
+                      {priceMax == null ? '' : currencySymbol}
                     </span>
                   </div>
                 </div>
@@ -1529,10 +1525,10 @@ const SearchView = ({
                     "
                   />
                   <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-                    0 €
+                    {`0 ${currencySymbol}`}
                   </div>
                   <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-                    {formatEuro(maxSpotPrice)} €
+                    {`${formatPriceNumber(maxSpotPrice)} ${currencySymbol}`}
                   </div>
                 </div>
               </div>
@@ -1562,7 +1558,7 @@ const SearchView = ({
             <span
               className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
             >
-              {priceMax == null ? anyLabel : `${formatEuro(priceMax)} €`}
+              {priceMax == null ? anyLabel : `${formatPriceNumber(priceMax)} ${currencySymbol}`}
             </span>
 	            </button>
             </div>

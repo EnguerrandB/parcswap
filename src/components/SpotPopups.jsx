@@ -1,8 +1,10 @@
 // src/components/SpotPopups.jsx
-const formatSpotPrice = (price) => {
+import { formatCurrencyAmount } from '../utils/currency';
+
+const formatSpotPrice = (price, currency = 'EUR') => {
   const n = Number(price);
   if (!Number.isFinite(n)) return '--';
-  return n <= 0 ? 'Free' : `${n.toFixed(2)} €`;
+  return n <= 0 ? 'Free' : formatCurrencyAmount(n, currency);
 };
 
 const getRemainingMs = (spot, nowMs = Date.now()) => {
@@ -60,11 +62,11 @@ const getContrastText = (hex) => {
   return lum > 0.6 ? '#0b1220' : '#ffffff';
 };
 
-export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentColor = null) => {
+export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentColor = null, currency = 'EUR') => {
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
   const remainingMs = getRemainingMs(spot, nowMs);
   const remainingLabel = formatDuration(remainingMs) || '--:--';
-  const priceLabel = formatSpotPrice(spot?.price);
+  const priceLabel = formatSpotPrice(spot?.price, currency);
 
   const bg = isDark ? 'rgba(12,16,24,0.88)' : 'rgba(255,255,255,0.9)';
   const shadow = isDark
@@ -161,9 +163,10 @@ export const buildSpotActionPopupHTML = (
   accentColor = null,
   labelOverride = null,
   sizeKey = 'spot',
+  currency = 'EUR',
 ) => {
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
-  const priceLabel = formatSpotPrice(spot?.price);
+  const priceLabel = formatSpotPrice(spot?.price, currency);
   const accent = accentColor || (isDark ? '#38bdf8' : '#0ea5e9');
   const accentSoft = toRgba(accent, isDark ? 0.2 : 0.14);
   const accentBorder = toRgba(accent, isDark ? 0.45 : 0.3);

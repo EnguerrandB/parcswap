@@ -22,6 +22,7 @@ import PremiumParks from '../components/PremiumParks';
 import MyProfile from '../components/MyProfile';
 import { functions } from '../firebase';
 import { getVoicePreference, pickPreferredVoice, scoreVoice, setVoicePreference } from '../utils/voice';
+import { formatCurrencyAmount } from '../utils/currency';
 
 const ProfileView = ({
   user,
@@ -66,9 +67,7 @@ const ProfileView = ({
   const iconStyle = (key) => ({ color: iconColors[key] || '#f97316' });
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const formatWallet = (value) => {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return '0,00€';
-    return `${n.toFixed(2).replace('.', ',')}€`;
+    return formatCurrencyAmount(value, currency);
   };
   const rankLabel = (count = 0) => {
     const n = Number(count) || 0;
@@ -115,6 +114,9 @@ const ProfileView = ({
   useEffect(() => {
     setLanguage(user?.language || 'en');
   }, [user?.language]);
+  useEffect(() => {
+    setCurrency(user?.currency || 'EUR');
+  }, [user?.currency]);
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return undefined;
     const synth = window.speechSynthesis;
@@ -549,18 +551,18 @@ const ProfileView = ({
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-	            <div className="flex items-center space-x-3">
-	              <div className="bg-white p-2 rounded-lg border border-gray-100">
-	                {getLanguageFlag(language) ? (
-	                  <span className="text-lg leading-none">{getLanguageFlag(language)}</span>
-	                ) : (
-	                  <Globe size={20} style={iconStyle('appearance')} />
-	                )}
-	              </div>
-	              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-	                {t('languageLabel', 'Language')}
-	              </span>
-	            </div>
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                {getLanguageFlag(language) ? (
+                  <span className="text-lg leading-none">{getLanguageFlag(language)}</span>
+                ) : (
+                  <Globe size={20} style={iconStyle('appearance')} />
+                )}
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('languageLabel', 'Language')}
+              </span>
+            </div>
             <select
               className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
@@ -571,6 +573,33 @@ const ProfileView = ({
               <option value="en">English</option>
               <option value="fr">Français</option>
               <option value="he">עברית</option>
+            </select>
+          </div>
+
+          <div
+            className={`w-full p-4 flex items-center justify-between text-left ${
+              isDark ? 'text-slate-100' : 'text-gray-900'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="bg-white p-2 rounded-lg border border-gray-100">
+                <Wallet size={20} style={iconStyle('wallet')} />
+              </div>
+              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                {t('currencyLabel', 'Currency')}
+              </span>
+            </div>
+            <select
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
+                isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
+              }`}
+              value={currency}
+              onChange={(e) => handleChangeCurrency(e.target.value)}
+            >
+              <option value="EUR">{t('currencyEuro', 'Euro')} (EUR)</option>
+              <option value="GBP">{t('currencyPound', 'Pound')} (GBP)</option>
+              <option value="USD">{t('currencyDollar', 'Dollar')} (USD)</option>
+              <option value="ILS">{t('currencyShekel', 'Shekel')} (ILS)</option>
             </select>
           </div>
 

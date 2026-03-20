@@ -25,6 +25,7 @@ import {
 } from '../utils/spotColors';
 import { appId, db } from '../firebase';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 
 const isValidCoord = (lng, lat) =>
   typeof lng === 'number' &&
@@ -45,11 +46,10 @@ const PERSISTENT_MAP_KEY = 'map-search';
 const PARKING_CACHE_KEY_PREFIX = 'parkswap_parking_cache_';
 const PARKING_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-const formatEuro = (value) => {
+const formatEuro = (value, currency = 'EUR') => {
   const n = Number(value);
   if (!Number.isFinite(n)) return '0';
-  const rounded = Math.round(n * 100) / 100;
-  return (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)).replace(/\.00$/, '');
+  return formatCurrencyNumber(n, currency);
 };
 
 const getParkingCacheKey = (lng, lat) => {
@@ -245,6 +245,7 @@ const iconForKey = (key) => {
 
 const MapSearchView = ({
   spots = [],
+  currency = 'EUR',
   userCoords = null,
   currentUserId = null,
   showPublicParkings = true,
@@ -255,6 +256,7 @@ const MapSearchView = ({
   onFiltersOpenChange,
 }) => {
   const { t } = useTranslation('common');
+  const currencySymbol = getCurrencySymbol(currency);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
@@ -557,13 +559,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const buildSpotPopup = (spot, accentColor, mode) =>
     mode === 'action'
-      ? buildSpotActionPopupHTML(t, isDark, spot, accentColor)
-      : buildSpotPopupHTML(t, isDark, spot, nowMs, accentColor);
+      ? buildSpotActionPopupHTML(t, isDark, spot, accentColor, null, 'spot', currency)
+      : buildSpotPopupHTML(t, isDark, spot, nowMs, accentColor, currency);
 
   const buildParkingPopup = (parking, mode) =>
     mode === 'action'
-      ? buildPublicParkingActionPopupHTML(t, isDark, parking, t('goThere', { defaultValue: 'Y aller' }))
-      : buildPublicParkingPopupHTML(t, isDark, parking);
+      ? buildPublicParkingActionPopupHTML(t, isDark, parking, t('goThere', { defaultValue: 'Y aller' }), currency)
+      : buildPublicParkingPopupHTML(t, isDark, parking, currency);
 
   const bindSpotPopupHandlers = (popup, spotId, spot, accentColor, options = {}) => {
     const {
@@ -1526,7 +1528,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
-                    <span className="text-lg font-bold">€</span>
+                    <span className="text-lg font-bold">{currencySymbol}</span>
                   </div>
                   <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
                     {t('priceFilter', { defaultValue: 'Max price' })}
@@ -1535,10 +1537,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
-                    {priceMax == null ? anyLabel : formatEuro(priceMax)}
+                    {priceMax == null ? anyLabel : formatEuro(priceMax, currency)}
                   </span>
                   <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                    {priceMax == null ? '' : '€'}
+                    {priceMax == null ? '' : currencySymbol}
                   </span>
                 </div>
               </div>
@@ -1579,10 +1581,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
                   "
                 />
                 <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-                  0 €
+                  {`0 ${currencySymbol}`}
                 </div>
                 <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-                  {formatEuro(maxSpotPrice)} €
+                  {`${formatEuro(maxSpotPrice, currency)} ${currencySymbol}`}
                 </div>
               </div>
             </div>
@@ -1620,7 +1622,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     <span
       className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
     >
-      {priceMax == null ? anyLabel : `${formatEuro(priceMax)} €`}
+      {priceMax == null ? anyLabel : `${formatEuro(priceMax, currency)} ${currencySymbol}`}
     </span>
   </button>
 </div>

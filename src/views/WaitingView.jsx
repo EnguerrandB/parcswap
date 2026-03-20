@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, appId } from '../firebase';
-import { formatPrice } from '../constants';
+import { formatCurrencyAmount } from '../utils/currency';
 import GotSelectedView from './GotSelectedView';
 import GotConfirmedView from './GotConfirmedView';
 
@@ -22,6 +22,7 @@ const WaitingView = ({
   onConfirmPlate,
   renewFeedbackId = 0,
   renewWaveDurationMs = 650,
+  currency = 'EUR',
 }) => {
   const { t } = useTranslation('common');
   const isDark =
@@ -343,7 +344,7 @@ const WaitingView = ({
               </div>
               <div className="text-right">
                 <p className="text-[clamp(12px,3.2vmin,14px)] text-gray-500">{t('priceLabel', 'Price')}</p>
-                <p className="text-[clamp(16px,5vmin,22px)] font-bold text-gray-900 leading-tight">{formatPrice(myActiveSpot.price)}</p>
+                <p className="text-[clamp(16px,5vmin,22px)] font-bold text-gray-900 leading-tight">{formatCurrencyAmount(myActiveSpot.price, currency)}</p>
               </div>
             </div>
             {/* Actions are handled by BottomNav while WaitingView is visible */}
@@ -454,7 +455,7 @@ const WaitingView = ({
         {spot?.price != null && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-sm text-gray-500">{t('priceLabel', 'Price')}</p>
-            <p className="text-lg font-bold text-slate-900">{formatPrice(spot.price)}</p>
+            <p className="text-lg font-bold text-slate-900">{formatCurrencyAmount(spot.price, currency)}</p>
           </div>
         )}
       </div>

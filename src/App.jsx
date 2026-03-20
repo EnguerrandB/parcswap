@@ -42,6 +42,7 @@ import MapSearchView from './components/MapSearchView';
 import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
 import { MapPin, Settings } from 'lucide-react';
 import { newId } from './utils/ids';
+import { formatCurrencyAmount, getDefaultCurrencyForLanguage } from './utils/currency';
 
 const hashSeed = (str) => {
   let h = 2166136261;
@@ -1375,6 +1376,7 @@ export default function ParkSwapApp() {
 		        email: user.email,
 		        phone: user.phone,
 		        language: user.language || i18n.language || 'en',
+            currency: user.currency || getDefaultCurrencyForLanguage(user.language || i18n.language || 'en'),
 		        // increment(0) preserves existing transactions and initializes to 0 if missing
 		        transactions: increment(0),
 		        createdAt: serverTimestamp(),
@@ -1405,6 +1407,7 @@ export default function ParkSwapApp() {
 		            email: data.email || prev?.email,
 		            phone: data.phone ?? prev?.phone,
 		            language: data.language || prev?.language || 'en',
+                currency: data.currency || prev?.currency || getDefaultCurrencyForLanguage(data.language || prev?.language || 'en'),
 		            transactions: data.transactions ?? prev?.transactions ?? 0,
 		            premiumParks: nextPremium,
                 wallet: nextWallet,
@@ -2403,7 +2406,7 @@ export default function ParkSwapApp() {
     }
   };
 
-  const handleUpdateProfile = async ({ displayName, email, phone, language, phoneVerified }) => {
+  const handleUpdateProfile = async ({ displayName, email, phone, language, currency, phoneVerified }) => {
     if (!user?.uid) return { needsEmailVerify: false, reauthRequired: false };
     const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
     const needsEmailVerify = !!email && email !== user.email;
@@ -2415,6 +2418,7 @@ export default function ParkSwapApp() {
         email: email || null,
         phone: phone || null,
         language: language || i18n.language || 'en',
+        currency: currency || user.currency || getDefaultCurrencyForLanguage(language || user.language || i18n.language || 'en'),
       };
 
       // Email verification flow
@@ -2455,6 +2459,7 @@ export default function ParkSwapApp() {
         email: email || prev.email,
         phone: phone || prev.phone,
         language: language || prev.language || i18n.language,
+        currency: currency || prev.currency || getDefaultCurrencyForLanguage(language || prev.language || i18n.language),
         phoneVerified: updates.phoneVerified ?? prev.phoneVerified,
       }));
     } catch (err) {
@@ -2693,6 +2698,7 @@ export default function ParkSwapApp() {
           <SearchView
             spots={visibleSpots}
             bookedSpot={bookedSpot}
+            currency={user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en')}
             onCompleteSwap={handleCompleteSwap}
             onBookSpot={handleBookSpot}
             onCancelBooking={handleCancelBooking}
@@ -2716,6 +2722,7 @@ export default function ParkSwapApp() {
         <div className="h-full w-full">
           <ProposeView
             ref={proposeViewRef}
+            currency={user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en')}
             myActiveSpot={myActiveSpot}
             vehicles={vehicles}
             onProposeSpot={handleProposeSpot}
@@ -3125,7 +3132,10 @@ export default function ParkSwapApp() {
 	                  {i18n.t('required', 'Requis')}:
 	                </span>
 	                <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-	                  {insufficientFundsModal.required}€
+                    {formatCurrencyAmount(
+                      insufficientFundsModal.required,
+                      user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en'),
+                    )}
 	                </span>
 	              </div>
 	              <div className="flex justify-between items-center">
@@ -3133,7 +3143,10 @@ export default function ParkSwapApp() {
 	                  {i18n.t('available', 'Disponible')}:
 	                </span>
 	                <span className={`text-lg font-bold ${isDark ? 'text-red-300' : 'text-red-600'}`}>
-	                  {insufficientFundsModal.available}€
+                    {formatCurrencyAmount(
+                      insufficientFundsModal.available,
+                      user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en'),
+                    )}
 	                </span>
 	              </div>
 	            </div>
@@ -3319,6 +3332,7 @@ export default function ParkSwapApp() {
       {activeTab === 'search' && searchMapOpen && !insufficientFundsModal && (
         <MapSearchView
           spots={visibleSpots}
+          currency={user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en')}
           userCoords={userCoords}
           currentUserId={user?.uid || null}
           onFiltersOpenChange={setSearchFiltersOpen}

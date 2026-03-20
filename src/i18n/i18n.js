@@ -27,7 +27,7 @@ if (!i18n.isInitialized) {
     .use(initReactI18next)
     .init({
       fallbackLng: "en",
-      supportedLngs: ["en", "fr", "he", "ar"],
+      supportedLngs: ["en", "fr", "he", "ar", "ru"],
       nonExplicitSupportedLngs: true,
       ns: ["common"],
       defaultNS: "common",

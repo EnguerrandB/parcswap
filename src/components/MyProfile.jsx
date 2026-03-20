@@ -7,6 +7,7 @@ import { formatPhoneForDisplay, formatPhoneInput, guessPhoneCountry, toE164Phone
 
 const MyProfile = ({ user, onUpdateProfile, isDark = false, iconStyle }) => {
   const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [profileForm, setProfileForm] = useState({
     displayName: user?.displayName || '',
     email: user?.email || '',

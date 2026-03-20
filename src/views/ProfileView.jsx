@@ -72,11 +72,11 @@ const ProfileView = ({
   };
   const rankLabel = (count = 0) => {
     const n = Number(count) || 0;
-    if (n >= 20) return t('rankUltimate', { defaultValue: 'Loulou Ultimate' });
-    if (n >= 15) return t('rankPlatinum', { defaultValue: 'Loulou Platinum' });
-    if (n >= 10) return t('rankGold', { defaultValue: 'Loulou Gold' });
-    if (n >= 5) return t('rankSilver', { defaultValue: 'Loulou Silver' });
-    return t('rankExplorer', { defaultValue: 'Loulou Explorer' });
+    if (n >= 20) return 'Loulou Ultimate';
+    if (n >= 15) return 'Loulou Platinum';
+    if (n >= 10) return 'Loulou Gold';
+    if (n >= 5) return 'Loulou Silver';
+    return 'Loulou Explorer';
   };
   const rankIcon = (count = 0) => {
     const n = Number(count) || 0;
@@ -87,11 +87,11 @@ const ProfileView = ({
     return '/ranks/rank1.png';
   };
   const rankTiers = [
-    { img: '/ranks/rank1.png', label: t('rankExplorer', { defaultValue: 'Explorer' }), minTransactions: 0 },
-    { img: '/ranks/rank2.png', label: t('rankSilver', { defaultValue: 'Silver' }), minTransactions: 5 },
-    { img: '/ranks/rank3.png', label: t('rankGold', { defaultValue: 'Gold' }), minTransactions: 10 },
-    { img: '/ranks/rank4.png', label: t('rankPlatinum', { defaultValue: 'Platinum' }), minTransactions: 15 },
-    { img: '/ranks/rank5.png', label: t('rankUltimate', { defaultValue: 'Ultimate' }), minTransactions: 20 },
+    { img: '/ranks/rank1.png', label: 'Explorer', minTransactions: 0 },
+    { img: '/ranks/rank2.png', label: 'Silver', minTransactions: 5 },
+    { img: '/ranks/rank3.png', label: 'Gold', minTransactions: 10 },
+    { img: '/ranks/rank4.png', label: 'Platinum', minTransactions: 15 },
+    { img: '/ranks/rank5.png', label: 'Ultimate', minTransactions: 20 },
   ];
   const [showRankInfo, setShowRankInfo] = useState(null);
   const [closingRank, setClosingRank] = useState(false);
@@ -164,7 +164,6 @@ const ProfileView = ({
     const normalized = String(lng || '').split('-')[0].toLowerCase();
     if (normalized === 'fr') return '🇫🇷';
     if (normalized === 'en') return '🇬🇧';
-    if (normalized === 'he') return '🇮🇱'; // Added Hebrew flag
     return '';
   };
 
@@ -559,7 +558,6 @@ const ProfileView = ({
             >
               <option value="en">English</option>
               <option value="fr">Français</option>
-              <option value="he">עברית</option>
             </select>
           </div>
 

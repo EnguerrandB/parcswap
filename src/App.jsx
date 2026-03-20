@@ -436,6 +436,1107 @@ export default function ParkSwapApp() {
 	    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', userId);
 	    const bookingSessionId =
 	      typeof spot?.bookingSessionId === 'string' && spot.bookingSessionId ? spot.bookingSessionId : null;
+
+	    const basePayload = {
+	      userId,
+	      spotId: spot.id,
+	      bookingSessionId,
+	      status,
+	      role,
+	      hostId: spot.hostId,
+	      hostName: spot.hostName || '',
+	      bookerId: spot.bookerId || null,
+	      bookerName: spot.bookerName || '',
+	      price: amount,
+	      amount,
+	      title,
+	      updatedAt: serverTimestamp(),
+	    };
+
+	    try {
+	      const didIncrement = await runTransaction(db, async (tx) => {
+	        const txSnap = await tx.get(txDoc);
+	        const existing = txSnap.exists() ? txSnap.data() : null;
+	        const alreadyCounted = !!existing?.concludedCountedAt;
+	        const shouldCount = status === 'concluded' && !alreadyCounted;
+
+	        if (txSnap.exists()) {
+	          tx.set(txDoc, basePayload, { merge: true });
+	        } else {
+	          tx.set(txDoc, { ...basePayload, createdAt: serverTimestamp() }, { merge: true });
+	        }
+
+	        if (shouldCount) {
+	          tx.set(
+	            userRef,
+	            {
+	              transactions: increment(1),
+	              updatedAt: serverTimestamp(),
+	            },
+	            { merge: true },
+	          );
+	          tx.set(txDoc, { concludedCountedAt: serverTimestamp() }, { merge: true });
+	        }
+
+	        return shouldCount;
+	      });
+
+	      if (didIncrement && userId === user?.uid) {
+	        setUser((prev) => (prev ? { ...prev, transactions: (Number(prev.transactions) || 0) + 1 } : prev));
+	      }
+	    } catch (err) {
+	      console.error('Error upserting transaction:', err);
+	    }
+	  };
+
+  const normalizePlate = (plate) => String(plate || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  const getDefaultVehiclePlateForUser = async (uid) => {
+    if (!uid) return null;
+    try {
+      const vehiclesRef = vehiclesCollectionForUser(uid);
+      const q = query(vehiclesRef, where('isDefault', '==', true), limit(1));
+      const snap = await getDocs(q);
+      const doc0 = snap.docs?.[0];
+      const data = doc0 ? doc0.data() : {};
+      return data?.plate || null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+	  const saveSelectionStep = async (step, spot, meta = {}) => {
+	    if (!user?.uid) return;
+	    const ref = userSelectionRef(user.uid);
+	    const bookingSessionId =
+	      typeof meta?.bookingSessionId === 'string' && meta.bookingSessionId
+	        ? meta.bookingSessionId
+	        : typeof spot?.bookingSessionId === 'string' && spot.bookingSessionId
+	          ? spot.bookingSessionId
+	          : null;
+	    const payload = {
+	      step: step || null,
+	      spotId: spot?.id || null,
+	      bookingSessionId,
+	      updatedAt: serverTimestamp(),
+	    };
+
+	    // Simple queue to avoid overlapping writes on rapid UI taps
+	    if (selectionWriteInFlight.current) {
+	      selectionQueueRef.current = {
+	        step: payload.step,
+	        spotId: payload.spotId,
+	        bookingSessionId: payload.bookingSessionId,
+	      };
+	      return;
+	    }
+
+    selectionWriteInFlight.current = true;
+    try {
+      await setDoc(ref, payload, { merge: true });
+    } catch (err) {
+      console.error('Error persisting selection step:', err);
+	    } finally {
+	      selectionWriteInFlight.current = false;
+	      if (selectionQueueRef.current) {
+	        const next = selectionQueueRef.current;
+	        selectionQueueRef.current = null;
+	        saveSelectionStep(
+	          next.step,
+	          next.spotId ? { id: next.spotId } : null,
+	          next.bookingSessionId ? { bookingSessionId: next.bookingSessionId } : {},
+	        );
+	      }
+	    }
+	  };
+
+  const logCurrentLocation = async (contextLabel = 'location') => {
+    if (!navigator?.geolocation) {
+      return null;
+    }
+    const fallbackLocation = { lat: 48.8738, lng: 2.295 };
+    const attempt = (opts) =>
+      new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            lastKnownLocationRef.current = coords;
+            resolve(coords);
+          },
+          (err) => {
+            resolve(null);
+          },
+          opts,
+        );
+      });
+
+    // Try high accuracy first, then fallback to a more lenient request to avoid timeouts
+    const first = await attempt({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 });
+    if (first) return first;
+    const second = await attempt({ enableHighAccuracy: false, timeout: 20_000, maximumAge: 20_000 });
+    if (second) return second;
+    if (lastKnownLocationRef.current) {
+      return lastKnownLocationRef.current;
+    }
+    return fallbackLocation;
+  };
+  const [spots, setSpots] = useState([]);
+  const [searchDeckIndex, setSearchDeckIndex] = useState(0);
+  const [myActiveSpot, setMyActiveSpot] = useState(null);
+  const [bookedSpot, setBookedSpot] = useState(null);
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
+  const [searchMapOpen, setSearchMapOpen] = useState(false);
+  const [showPublicParkings, setShowPublicParkings] = useState(true);
+  const searchMapPrefRef = useRef('list');
+  const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
+  const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
+  const [topMenuOpen, setTopMenuOpen] = useState(false);
+  const [renewFeedbackId, setRenewFeedbackId] = useState(0);
+  const [renewWave, setRenewWave] = useState(null);
+  const [premiumParksDeltaToast, setPremiumParksDeltaToast] = useState(null);
+  const [walletTopupToast, setWalletTopupToast] = useState('');
+  const [walletTopupPending, setWalletTopupPending] = useState(false);
+  const walletPendingBaseRef = useRef(null);
+  const [insufficientFundsModal, setInsufficientFundsModal] = useState(null);
+  const [selectionSnapshot, setSelectionSnapshot] = useState(null);
+  const suppressSelectionRestoreUntilRef = useRef(0);
+  const [userCoords, setUserCoords] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    const topup = url.searchParams.get('topup');
+    if (topup === 'success') {
+      setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuée'));
+      setWalletTopupPending(true);
+    }
+    if (topup) {
+      url.searchParams.delete('topup');
+      url.searchParams.delete('session_id');
+      window.history.replaceState({}, document.title, url.toString());
+    }
+  }, [i18n]);
+
+  useEffect(() => {
+    if (!walletTopupPending) {
+      walletPendingBaseRef.current = null;
+      return;
+    }
+    if (walletPendingBaseRef.current != null) return;
+    const currentWallet = Number(user?.wallet);
+    if (Number.isFinite(currentWallet)) {
+      walletPendingBaseRef.current = currentWallet;
+    }
+  }, [walletTopupPending, user?.wallet]);
+
+  useEffect(() => {
+    if (!walletTopupPending || !user?.uid) return undefined;
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    const stopAt = window.setTimeout(() => {
+      setWalletTopupPending(false);
+    }, 90_000);
+    const unsubscribe = onSnapshot(userRef, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data() || {};
+      const latestWalletCents = walletCentsFromData(data);
+      const latestWallet = walletCentsToEuros(latestWalletCents);
+      const latestReservedCents = walletReservedCentsFromData(data);
+      const latestKyc = data?.kycStatus || data?.kyc?.status;
+      setUser((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev };
+        if (Number.isFinite(latestWallet)) next.wallet = latestWallet;
+        next.walletCents = latestWalletCents;
+        next.walletReservedCents = latestReservedCents;
+        if (latestKyc) next.kycStatus = latestKyc;
+        return next;
+      });
+      const base = walletPendingBaseRef.current;
+      if (Number.isFinite(base) && Number.isFinite(latestWallet) && latestWallet > base) {
+        setWalletTopupPending(false);
+        walletPendingBaseRef.current = null;
+      }
+    });
+    return () => {
+      window.clearTimeout(stopAt);
+      unsubscribe();
+    };
+  }, [walletTopupPending, user?.uid]);
+
+  useEffect(() => {
+    if (!walletTopupToast || !user) return;
+    const id = window.setTimeout(() => setWalletTopupToast(''), 2200);
+    return () => window.clearTimeout(id);
+  }, [walletTopupToast, user]);
+
+  const visibleSpots = useMemo(
+    () => spots.filter((spot) => getRemainingMs(spot) > 0),
+    [spots],
+  );
+
+  const findSpotById = (spotId) => {
+    if (myActiveSpot?.id === spotId) return myActiveSpot;
+    if (bookedSpot?.id === spotId) return bookedSpot;
+    return visibleSpots.find((s) => s.id === spotId);
+  };
+	  const [showAccountSheet, setShowAccountSheet] = useState(false);
+	  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
+		  const [isSheetDragging, setIsSheetDragging] = useState(false);
+		  const [addVehicleRequestId, setAddVehicleRequestId] = useState(0);
+		  const sheetDragRef = useRef(false);
+		  const sheetStartY = useRef(0);
+		  const sheetOffsetRef = useRef(0);
+  
+
+	  const handleMenuClick = () => {
+	    setSheetExitAnim(false);
+	    setSheetEntryAnim(true);
+	    setShowAccountSheet(true);
+	    setAccountSheetOffset(0);
+	    if (pendingVehicleOnboardingRef.current) {
+	      pendingVehicleOnboardingRef.current = false;
+	      setMenuNudgeActive(false);
+	      setHighlightVehiclesRequestId((v) => v + 1);
+	    }
+	  };
+
+	  const nudgeVehicleOnboarding = () => {
+	    pendingVehicleOnboardingRef.current = true;
+	    setMenuNudgeActive(true);
+	    if (menuNudgeTimerRef.current) window.clearTimeout(menuNudgeTimerRef.current);
+	    menuNudgeTimerRef.current = window.setTimeout(() => setMenuNudgeActive(false), 5200);
+
+	    // If the account sheet is already open, jump straight to the in-profile nudge.
+	    if (showAccountSheet) {
+	      pendingVehicleOnboardingRef.current = false;
+	      setHighlightVehiclesRequestId((v) => v + 1);
+	    }
+	  };
+
+	  const openAddVehicle = () => {
+	    setSheetExitAnim(false);
+	    setSheetEntryAnim(true);
+	    setShowAccountSheet(true);
+	    setAccountSheetOffset(0);
+	    setAddVehicleRequestId((v) => v + 1);
+	  };
+
+	  const closeAccountSheet = () => {
+	    if (sheetExitAnim) return;
+	    setSheetEntryAnim(false);
+	    setIsSheetDragging(false);
+	    sheetDragRef.current = false;
+	    setSheetExitAnim(true);
+	    const screenHeight = window.innerHeight;
+	    window.requestAnimationFrame(() => {
+	      setAccountSheetOffset(screenHeight);
+	    });
+	    setTimeout(() => {
+	      setShowAccountSheet(false);
+	    }, 320);
+	  };
+
+		  const handleAccountSheetPointerDown = (e) => {
+		    // Empêcher la propagation pour ne pas bouger la map en dessous
+		    e.stopPropagation();
+
+	    const scrollContainer = e.target?.closest?.('[data-role="account-sheet-scroll"]');
+	    const startedInScrollable = Boolean(scrollContainer);
+
+	    // Si on touche dans le contenu scrollable et qu'il n'est pas en haut, on laisse scroller.
+	    if (startedInScrollable && scrollContainer.scrollTop > 1) return;
+
+	    setSheetEntryAnim(false);
+
+	    // Gérer aussi bien la souris que le tactile
+	    const startY = e.clientY || (e.touches && e.touches[0].clientY);
+	    const startX = e.clientX || (e.touches && e.touches[0].clientX);
+	    if (startY == null) return;
+
+			    sheetStartY.current = startY;
+			    sheetOffsetRef.current = 0;
+
+	    // Drag immédiat si on prend la "handle", sinon on attend un vrai pull-down (scroll top).
+	    sheetDragRef.current = !startedInScrollable;
+	    if (!startedInScrollable) {
+	      setIsSheetDragging(true); // Suivi 1:1 du doigt
+	    }
+
+	    const startXRef = startX ?? 0;
+
+	    const cleanup = () => {
+	      window.removeEventListener('pointermove', onMove);
+	      window.removeEventListener('pointerup', onEnd);
+	      window.removeEventListener('pointercancel', onEnd);
+	      window.removeEventListener('touchmove', onMove);
+	      window.removeEventListener('touchend', onEnd);
+	      window.removeEventListener('touchcancel', onEnd);
+	    };
+
+	    const onMove = (ev) => {
+	      const currentY = ev.clientY || (ev.touches && ev.touches[0].clientY);
+	      const currentX = ev.clientX || (ev.touches && ev.touches[0].clientX);
+	      if (currentY == null) return;
+
+	      const deltaY = currentY - sheetStartY.current;
+	      const deltaX = currentX != null ? currentX - startXRef : 0;
+
+	      if (startedInScrollable) {
+	        // Si le contenu commence à scroller, on annule le drag de sheet.
+	        if (scrollContainer && scrollContainer.scrollTop > 0) {
+	          cleanup();
+	          return;
+	        }
+
+	        // On n'active le drag que si l'utilisateur tire vers le bas.
+	        if (!sheetDragRef.current) {
+	          const absY = Math.abs(deltaY);
+	          const absX = Math.abs(deltaX);
+	          if (deltaY > 8 && absY > absX + 2) {
+	            sheetDragRef.current = true;
+	            setIsSheetDragging(true);
+	          } else if (deltaY < -8 && absY > absX + 2) {
+	            // Gesture vers le haut => scroll normal.
+	            cleanup();
+	            return;
+	          } else {
+	            return;
+	          }
+	        }
+	      } else if (!sheetDragRef.current) {
+	        return;
+	      }
+
+	      const visibleOffset = deltaY > 0 ? deltaY : 0;
+	      setAccountSheetOffset(visibleOffset);
+	      sheetOffsetRef.current = visibleOffset;
+	      if (visibleOffset > 0 && ev.cancelable) ev.preventDefault();
+	    };
+
+	    const onEnd = () => {
+	      cleanup();
+
+	      if (!sheetDragRef.current) return;
+
+	      setIsSheetDragging(false); // Réactive l'animation CSS pour le "snap"
+	      sheetDragRef.current = false;
+
+	      const delta = sheetOffsetRef.current;
+	      const screenHeight = window.innerHeight;
+
+	      // Si on a glissé de plus de 150px vers le bas, on ferme
+	      if (delta > 150) {
+	        // 1. On pousse la feuille tout en bas (hors écran)
+	        setAccountSheetOffset(screenHeight);
+
+	        // 2. On attend la fin de l'animation (300ms) avant de démonter le composant
+	        setTimeout(() => {
+	          setShowAccountSheet(false);
+        }, 300);
+	      } else {
+	        // Sinon, on remonte (rebond)
+	        setAccountSheetOffset(0);
+	      }
+	    };
+
+	    
+
+	    window.addEventListener('pointermove', onMove);
+	    window.addEventListener('pointerup', onEnd);
+	    window.addEventListener('pointercancel', onEnd);
+	    // Ajout des listeners tactiles spécifiques pour mobile
+	    window.addEventListener('touchmove', onMove, { passive: false });
+	    window.addEventListener('touchend', onEnd);
+	    window.addEventListener('touchcancel', onEnd);
+	  };
+  // Fetch current user location for cards/navigation
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const coords = await logCurrentLocation('search_view');
+      if (!cancelled && coords) setUserCoords(coords);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  // Heartbeat: keep userLocations up to date even hors navigation
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    let cancelled = false;
+
+    const persistHeartbeat = async () => {
+      if (heartbeatInFlightRef.current) return;
+      heartbeatInFlightRef.current = true;
+      try {
+        const coords = await logCurrentLocation('heartbeat');
+        // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
+        const safeLat = safeCoord(coords?.lat, 48.8738);
+        const safeLng = safeCoord(coords?.lng, 2.295);
+        if (cancelled || !coords) return;
+        await setDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'userLocations', user.uid),
+          {
+            lat: safeLat,
+            lng: safeLng,
+            displayName: user.displayName || 'User',
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch (err) {
+        console.error('Error persisting heartbeat location', err);
+      } finally {
+        heartbeatInFlightRef.current = false;
+      }
+    };
+
+    // Kick off immediately, then every 30s
+    persistHeartbeat();
+    const interval = setInterval(persistHeartbeat, 30_000);
+    heartbeatIntervalRef.current = interval;
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (heartbeatIntervalRef.current === interval) heartbeatIntervalRef.current = null;
+      heartbeatInFlightRef.current = false;
+    };
+  }, [user?.uid, user?.displayName]);
+
+  const getInitialTheme = () => {
+    if (typeof window === 'undefined') return 'light';
+    const stored = window.localStorage?.getItem('theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  };
+  const [theme, setTheme] = useState(getInitialTheme);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.theme = theme;
+    window.localStorage?.setItem('theme', theme);
+  }, [theme]);
+
+  // Keep a CSS variable in sync with the real bottom nav height so views can avoid overlap.
+  useEffect(() => {
+    const updateBottomPadding = () => {
+      if (typeof document === 'undefined') return;
+      const safeValue = measureBottomSafeOffset();
+      document.documentElement.style.setProperty('--bottom-safe-offset', `${safeValue}px`);
+    };
+    updateBottomPadding();
+
+    let observer = null;
+    const tryAttachObserver = () => {
+      if (typeof document === 'undefined' || !('ResizeObserver' in window)) return;
+      const navEl = document.getElementById('bottom-nav');
+      if (!navEl || observer) return;
+      observer = new ResizeObserver(updateBottomPadding);
+      observer.observe(navEl);
+      updateBottomPadding(); // ensure we capture the measured height once nav is present
+    };
+
+    // Poll briefly until the nav mounts, then rely on ResizeObserver + resize/orientation
+    const pollId = setInterval(() => {
+      tryAttachObserver();
+      const navEl = typeof document !== 'undefined' ? document.getElementById('bottom-nav') : null;
+      if (navEl) clearInterval(pollId);
+    }, 250);
+    tryAttachObserver();
+
+    window.addEventListener('resize', updateBottomPadding);
+    window.addEventListener('orientationchange', updateBottomPadding);
+    return () => {
+      window.removeEventListener('resize', updateBottomPadding);
+      window.removeEventListener('orientationchange', updateBottomPadding);
+      if (observer) observer.disconnect();
+      clearInterval(pollId);
+    };
+  }, []);
+
+		  // --- Auth subscription ---
+		  useEffect(() => {
+		    let cancelled = false;
+		    const hydrateUser = async (fbUser) => {
+		      if (!fbUser) return null;
+		      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
+		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
+		      let language = i18n.language || 'en';
+          let walletCents = 0;
+          let walletReservedCents = 0;
+          let kycStatus = 'unverified';
+		      try {
+		        const snap = await getDoc(userRef);
+		        if (snap.exists()) {
+		          const data = snap.data();
+		          if (data?.language) language = data.language;
+              walletCents = walletCentsFromData(data);
+              walletReservedCents = walletReservedCentsFromData(data);
+              if (data?.kycStatus) kycStatus = data.kycStatus;
+              else if (data?.kyc?.status) kycStatus = data.kyc.status;
+		        }
+		      } catch (err) {
+		        console.error('Error loading user language:', err);
+		      }
+		      return {
+		        uid: fbUser.uid,
+		        displayName: fbUser.displayName || fallbackName || 'User',
+		        email: fbUser.email || '',
+		        phone: fbUser.phoneNumber || '',
+		        transactions: 0,
+		        premiumParks: PREMIUM_PARKS_MAX,
+            wallet: walletCentsToEuros(walletCents),
+            walletCents,
+            walletReservedCents,
+		        language: language || 'en',
+            kycStatus,
+		      };
+		    };
+
+		    const unsub = onAuthStateChanged(auth, (fbUser) => {
+		      (async () => {
+		        if (cancelled) return;
+		        if (fbUser) {
+		          const nextUser = await hydrateUser(fbUser);
+		          if (cancelled) return;
+		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
+		          if (nextUser?.language) i18n.changeLanguage(nextUser.language);
+		          setUser(nextUser);
+		          if (wasLoggedOut) {
+		            if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
+		            setLoggingIn(true);
+		            loginOverlayTimerRef.current = window.setTimeout(() => setLoggingIn(false), 1200);
+		          }
+		        } else if (!loggingOut) {
+		          setUser(null);
+		        }
+
+		        // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
+		        setInitializing(false);
+		        initializingRef.current = false;
+		      })();
+		    });
+
+		    return () => {
+		      cancelled = true;
+		      unsub();
+		    };
+		  }, []);
+
+  // Fallback: hydrate user immediately if auth already has a currentUser (e.g., after redirect)
+ useEffect(() => {
+  // on attend un cycle complet après redirect
+  const timer = setTimeout(() => {
+    const fbUser = auth.currentUser;
+    if (!fbUser) return;
+
+    // If auth subscription already hydrated, skip.
+    if (userUidRef.current) return;
+
+    (async () => {
+      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
+      let language = i18n.language || 'en';
+      let walletCents = 0;
+      let walletReservedCents = 0;
+      let kycStatus = 'unverified';
+      try {
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data?.language) language = data.language;
+          walletCents = walletCentsFromData(data);
+          walletReservedCents = walletReservedCentsFromData(data);
+          if (data?.kycStatus) kycStatus = data.kycStatus;
+          else if (data?.kyc?.status) kycStatus = data.kyc.status;
+        }
+      } catch (err) {
+        console.error('Error loading user language:', err);
+      }
+      const nextUser = {
+        uid: fbUser.uid,
+        displayName: fbUser.displayName || fallbackName || 'User',
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '',
+        transactions: 0,
+        premiumParks: PREMIUM_PARKS_MAX,
+        wallet: walletCentsToEuros(walletCents),
+        walletCents,
+        walletReservedCents,
+        language: language || 'en',
+        kycStatus,
+      };
+      setUser((prev) => prev || nextUser);
+      if (nextUser.language) i18n.changeLanguage(nextUser.language);
+    })();
+  }, 300); // 300ms = perfect mobile delay
+
+  return () => clearTimeout(timer);
+}, [auth]);
+
+	  // --- Firestore subscription for spots ---
+	  useEffect(() => {
+	    if (!user) return;
+	    const spotsRef = collection(db, 'artifacts', appId, 'public', 'data', 'spots');
+	    const q = query(spotsRef, orderBy('createdAt', 'desc'));
+	    const unsubscribe = onSnapshot(
+	      q,
+	      (snapshot) => {
+	        const fetchedSpots = snapshot.docs.map((docSnap) => ({
+	          id: docSnap.id,
+	          ...docSnap.data(),
+	        }));
+	        if (typeof window !== 'undefined' && celebrationSeenRef.current.size === 0) {
+	          try {
+	            const raw = window.localStorage?.getItem('parkswap_celebrate_seen');
+	            const list = raw ? JSON.parse(raw) : [];
+	            if (Array.isArray(list)) {
+	              celebrationSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
+	            }
+	          } catch (_) {
+	            // ignore storage errors
+	          }
+	        }
+	        if (typeof window !== 'undefined' && cancelledNoticeSeenRef.current.size === 0) {
+	          try {
+	            const raw = window.localStorage?.getItem('parkswap_cancel_seen');
+	            const list = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(list)) {
+              cancelledNoticeSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
+            }
+          } catch (_) {
+            // ignore storage errors
+          }
+        }
+
+        const cancelledForMe = fetchedSpots.find(
+          (s) => s.status === 'cancelled' && s.cancelledFor && user?.uid && s.cancelledFor === user.uid,
+        );
+        if (cancelledForMe && !cancelledNoticeSeenRef.current.has(cancelledForMe.id)) {
+          cancelledNoticeSeenRef.current.add(cancelledForMe.id);
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage?.setItem(
+                'parkswap_cancel_seen',
+                JSON.stringify(Array.from(cancelledNoticeSeenRef.current)),
+              );
+            } catch (_) {
+              // ignore storage errors
+            }
+          }
+
+          setCancelledNotice({
+            spotId: cancelledForMe.id,
+            hostName: cancelledForMe.hostName || 'Host',
+          });
+          setActiveTab('search');
+          setSelectedSearchSpot(null);
+          setBookedSpot(null);
+	          saveSelectionStep('cleared', null);
+	        }
+	        const debugSpot = fetchedSpots.find((s) => s.bookerId === user.uid || s.hostId === user.uid);
+	        if (debugSpot) {
+	          console.log('[Spots snapshot]', debugSpot.id, {
+            status: debugSpot.status,
+            bookerAccepted: debugSpot.bookerAccepted,
+            bookerId: debugSpot.bookerId,
+            hostId: debugSpot.hostId,
+          });
+	        }
+	        const available = fetchedSpots.filter((s) => s.status === 'available' || !s.status);
+	        setSpots(available);
+
+	        const completedForMe = fetchedSpots.find(
+	          (s) =>
+	            (s.status === 'completed' || s.plateConfirmed) &&
+	            user?.uid &&
+	            (s.hostId === user.uid || s.bookerId === user.uid),
+	        );
+	        if (completedForMe && !celebrationSeenRef.current.has(completedForMe.id)) {
+	          celebrationSeenRef.current.add(completedForMe.id);
+	          if (typeof window !== 'undefined') {
+	            try {
+	              window.localStorage?.setItem(
+	                'parkswap_celebrate_seen',
+	                JSON.stringify(Array.from(celebrationSeenRef.current)),
+	              );
+	            } catch (_) {
+	              // ignore storage errors
+	            }
+	          }
+
+	          setCelebration({ spotId: completedForMe.id });
+	          setActiveTab('search');
+	          setSelectedSearchSpot(null);
+	          setMyActiveSpot(null);
+	          setBookedSpot(null);
+	          saveSelectionStep('cleared', null);
+	          if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+	            window.setTimeout(() => setCelebration(null), 1700);
+	          }
+	        }
+
+		        const mySpot = fetchedSpots.find((s) => s.hostId === user.uid && isActiveProposeSpot(s));
+		        setMyActiveSpot(mySpot || null);
+
+	        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
+	        setBookedSpot(booked || null);
+	      },
+      (error) => {
+        console.error('Error fetching spots:', error);
+      },
+    );
+    return () => unsubscribe();
+	  }, [user]);
+
+	  // --- Auto-dismiss propose listings as soon as the timer ends ---
+	  useEffect(() => {
+	    if (!myActiveSpot) return undefined;
+	    if (myActiveSpot.status === 'booked' || myActiveSpot.status === 'confirmed') return undefined;
+	    if (myActiveSpot.status === 'expired') {
+	      setMyActiveSpot(null);
+	      return undefined;
+	    }
+	    const remaining = getRemainingMs(myActiveSpot);
+	    if (!Number.isFinite(remaining)) return undefined;
+	    if (remaining <= 0) {
+	      setMyActiveSpot(null);
+	      return undefined;
+	    }
+
+	    const spotId = myActiveSpot.id;
+	    const timer = window.setTimeout(() => {
+	      setMyActiveSpot((current) => {
+	        if (!current || current.id !== spotId) return current;
+	        if (current.status === 'booked' || current.status === 'confirmed') return current;
+	        if (current.status === 'expired') return null;
+	        const nextRemaining = getRemainingMs(current);
+	        if (!Number.isFinite(nextRemaining)) return current;
+	        return nextRemaining <= 0 ? null : current;
+	      });
+	    }, remaining + 25);
+
+	    return () => window.clearTimeout(timer);
+	  }, [myActiveSpot?.id, myActiveSpot?.status, myActiveSpot?.createdAt, myActiveSpot?.time]);
+
+	  // Restore selected spot (itinerary) from persisted state or current booking
+  useEffect(() => {
+    if (selectedSearchSpot?.isPublicParking) return;
+    if (Date.now() < suppressSelectionRestoreUntilRef.current) return;
+    // First priority: persisted selection with a spotId
+    if (selectionSnapshot?.spotId) {
+      const match = findSpotById(selectionSnapshot.spotId);
+	      const patched =
+	        match && selectionSnapshot.bookingSessionId
+	          ? { ...match, bookingSessionId: selectionSnapshot.bookingSessionId }
+	          : match;
+	      if (patched && (!selectedSearchSpot || selectedSearchSpot.id !== patched.id)) {
+	        setSelectedSearchSpot(patched);
+	        return;
+	      }
+	    }
+	    // Fallback to an active booked spot
+	    if (bookedSpot && (!selectedSearchSpot || selectedSearchSpot.id !== bookedSpot.id)) {
+	      const patched =
+	        selectionSnapshot?.spotId === bookedSpot.id && selectionSnapshot?.bookingSessionId
+	          ? { ...bookedSpot, bookingSessionId: selectionSnapshot.bookingSessionId }
+	          : bookedSpot;
+	      setSelectedSearchSpot(patched);
+	      return;
+	    }
+    // If no selection persists and no booking, clear local selection
+    if (!selectionSnapshot?.spotId && !bookedSpot && selectedSearchSpot && !selectedSearchSpot?.mapOnly) {
+      setSelectedSearchSpot(null);
+    }
+  }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
+
+  const closeMap = () => {
+    suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
+    setSelectionSnapshot(null);
+    handleSelectionStep('cleared', null);
+    setHideNav(false);
+    setSelectedSearchSpot(null);
+  };
+
+  // --- Persisted selection subscription (to restore itinerary after reload) ---
+  useEffect(() => {
+    if (!user?.uid) return;
+    const ref = userSelectionRef(user.uid);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        setSelectionSnapshot(snap.exists() ? snap.data() : null);
+      },
+      (err) => console.error('Error watching selection state:', err),
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  // --- Transactions subscription (history) ---
+  useEffect(() => {
+    if (!user) return;
+    const txRef = collection(db, 'artifacts', appId, 'public', 'data', 'transactions');
+    const q = query(txRef, where('userId', '==', user.uid), limit(50));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const txs = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+          }))
+          .sort((a, b) => {
+            const getMs = (v) =>
+              v?.toMillis ? v.toMillis() : typeof v === 'number' ? v : Date.parse(v) || 0;
+            return getMs(b.updatedAt || b.createdAt) - getMs(a.updatedAt || a.createdAt);
+          });
+        setTransactions(txs);
+      },
+      (error) => {
+        console.error('Error fetching transactions:', error);
+      },
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Vehicles subscription ---
+  useEffect(() => {
+    if (!user) return;
+    const vehiclesRef = vehiclesCollectionForUser(user.uid);
+    const q = query(vehiclesRef, orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetched = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+        setVehicles(fetched);
+        const defaultVeh = fetched.find((v) => v.isDefault) || fetched[0] || null;
+        setSelectedVehicle(defaultVeh);
+      },
+      (error) => {
+        console.error('Error fetching vehicles:', error);
+      },
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Ensure user profile doc exists / hydrate (live subscription) ---
+	  useEffect(() => {
+	    if (!user?.uid) return;
+	    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+
+	    // Seed Premium Parks once per account (start with 5 hearts).
+	    runTransaction(db, async (tx) => {
+	      const snap = await tx.get(userRef);
+	      const data = snap.exists() ? snap.data() : null;
+	      const initialized = data?.premiumParksInitialized === true;
+	      const current = Number(data?.premiumParks);
+	      const hasValue = Number.isFinite(current);
+
+	      if (!snap.exists()) {
+	        tx.set(
+	          userRef,
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { merge: true },
+	        );
+	        return;
+	      }
+
+	      if (!initialized) {
+	        tx.set(
+	          userRef,
+	          { premiumParks: PREMIUM_PARKS_MAX, premiumParksInitialized: true },
+	          { merge: true },
+	        );
+	        return;
+	      }
+
+	      if (!hasValue) {
+	        tx.set(userRef, { premiumParks: PREMIUM_PARKS_MAX }, { merge: true });
+        return;
+	      }
+	    }).catch((err) => console.error('Error initializing Premium Parks:', err));
+
+	    // Ensure the profile doc exists with basic defaults
+	    // Ensure doc exists without resetting transaction count
+		    setDoc(
+		      userRef,
+		      {
+		        displayName: user.displayName,
+		        email: user.email,
+		        phone: user.phone,
+		        language: user.language || i18n.language || 'en',
+		        // increment(0) preserves existing transactions and initializes to 0 if missing
+		        transactions: increment(0),
+		        createdAt: serverTimestamp(),
+		      },
+		      { merge: true },
+		    ).catch((err) => console.error('Error creating user profile:', err));
+
+    const unsub = onSnapshot(
+      userRef,
+	      (snap) => {
+	        if (!snap.exists()) return;
+	        const data = snap.data();
+		        setUser((prev) => {
+		          const premiumInitialized = data.premiumParksInitialized === true;
+		          const premiumValue = Number(data.premiumParks);
+		          const nextPremium =
+		            premiumInitialized
+		              ? Number.isFinite(premiumValue)
+		                ? premiumValue
+		                : prev?.premiumParks ?? PREMIUM_PARKS_MAX
+		              : PREMIUM_PARKS_MAX;
+              const walletCents = walletCentsFromData(data);
+              const walletReservedCents = walletReservedCentsFromData(data);
+              const nextWallet = walletCentsToEuros(walletCents);
+		          return {
+		            ...prev,
+		            displayName: data.displayName || prev?.displayName,
+		            email: data.email || prev?.email,
+		            phone: data.phone ?? prev?.phone,
+		            language: data.language || prev?.language || 'en',
+		            transactions: data.transactions ?? prev?.transactions ?? 0,
+		            premiumParks: nextPremium,
+                wallet: nextWallet,
+                walletCents,
+                walletReservedCents,
+		          };
+		        });
+	      },
+	      (err) => console.error('Error subscribing to user profile:', err),
+	    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  // --- Leaderboard subscription ---
+  useEffect(() => {
+    if (!user) return;
+    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+    const q = query(usersRef, orderBy('transactions', 'desc'), limit(50));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const topUsers = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        }));
+
+        const sorted = [...topUsers].sort((a, b) => Number(b.transactions || 0) - Number(a.transactions || 0));
+        const withRanks = sorted.map((u, idx) => ({ ...u, rank: idx + 1 }));
+        setLeaderboard(withRanks);
+      },
+      (error) => {
+        console.error('Error fetching leaderboard:', error);
+      },
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Expire available spots after timer ---
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const expired = spots.filter(
+        (s) => (s.status === 'available' || !s.status) && getRemainingMs(s) <= 0,
+      );
+      if (expired.length === 0) return;
+      await Promise.all(
+        expired.map((spot) =>
+          updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id), {
+            status: 'expired',
+          }),
+        ),
+      );
+    }, 5_000);
+    return () => clearInterval(interval);
+  }, [spots]);
+
+  // --- Handlers ---
+	  const handleProposeSpot = async ({ car, time, price, length, vehiclePlate, vehicleId }) => {
+	    if (!user) return;
+	    // Best-effort: keep location fresh, but don't block publishing on geolocation (iOS can take seconds).
+	    logCurrentLocation('propose_spot');
+	    const arcLat = 48.8738;
+	    const arcLng = 2.2950;
+	    const vehicleToUse = car || selectedVehicle?.model || '';
+	    // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
+	    const x = safeCoord(50 + (Math.random() * 40 - 20), 50);
+	    const y = safeCoord(50 + (Math.random() * 40 - 20), 50);
+	    try {
+	      if (isActiveProposeSpot(myActiveSpot)) {
+	        const err = new Error('active_spot_exists');
+	        err.code = 'active_spot_exists';
+	        throw err;
+	      }
+
+	      const spotPayload = {
+	        hostId: user.uid,
+	        hostName: user.displayName || 'Anonymous',
+	        carModel: vehicleToUse,
+	        hostVehiclePlate: vehiclePlate || selectedVehicle?.plate || null,
+	        hostVehicleId: vehicleId || selectedVehicle?.id || null,
+	        time,
+	        price: safePrice(price),
+	        length: length ?? null,
+	        x,
+	        y,
+	        lat: arcLat,
+	        lng: arcLng,
+	        status: 'available',
+	        createdAt: serverTimestamp(),
+	        address: 'Arc de Triomphe, Paris',
+	      };
+
+	      const spotRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'spots'), spotPayload);
+
+	      // Optimistic UI: show the waiting state immediately (snapshot will reconcile).
+	      setMyActiveSpot({
+	        id: spotRef.id,
+	        ...spotPayload,
+	        createdAt: Date.now(),
+	      });
+
+	      // Leaderboard/transactions are non-critical; don't block spot publishing on them.
+	      upsertTransaction({
+	        spot: { id: spotRef.id, hostId: user.uid, hostName: user.displayName, price },
+	        userId: user.uid,
+	        status: 'started',
+	        role: 'host',
+	      }).catch((err) => console.error('Error creating host transaction:', err));
+	      setActiveTab('propose');
+	      return { ok: true, spotId: spotRef.id };
+	    } catch (err) {
+	      console.error('Error creating spot:', err);
+	      throw err;
+	    }
+	  };
+
+	  const handleSelectionStep = async (step, spot, meta = {}) => {
+		    if (step !== 'nav_started') {
+		      saveSelectionStep(step, spot, meta);
+		      return { ok: true };
+		    }
+
+	    if (!user || !spot?.id) return { ok: false, code: 'missing_input' };
+
+	    const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
+	    const bookerRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+
+	    const bookingSessionId =
+	      typeof meta?.bookingSessionId === 'string' && meta.bookingSessionId
+	        ? meta.bookingSessionId
+	        : typeof spot?.bookingSessionId === 'string' && spot.bookingSessionId
+	          ? spot.bookingSessionId
+	          : null;
 	    const fallbackSessionId = bookingSessionId || newId();
 	    const navOpId =
 	      typeof meta?.opId === 'string' && meta.opId

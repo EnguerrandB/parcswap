@@ -213,6 +213,8 @@ const SwipeCard = forwardRef(({
   onDrag,
   canSwipeRight,
   onBlockedSwipe,
+  formatPrice,
+  formatParkingPrice,
 }, ref) => { // 'ref' est maintenant reçu ici via forwardRef
   const { t } = useTranslation('common');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -1677,6 +1679,8 @@ const SearchView = ({
 	                        index={index}
 	                        active={!exiting && index === 0}
 	                        nowMs={nowMs}
+                            formatPrice={formatPrice}
+                            formatParkingPrice={formatParkingPrice}
 	                        ref={(!exiting && index === 0) ? activeCardRef : null}
 	                        onSwipe={(dir) => handleSwipe(dir, spot)}
                         onVerticalSwipe={spot.isPublicParking ? undefined : () => handleVerticalShare(spot)}

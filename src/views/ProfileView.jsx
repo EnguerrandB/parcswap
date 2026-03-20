@@ -558,6 +558,7 @@ const ProfileView = ({
             >
               <option value="en">English</option>
               <option value="fr">Français</option>
+              <option value="he">עברית</option>
             </select>
           </div>
 

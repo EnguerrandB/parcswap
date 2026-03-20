@@ -173,6 +173,7 @@
   "noVehicles": "Автомобилей пока нет. Нажмите «Управление», чтобы добавить.",
   "stripeConnection": "Подключение Stripe",
   "premiumParks": "Премиум-парковки",
+  "walletTestMode": "Тестовый режим кошелька",
   "wallet": "Кошелек",
   "kycNeedsInput": "Требуется проверка",
   "walletInstantCredits": "Мгновенные кредиты",

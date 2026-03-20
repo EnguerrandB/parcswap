@@ -173,6 +173,7 @@
   "noVehicles": "No vehicles yet. Tap Manage to add one.",
   "stripeConnection": "Stripe Connection",
   "premiumParks": "Premium parks",
+  "walletTestMode": "Test wallet mode",
   "wallet": "Wallet",
   "kycNeedsInput": "Needs verification",
   "walletInstantCredits": "Instant credits",

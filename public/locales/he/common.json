@@ -173,6 +173,7 @@
   "noVehicles": "אין רכבים. לחץ על ניהול כדי להוסיף רכב.",
   "stripeConnection": "חיבור ל-Stripe",
   "premiumParks": "חניות פרימיום",
+  "walletTestMode": "מצב בדיקת ארנק",
   "wallet": "ארנק",
   "kycNeedsInput": "דורש אימות",
   "walletInstantCredits": "קרדיטים מיידיים",

@@ -164,6 +164,7 @@ const ProfileView = ({
     const normalized = String(lng || '').split('-')[0].toLowerCase();
     if (normalized === 'fr') return '🇫🇷';
     if (normalized === 'en') return '🇬🇧';
+    if (normalized === 'he') return '🇮🇱';
     return '';
   };
 

@@ -3,6 +3,7 @@ const CURRENCY_CONFIG = {
   GBP: { code: "GBP", locale: "en-GB", rateFromEur: 0.86 },
   USD: { code: "USD", locale: "en-US", rateFromEur: 1.09 },
   ILS: { code: "ILS", locale: "he-IL", rateFromEur: 4.02 },
+  AED: { code: "AED", locale: "ar-AE", rateFromEur: 3.98 },
 };
 
 export const normalizeCurrency = (currency) => {
@@ -16,6 +17,7 @@ export const getDefaultCurrencyForLanguage = (language) => {
     .toLowerCase();
   if (normalized === "fr") return "EUR";
   if (normalized === "he") return "ILS";
+  if (normalized === "ar") return "AED";
   if (normalized === "en") return "GBP";
   return "EUR";
 };

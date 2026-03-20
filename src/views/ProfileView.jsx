@@ -168,6 +168,7 @@ const ProfileView = ({
     if (normalized === 'fr') return '🇫🇷';
     if (normalized === 'en') return '🇬🇧';
     if (normalized === 'he') return '🇮🇱';
+    if (normalized === 'ar') return '🇦🇪';
     return '';
   };
 
@@ -573,6 +574,7 @@ const ProfileView = ({
               <option value="en">English</option>
               <option value="fr">Français</option>
               <option value="he">עברית</option>
+              <option value="ar">العربية</option>
             </select>
           </div>
 
@@ -600,6 +602,7 @@ const ProfileView = ({
               <option value="GBP">{t('currencyPound', 'Pound')} (GBP)</option>
               <option value="USD">{t('currencyDollar', 'Dollar')} (USD)</option>
               <option value="ILS">{t('currencyShekel', 'Shekel')} (ILS)</option>
+              <option value="AED">{t('currencyDirham', 'Dirham')} (AED)</option>
             </select>
           </div>
 

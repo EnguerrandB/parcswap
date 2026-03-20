@@ -1,39 +1,32 @@
 // src/components/ActiveViewNameOverlay.jsx
 import React, { useEffect, useState } from 'react';
 
-const readEnabledFromUrl = () => {
+const readEnabledFromUrlOrStorage = () => {
   try {
     const url = new URL(window.location.href);
-    return url.searchParams.has('debugViewName');
+    return url.searchParams.get('debugViewName') === '1';
   } catch {
     return false;
   }
 };
 
 const ActiveViewNameOverlay = ({ activeViewName = 'Unknown' }) => {
-  const [enabled, setEnabled] = useState(() => readEnabledFromUrl());
+  const [enabled, setEnabled] = useState(() => readEnabledFromUrlOrStorage());
 
   useEffect(() => {
     const handleUrlChange = () => {
-      setEnabled(readEnabledFromUrl());
+      setEnabled(readEnabledFromUrlOrStorage());
     };
 
     window.addEventListener('popstate', handleUrlChange);
     return () => window.removeEventListener('popstate', handleUrlChange);
   }, []);
 
-  // Debug log
-  useEffect(() => {
-    if (enabled) {
-      console.log('[ActiveViewNameOverlay] Showing:', activeViewName);
-    }
-  }, [activeViewName, enabled]);
-
   if (!enabled) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[9999] pointer-events-none flex items-center justify-center"
+      className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center"
       role="status"
       aria-live="polite"
     >

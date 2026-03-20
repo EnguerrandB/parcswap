@@ -269,6 +269,14 @@ const getRemainingMs = (spot) => {
   return createdMs + Number(spot.time) * 60_000 - Date.now();
 };
 
+const isSearchSelectionRenderable = (spot) => {
+  if (!spot) return false;
+  if (spot.mapOnly) return true;
+  if (spot.status === 'booked' || spot.status === 'confirmed') return true;
+  const remaining = getRemainingMs(spot);
+  return !Number.isFinite(remaining) || remaining > 0;
+};
+
 const isActiveProposeSpot = (spot) => {
   if (!spot) return false;
   if (spot.status === 'completed' || spot.status === 'cancelled' || spot.status === 'expired') return false;
@@ -1257,6 +1265,15 @@ export default function ParkSwapApp() {
       setSelectedSearchSpot(null);
     }
   }, [selectionSnapshot, bookedSpot, spots, selectedSearchSpot]);
+
+  useEffect(() => {
+    if (!selectedSearchSpot) return;
+    if (isSearchSelectionRenderable(selectedSearchSpot)) return;
+    setSelectedSearchSpot(null);
+    if (selectionSnapshot?.spotId === selectedSearchSpot.id && !bookedSpot) {
+      saveSelectionStep('cleared', null);
+    }
+  }, [bookedSpot, selectedSearchSpot, selectionSnapshot?.spotId]);
 
   const closeMap = () => {
     suppressSelectionRestoreUntilRef.current = Date.now() + 2000;
@@ -2702,7 +2719,7 @@ export default function ParkSwapApp() {
             onCompleteSwap={handleCompleteSwap}
             onBookSpot={handleBookSpot}
             onCancelBooking={handleCancelBooking}
-            selectedSpot={selectedSearchSpot}
+            selectedSpot={isSearchSelectionRenderable(selectedSearchSpot) ? selectedSearchSpot : null}
             setSelectedSpot={setSelectedSearchSpot}
             onSelectionStep={handleSelectionStep}
 	    leaderboard={leaderboard}
@@ -2765,7 +2782,7 @@ export default function ParkSwapApp() {
     if (initializing) return 'Initializing';
     if (!user) return 'AuthView';
     // Check for Map overlay (highest priority)
-    if (selectedSearchSpot && !insufficientFundsModal && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0)) {
+    if (selectedSearchSpot && !insufficientFundsModal && isSearchSelectionRenderable(selectedSearchSpot)) {
       return 'Map';
     }
     // Check for MapSearchView
@@ -3315,7 +3332,7 @@ export default function ParkSwapApp() {
       )}
         </div>
       </div>
-      {selectedSearchSpot && !insufficientFundsModal && (selectedSearchSpot?.mapOnly || getRemainingMs(selectedSearchSpot) > 0) && (
+      {selectedSearchSpot && !insufficientFundsModal && isSearchSelectionRenderable(selectedSearchSpot) && (
         <Map
           spot={selectedSearchSpot}
           onClose={closeMap}

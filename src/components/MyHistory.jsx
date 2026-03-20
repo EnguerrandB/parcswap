@@ -4,7 +4,8 @@ import { ArrowDownLeft, ArrowRight, ArrowUpRight, Clock, History, Share, X } fro
 import { formatCurrencyAmount } from '../utils/currency';
 
 const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onCollapse }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const currency = user?.currency || 'EUR';
   const [showHistory, setShowHistory] = useState(false);
   const [closingHistory, setClosingHistory] = useState(false);
@@ -29,11 +30,11 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
           onCollapse?.();
           setShowHistory(true);
         }}
-        className={`w-full p-4 flex items-center justify-between text-left transition ${
+        className={`w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
           isDark ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100' : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
         }`}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <div className="bg-white p-2 rounded-lg border border-gray-100">
             <History size={20} style={iconStyle ? iconStyle('history') : undefined} />
           </div>
@@ -41,7 +42,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
             {t('historyTitle', { defaultValue: 'Historique' })}
           </span>
         </div>
-        <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+        <ArrowRight size={16} className={`${isDark ? 'text-slate-500' : 'text-gray-300'} ${isRtl ? 'rotate-180' : ''}`} />
       </button>
 
       {showHistory && (
@@ -60,7 +61,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-6 pb-3">
-              <div className="flex items-center space-x-3">
+              <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
                 <div className="bg-white p-2 rounded-lg border border-gray-100">
                   <History size={20} style={iconStyle ? iconStyle('history') : undefined} />
                 </div>
@@ -109,7 +110,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                     key={tx.id}
                     className="group flex items-center justify-between p-3 rounded-2xl transition-colors cursor-default hover:bg-orange-400/10 active:bg-orange-400/10 focus-within:bg-orange-400/10"
                   >
-                    <div className="flex items-center space-x-4">
+                    <div className={`flex items-center gap-4 ${isRtl ? 'flex-row-reverse' : ''}`}>
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm ring-1 ring-inset ${
                           isIncoming
@@ -120,7 +121,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                         {isIncoming ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
                       </div>
 
-                      <div className="flex flex-col">
+                      <div className={`flex flex-col ${isRtl ? 'items-end text-right' : ''}`}>
                         <span className="text-base font-semibold text-gray-900 leading-tight">
                           {displayTitle}
                         </span>
@@ -132,7 +133,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-end space-y-0.5">
+                    <div className={`flex flex-col space-y-0.5 ${isRtl ? 'items-start text-left' : 'items-end text-right'}`}>
                       <span
                         className={`text-base font-bold tracking-tight tabular-nums ${
                           isIncoming ? 'text-orange-600' : 'text-gray-900'
@@ -141,7 +142,7 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                         {isIncoming ? '+' : ''}{tx.amount != null ? formatCurrencyAmount(tx.amount, currency) : ''}
                       </span>
 
-                      <div className="flex items-center space-x-2">
+                      <div className={`flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
                         {tx.status === 'completed' ? (
                           <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
                             {tx.status}

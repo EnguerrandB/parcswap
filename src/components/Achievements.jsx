@@ -50,7 +50,8 @@ const getTxAmount = (tx) => {
 };
 
 const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconStyle, onCollapse }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [showAchievementsModal, setShowAchievementsModal] = useState(false);
   const [selectedAchievementId, setSelectedAchievementId] = useState(null);
 
@@ -335,11 +336,11 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
       <button
         type="button"
         onClick={openAchievementsModal}
-        className={`w-full p-4 flex items-center justify-between text-left transition ${
+        className={`w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
           isDark ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100' : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
         }`}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <div className="w-9 h-9 flex items-center justify-center bg-white p-2 rounded-lg border border-gray-100">
             🏅
           </div>
@@ -347,7 +348,7 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
             {t('achievements', { defaultValue: 'Défis' })}
           </span>
         </div>
-        <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+        <ArrowRight size={16} className={`${isDark ? 'text-slate-500' : 'text-gray-300'} ${isRtl ? 'rotate-180' : ''}`} />
       </button>
 
       {showAchievementsModal && selectedAchievement && (
@@ -359,7 +360,7 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
             className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 relative animate-[modalIn_0.28s_ease]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center space-x-2 mb-4">
+            <div className={`flex items-center gap-2 mb-4 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Trophy size={20} style={iconStyle ? iconStyle('leaderboard') : undefined} />
               </div>
@@ -387,7 +388,7 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
                       >
                         <Icon size={22} strokeWidth={2.5} className="text-white" />
                         {achv.enabled ? (
-                          <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center">
+                          <span className={`absolute -bottom-1 w-5 h-5 rounded-full bg-white shadow flex items-center justify-center ${isRtl ? '-left-1' : '-right-1'}`}>
                             <Check size={14} strokeWidth={3} className="text-emerald-600" />
                           </span>
                         ) : null}
@@ -397,7 +398,7 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
                 </button>
               ))}
             </div>
-            <div className="flex items-center space-x-3 mb-3">
+            <div className={`flex items-center gap-3 mb-3 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
               {(() => {
                 const Icon = selectedAchievement.Icon || Trophy;
                 return (
@@ -420,7 +421,7 @@ const Achievements = ({ transactions = [], vehicles = [], isDark = false, iconSt
             <div className="space-y-2">
               {(selectedAchievement.challenges || []).map((c, idx) => (
                 <div key={idx} className="flex items-start justify-between gap-3">
-                  <div className="flex items-start space-x-2">
+                  <div className={`flex items-start gap-2 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
                     {c.done ? (
                       <Check size={16} strokeWidth={3} className="text-emerald-600 mt-[2px]" />
                     ) : (

@@ -222,7 +222,8 @@ const SwipeCard = forwardRef(({
   formatPrice,
   formatParkingPrice,
 }, ref) => { // 'ref' est maintenant reçu ici via forwardRef
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -463,7 +464,7 @@ const SwipeCard = forwardRef(({
       <div className="flex flex-col items-center justify-center h-full space-y-6 text-center pointer-events-none">
         
         {isPublicParking ? (
-          <div className="absolute top-3 left-3 right-3 flex items-center gap-2 text-white/90 pointer-events-none">
+          <div className={`absolute top-3 left-3 right-3 flex items-center gap-2 text-white/90 pointer-events-none ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
             <div
               className="flex items-center justify-center rounded-full bg-white/15 border border-white/20 font-extrabold"
               style={{ width: 'clamp(38px, 10vw, 46px)', height: 'clamp(38px, 10vw, 46px)' }}
@@ -473,7 +474,7 @@ const SwipeCard = forwardRef(({
             <div className="text-sm font-semibold truncate">{parkingName}</div>
           </div>
         ) : (
-          <div className="absolute top-3 left-3 text-white/90 pointer-events-auto">
+          <div className={`absolute top-3 text-white/90 pointer-events-auto ${isRtl ? 'right-3' : 'left-3'}`}>
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()} 
@@ -481,7 +482,7 @@ const SwipeCard = forwardRef(({
               className="relative inline-flex items-center justify-center rounded-full bg-white/10 backdrop-blur border border-white/15 shadow-inner shadow-black/20 active:scale-95 transition"
               style={{ width: 'clamp(44px, 12vw, 56px)', height: 'clamp(44px, 12vw, 56px)' }}
             >
-              <span className="absolute -top-2 -right-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow">{rank}</span>
+              <span className={`absolute -top-2 text-xs font-bold bg-white/80 text-orange-600 rounded-full px-1.5 py-0.5 shadow ${isRtl ? '-left-2' : '-right-2'}`}>{rank}</span>
               <img src={leaderEntry?.rank ? `/ranks/rank${Math.min(5, Math.max(1, leaderEntry.rank))}.png` : '/ranks/rank1.png'} alt="Rang" className="w-full h-full object-contain bg-white/20 p-1 rounded-full" />
             </button>
           </div>
@@ -493,7 +494,7 @@ const SwipeCard = forwardRef(({
           </p>
         </div>
 
-        <div className="flex flex-col items-stretch gap-3 w-full text-left">
+        <div className={`flex flex-col items-stretch gap-3 w-full ${isRtl ? 'text-right' : 'text-left'}`}>
           {isPublicParking ? (
             <>
               <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
@@ -534,8 +535,8 @@ const SwipeCard = forwardRef(({
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-auto">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm rounded-[26px]" onClick={() => setShowRank(false)} />
           <div className="relative w-[85%] max-w-xs bg-slate-900/95 text-white rounded-2xl border border-white/10 shadow-2xl px-5 py-5">
-             <button type="button" onClick={() => setShowRank(false)} className="absolute top-2 right-2 text-white/70 hover:text-white">×</button>
-             <div className="flex items-center gap-3 mb-4">
+             <button type="button" onClick={() => setShowRank(false)} className={`absolute top-2 text-white/70 hover:text-white ${isRtl ? 'left-2' : 'right-2'}`}>×</button>
+             <div className={`flex items-center gap-3 mb-4 ${isRtl ? 'flex-row-reverse text-right' : ''}`}>
                 <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/10 border border-white/15 text-2xl shadow-inner shadow-black/30">{carEmoji}</span>
                 <div><p className="text-xs uppercase tracking-wide text-white/60">Rang</p><p className="text-2xl font-bold">#{rank}</p></div>
              </div>
@@ -569,7 +570,8 @@ const SearchView = ({
   deckIndex = null,
   setDeckIndex,
 }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const currencySymbol = getCurrencySymbol(currency);
   const formatPrice = (price) => formatCurrencyAmount(price, currency);
   const formatPriceNumber = (price) => formatCurrencyNumber(price, currency);
@@ -1458,10 +1460,10 @@ const SearchView = ({
                       [&::-webkit-slider-thumb]:active:scale-95
                     "
                   />
-                  <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
                     100 m
                   </div>
-                  <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
                     {anyLabel}
                   </div>
                 </div>
@@ -1523,10 +1525,10 @@ const SearchView = ({
                       [&::-webkit-slider-thumb]:active:scale-95
                     "
                   />
-                  <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
                     {`0 ${currencySymbol}`}
                   </div>
-                  <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
                     {`${formatPriceNumber(maxSpotPrice)} ${currencySymbol}`}
                   </div>
                 </div>
@@ -1538,12 +1540,12 @@ const SearchView = ({
       {/* Header */}
 	      {!selectedSpot && (
 	        <div className="px-6 pt-5 pb-2 relative z-0">
-            <div className="flex items-center justify-end">
+            <div className={`flex items-center ${isRtl ? 'justify-start' : 'justify-end'}`}>
 	          <button
 	            type="button"
 	            ref={filtersButtonRef}
 	            onClick={() => setShowRadiusPicker((s) => !s)}
-	            className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col items-end leading-tight gap-0.5 relative ${
+              className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col leading-tight gap-0.5 relative ${isRtl ? 'items-start text-right' : 'items-end text-left'} ${
 	              isDark
 	                ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
 	                : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
@@ -1610,7 +1612,7 @@ const SearchView = ({
                 <button
                   type="button"
                   onClick={handleRelaxFilters}
-                  className={`mx-auto w-full rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl transition active:scale-[0.99] ${
+                  className={`mx-auto w-full rounded-[24px] border px-4 py-4 ${isRtl ? 'text-right' : 'text-left'} shadow-[0_18px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl transition active:scale-[0.99] ${
                     isDark ? 'bg-slate-900/70 border-white/10' : 'bg-white/80 border-white/60'
                   }`}
                 >

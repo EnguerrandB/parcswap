@@ -6,6 +6,7 @@ import { TERMS_AND_CONDITIONS_TEXT } from '../legal/termsAndConditionsText';
 
 const LegalContact = ({ isDark = false, iconStyle }) => {
   const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const legalLocale = String(i18n.language || 'en')
     .toLowerCase()
     .startsWith('fr')
@@ -43,13 +44,13 @@ const LegalContact = ({ isDark = false, iconStyle }) => {
         <button
           type="button"
           onClick={() => setShowLegal((s) => !s)}
-          className={`w-full p-4 flex items-center justify-between text-left transition ${
+          className={`w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
             isDark
               ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800'
               : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
           }`}
         >
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-3">
             <div className="bg-white p-2 rounded-lg border border-gray-100">
               <FileText size={20} style={iconStyle ? iconStyle('legal') : undefined} />
             </div>
@@ -60,7 +61,7 @@ const LegalContact = ({ isDark = false, iconStyle }) => {
           <ArrowRight
             size={16}
             className={`${isDark ? 'text-slate-500' : 'text-gray-300'} transition-transform ${
-              showLegal ? 'rotate-90' : 'rotate-0'
+              showLegal ? (isRtl ? '-rotate-90' : 'rotate-90') : isRtl ? 'rotate-180' : 'rotate-0'
             }`}
           />
         </button>

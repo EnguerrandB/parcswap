@@ -254,17 +254,17 @@ const MyProfile = ({ user, onUpdateProfile, isDark = false, iconStyle }) => {
       <button
         type="button"
         onClick={handleProfileClick}
-        className={`w-full p-4 flex items-center justify-between text-left transition ${
+        className={`w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
           isDark ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100' : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
         }`}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <div className="bg-white p-2 rounded-lg border border-gray-100">
             <User size={20} style={iconStyle ? iconStyle('profile') : undefined} />
           </div>
           <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>{t('profile')}</span>
         </div>
-        <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
+        <ArrowRight size={16} className={`${isDark ? 'text-slate-500' : 'text-gray-300'} ${isRtl ? 'rotate-180' : ''}`} />
       </button>
 
       {showProfileModal && (

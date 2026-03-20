@@ -48,7 +48,8 @@ const MyVehicules = ({
   openAddVehicleRequestId = 0,
   highlightVehiclesRequestId = 0,
 }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [form, setForm] = useState({ model: '' });
   const [plateSlots, setPlateSlots] = useState(Array(7).fill(''));
   const [plateFocused, setPlateFocused] = useState(false);
@@ -190,7 +191,7 @@ const MyVehicules = ({
           setShowModal(true);
         }}
         ref={vehiclesRowRef}
-        className={`relative overflow-hidden w-full p-4 flex items-center justify-between text-left transition ${
+        className={`relative overflow-hidden w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
           isDark ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100' : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
         }`}
       >
@@ -200,7 +201,7 @@ const MyVehicules = ({
             <span className="pointer-events-none absolute inset-2 rounded-2xl border border-orange-300/70 animate-pulse" aria-hidden="true" />
           </>
         ) : null}
-        <div className="relative z-10 flex items-center space-x-3">
+        <div className="relative z-10 flex items-center gap-3">
           <div className="bg-white p-2 rounded-lg border border-gray-100">
             <Car size={20} style={iconStyle ? iconStyle('vehicle') : undefined} />
           </div>
@@ -208,7 +209,7 @@ const MyVehicules = ({
             {t('myVehicles')}
           </span>
         </div>
-        <ArrowRight size={16} className={`relative z-10 ${isDark ? 'text-slate-500' : 'text-gray-300'}`} />
+        <ArrowRight size={16} className={`relative z-10 ${isDark ? 'text-slate-500' : 'text-gray-300'} ${isRtl ? 'rotate-180' : ''}`} />
       </button>
 
       {showModal && (
@@ -224,7 +225,7 @@ const MyVehicules = ({
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center space-x-2 mb-4">
+            <div className={`flex items-center gap-2 mb-4 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Car size={20} style={iconStyle ? iconStyle('vehicle') : undefined} />
               </div>
@@ -266,7 +267,7 @@ const MyVehicules = ({
             </div>
 
             <div className="space-y-3">
-              <div className="flex space-x-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   placeholder={t('modelPlaceholder', 'Model (e.g., Tesla Model 3)')}
@@ -275,14 +276,14 @@ const MyVehicules = ({
                   onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))}
                 />
               </div>
-              <div className="flex space-x-2">
+              <div className="flex gap-2">
                 <input
                   type="text"
                   placeholder={plateFocused ? 'AB-123-CD' : t('platePlaceholderFull', 'Plate')}
                   className={`flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300 ${
                     plateFocused || plateSlots.some(Boolean)
                       ? 'text-center uppercase tracking-widest font-mono'
-                      : 'text-left normal-case tracking-normal font-sans'
+                      : `${isRtl ? 'text-right' : 'text-left'} normal-case tracking-normal font-sans`
                   }`}
                   inputMode={plateNextKind === 'digits' ? 'numeric' : 'text'}
                   pattern={plateNextKind === 'digits' ? '[0-9]*' : '[A-Za-z]*'}
@@ -392,7 +393,7 @@ const MyVehicules = ({
                   }}
                 />
               </div>
-              <div className="flex space-x-2 items-center">
+              <div className="flex gap-2 items-center">
                 <label className="w-full cursor-pointer">
                   <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition">
                     {formImage ? t('imageSelected', 'Image selected') : t('uploadPhoto', 'Upload vehicle photo')}
@@ -414,7 +415,7 @@ const MyVehicules = ({
                   />
                 </label>
               </div>
-              <div className="flex space-x-2">
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={closeVehicleModal}
@@ -432,7 +433,7 @@ const MyVehicules = ({
                   {highlightAddVehicleButton ? (
                     <>
                       <span className="pointer-events-none absolute -inset-1 bg-gradient-to-r from-orange-400/25 to-amber-300/20 blur-lg" aria-hidden="true" />
-                      <span className="pointer-events-none absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-orange-600 text-xs font-extrabold flex items-center justify-center shadow" aria-hidden="true">
+                      <span className={`pointer-events-none absolute top-2 w-6 h-6 rounded-full bg-white text-orange-600 text-xs font-extrabold flex items-center justify-center shadow ${isRtl ? 'left-2' : 'right-2'}`} aria-hidden="true">
                         !
                       </span>
                     </>

@@ -5,7 +5,8 @@ import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
 
 const PremiumParks = ({ user, premiumParksCount = 0, isDark = false, iconStyle }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [showPremiumParksInfo, setShowPremiumParksInfo] = useState(false);
   const [closingPremiumParksInfo, setClosingPremiumParksInfo] = useState(false);
   const [buyingPremiumParks, setBuyingPremiumParks] = useState(false);
@@ -68,11 +69,11 @@ const PremiumParks = ({ user, premiumParksCount = 0, isDark = false, iconStyle }
       <button
         type="button"
         onClick={openPremiumParksModal}
-        className={`w-full p-4 flex items-center justify-between text-left transition ${
+        className={`w-full p-4 flex items-center justify-between transition ${isRtl ? 'text-right' : 'text-left'} ${
           isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
         }`}
       >
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-3">
           <div className="bg-white p-2 rounded-lg border border-gray-100">
             <Heart size={20} style={iconStyle ? iconStyle('premiumParks') : undefined} />
           </div>

@@ -11,7 +11,8 @@ const Leaderboard = ({
   rankIcon,
   rankLabel,
 }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [closingLeaderboard, setClosingLeaderboard] = useState(false);
   const [leaderboardCountdown, setLeaderboardCountdown] = useState({
@@ -122,7 +123,7 @@ const Leaderboard = ({
                       isMe ? 'bg-orange-50/60' : 'bg-white'
                     }`}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
                       <div className="relative w-8 h-8 rounded-full bg-orange-50 text-orange-700 font-bold flex items-center justify-center">
                         {idx === 0 ? (
                           <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-amber-500 crown-bounce">
@@ -131,7 +132,7 @@ const Leaderboard = ({
                         ) : null}
                         {idx + 1}
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className={`flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
                         <img
                           src={rankIcon ? rankIcon(txnCount) : ''}
                           alt="Rank"
@@ -145,9 +146,9 @@ const Leaderboard = ({
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className={isRtl ? 'text-left' : 'text-right'}>
                       <p className="text-base font-bold text-gray-900">{txnCount}</p>
-                      <div className="mt-1 flex justify-end">
+                      <div className={`mt-1 flex ${isRtl ? 'justify-start' : 'justify-end'}`}>
                         {idx === 0 && <Car size={16} style={iconStyle ? iconStyle('tierCar') : undefined} />}
                         {idx > 0 && idx < 5 && <Laptop size={16} style={iconStyle ? iconStyle('tierLaptop') : undefined} />}
                         {idx >= 5 && idx < 10 && <Smartphone size={16} style={iconStyle ? iconStyle('tierPhone') : undefined} />}

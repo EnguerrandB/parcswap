@@ -261,7 +261,8 @@ const MapSearchView = ({
   premiumParks = 0,
   onFiltersOpenChange,
 }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
+  const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const currencySymbol = getCurrencySymbol(currency);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
@@ -1509,10 +1510,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
                     [&::-webkit-slider-thumb]:active:scale-95
                   "
                 />
-                <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
                   100 m
                 </div>
-                <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
                   {anyLabel}
                 </div>
               </div>
@@ -1574,10 +1575,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
                     [&::-webkit-slider-thumb]:active:scale-95
                   "
                 />
-                <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
                   {`0 ${currencySymbol}`}
                 </div>
-                <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
                   {`${formatEuro(maxSpotPrice, currency)} ${currencySymbol}`}
                 </div>
               </div>
@@ -1594,12 +1595,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         className="absolute left-0 right-0 z-30 px-6 pt-5 pb-2 pointer-events-auto"
         style={{ top: 'env(safe-area-inset-top)' }}
       >
-       <div className="flex items-center justify-end">
+       <div className={`flex items-center ${isRtl ? 'justify-start' : 'justify-end'}`}>
   <button
     type="button"
     ref={filtersButtonRef}
     onClick={() => setShowRadiusPicker((s) => !s)}
-    className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col items-end leading-tight gap-0.5 relative ${
+    className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col leading-tight gap-0.5 relative ${isRtl ? 'items-start text-right' : 'items-end text-left'} ${
       isDark
         ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
         : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'

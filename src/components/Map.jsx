@@ -843,6 +843,17 @@ useEffect(() => {
     window.setTimeout(() => setActionToast(''), 2200);
   };
 
+  const handleDeclinePreview = async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (onCancelBooking && spot && !isPublicParking) {
+      const bookingSessionId = typeof spot?.bookingSessionId === 'string' ? spot.bookingSessionId : null;
+      await onCancelBooking(spot.id, { bookingSessionId, opId: newId() });
+    }
+    onSelectionStep?.('cleared', null);
+    onClose?.();
+  };
+
   const handleAcceptNav = async () => {
     if (!spot) return;
     if (acceptingNav) return;
@@ -2001,12 +2012,7 @@ useEffect(() => {
 
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onSelectionStep?.('cleared', null);
-                        onClose?.();
-                      }}
+                      onClick={handleDeclinePreview}
                       className="
                         flex-1 relative z-10 flex items-center justify-center gap-2 h-12 rounded-full
                         text-gray-500 hover:text-gray-700 transition-colors duration-300 active:scale-95

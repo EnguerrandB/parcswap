@@ -1271,20 +1271,10 @@ const SearchView = ({
             spotId: spot?.id || null,
             code: bookRes?.code || null,
           });
+          onSelectionStep?.('cleared', null);
+          setSelectedSpot(null);
           return;
         }
-        const resolvedSessionId = bookRes?.bookingSessionId || bookingSessionId;
-        const navOpId = newId();
-        console.log('[SearchSwipe] calling onSelectionStep(nav_started)', {
-          flowId,
-          spotId: spot?.id || null,
-          bookingSessionId: resolvedSessionId,
-          opId: navOpId,
-        });
-        await onSelectionStep?.('nav_started', spotWithSession, {
-          bookingSessionId: resolvedSessionId,
-          opId: navOpId,
-        });
       })();
       setCurrentIndex((prev) => prev + 1);
     } else {

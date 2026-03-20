@@ -372,21 +372,8 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       } else {
         setActionToast(t('somethingWentWrong', { defaultValue: 'Something went wrong.' }));
       }
-      return;
-    }
-    const resolvedSessionId = bookRes?.bookingSessionId || bookingSessionId;
-    const navRes = await onSelectionStep?.('nav_started', spotWithSession, {
-      bookingSessionId: resolvedSessionId,
-      opId: newId(),
-    });
-    if (navRes && navRes.ok === false) {
-      if (navRes.code === 'no_premium_parks') {
-        showPremiumToast();
-      } else if (navRes.code === 'spot_not_booked') {
-        setActionToast(t('spotNotReady', { defaultValue: 'Just a sec…' }));
-      } else {
-        setActionToast(t('somethingWentWrong', { defaultValue: 'Something went wrong.' }));
-      }
+      onSelectionStep?.('cleared', null);
+      setSelectedSpot?.(null);
       return;
     }
   };

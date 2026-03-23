@@ -160,7 +160,7 @@ export const enhancePopupAnimation = (popup, options = {}) => {
         content.style.opacity = '';
         content.classList.add('popup-enter');
       } else {
-        content.style.opacity = '0';
+        content.style.opacity = '';
       }
     }
     if (!popup.__autoCloseTimer) {

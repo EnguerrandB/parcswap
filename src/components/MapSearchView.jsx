@@ -1565,9 +1565,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     onClick={() => setShowRadiusPicker((s) => !s)}
     className={`text-sm font-semibold rounded-full px-3 py-1 border shadow-sm transition flex flex-col leading-tight gap-0.5 relative ${isRtl ? 'items-start text-right' : 'items-end text-left'} ${
       isDark
-        ? 'text-slate-50 bg-slate-800/80 border-white/10 hover:bg-slate-800'
+        ? 'text-slate-100 bg-slate-900/80 border-white/10 hover:bg-slate-800'
         : 'text-slate-900 bg-white/70 border-white/60 hover:bg-white'
     }`}
+    style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
   >
     {/* KM (texte simple, disparaît quand panel ouvert) */}
     <span

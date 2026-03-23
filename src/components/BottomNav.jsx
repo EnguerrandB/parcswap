@@ -1,7 +1,7 @@
 // src/components/BottomNav.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, HandCoins, Send, RotateCw, X } from 'lucide-react';
+import { HandCoins, Send, RotateCw, X } from 'lucide-react';
 
 // ==================================================================================
 // 🎛️ CONFIGURATION
@@ -11,6 +11,37 @@ const HALO_SPREAD = '-inset-0';
 const HALO_OPACITY = 0.02;
 const HALO_SCALE = 1.05; // Réduit légèrement pour éviter tout dépassement d'écran
 const HALO_BLUR_CLASS = 'blur-lg';
+
+// ==================================================================================
+
+const SearchTabIcon = ({ active = false, className = '' }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={className}
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <circle
+      cx="11"
+      cy="11"
+      r="5.75"
+      fill={active ? 'currentColor' : 'none'}
+      fillOpacity={active ? '1' : '0'}
+      stroke="currentColor"
+      strokeWidth="2.5"
+    />
+    <path
+      d="M15.5 15.5L19 19"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    />
+    {active ? (
+      <circle cx="11" cy="11" r="2.35" fill="white" />
+    ) : null}
+  </svg>
+);
 
 // ==================================================================================
 
@@ -32,6 +63,7 @@ const BottomNav = ({
   const singleAction = !!customActions?.single;
   const effectiveTab = customActions?.activeTab || activeTab;
   const effectiveWaitingMode = customMode ? false : waitingMode;
+  const [searchActivationTick, setSearchActivationTick] = useState(0);
   
   const activateTab = (tab) => {
     if (setActiveTab) setActiveTab(tab);
@@ -54,6 +86,11 @@ const BottomNav = ({
     publishHintTimerRef.current = window.setTimeout(() => setPublishHintOpen(false), 2400);
   };
 
+  const triggerSearchAnimation = () => {
+    if (customMode || effectiveWaitingMode) return;
+    setSearchActivationTick((value) => value + 1);
+  };
+
   useEffect(() => {
     if (customMode) {
       setPublishHintOpen(false);
@@ -68,6 +105,8 @@ const BottomNav = ({
       publishHintTimerRef.current = null;
     };
   }, []);
+
+  const shouldAnimateSearch = !customMode && !effectiveWaitingMode && effectiveTab === 'search';
 
   return (
     <div
@@ -108,6 +147,7 @@ const BottomNav = ({
           
           {/* Bouton Recherche */}
           <button
+            key={`search-${searchActivationTick}`}
             type="button"
             onClick={() => {
               if (customMode) {
@@ -118,6 +158,7 @@ const BottomNav = ({
                 onCancelPress?.();
                 return;
               }
+              triggerSearchAnimation();
               activateTab('search');
             }}
             onContextMenu={(e) => e.preventDefault()}
@@ -132,6 +173,7 @@ const BottomNav = ({
               flex-1 relative z-20 flex items-center justify-center gap-2 h-12 rounded-full transition-colors duration-300
               outline-none focus:outline-none cursor-pointer
               ${effectiveTab === 'search' && !effectiveWaitingMode ? 'text-white' : 'text-gray-500 hover:text-gray-700'}
+              ${shouldAnimateSearch ? 'search-tab-activate' : ''}
             `}
           >
             {customMode ? (
@@ -145,10 +187,9 @@ const BottomNav = ({
                 className="transition-transform duration-300 scale-100"
               />
             ) : (
-              <Search
-                size={20}
-                strokeWidth={2.5}
-                className={`transition-transform duration-300 ${effectiveTab === 'search' ? 'scale-105' : 'scale-100'}`}
+              <SearchTabIcon
+                active={effectiveTab === 'search'}
+                className={`h-5 w-5 transition-transform duration-300 ${effectiveTab === 'search' ? 'scale-105' : 'scale-100'}`}
               />
             )}
             <span className="text-sm font-semibold tracking-wide pointer-events-none">

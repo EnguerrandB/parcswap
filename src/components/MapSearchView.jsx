@@ -614,8 +614,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       const rect = currentContent?.getBoundingClientRect?.();
       if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)) {
         return {
+          element: currentContent,
           x: rect.left + rect.width / 2,
           y: rect.top + rect.height / 2,
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
         };
       }
     }

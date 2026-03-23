@@ -140,137 +140,18 @@ export const buildSelfPopupHTML = (t, isDark, lastSeen) => {
     `;
 };
 
-const isFiniteCoord = (value) => typeof value === 'number' && Number.isFinite(value);
-
-const isFiniteRect = (value) =>
-  value &&
-  isFiniteCoord(value.left) &&
-  isFiniteCoord(value.top) &&
-  isFiniteCoord(value.width) &&
-  isFiniteCoord(value.height);
-
-const rectFromElement = (element) => {
-  if (!(element instanceof Element)) return null;
-  const rect = element.getBoundingClientRect();
-  if (!isFiniteRect(rect)) return null;
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-  };
-};
-
-const buildGhostStartRect = (origin, targetRect) => {
-  if (isFiniteRect(origin)) return origin;
-  if (origin?.element instanceof Element) {
-    const elementRect = rectFromElement(origin.element);
-    if (elementRect) return elementRect;
-  }
-  if (origin && isFiniteCoord(origin.x) && isFiniteCoord(origin.y) && isFiniteRect(targetRect)) {
-    const width = Math.max(44, Math.round(targetRect.width * 0.42));
-    const height = Math.max(36, Math.round(targetRect.height * 0.42));
-    return {
-      left: origin.x - width / 2,
-      top: origin.y - height / 2,
-      width,
-      height,
-    };
-  }
-  return null;
-};
-
-const animatePopupGhost = ({ liveContent, origin }) => {
-  if (!(liveContent instanceof Element)) return null;
-  const targetRect = rectFromElement(liveContent);
-  if (!targetRect) return null;
-
-  const startRect = buildGhostStartRect(origin, targetRect);
-  if (!startRect) return null;
-
-  const deltaX = startRect.left + startRect.width / 2 - (targetRect.left + targetRect.width / 2);
-  const deltaY = startRect.top + startRect.height / 2 - (targetRect.top + targetRect.height / 2);
-  const distance = Math.hypot(deltaX, deltaY);
-  const duration = Math.max(420, Math.min(760, 420 + distance * 0.2));
-  const startScaleX = Math.max(0.72, Math.min(1, startRect.width / Math.max(targetRect.width, 1)));
-  const startScaleY = Math.max(0.72, Math.min(1, startRect.height / Math.max(targetRect.height, 1)));
-
-  const ghost = (origin?.element instanceof Element ? origin.element : liveContent).cloneNode(true);
-  ghost.classList.remove('popup-enter', 'popup-exit');
-  ghost.classList.add('popup-ghost');
-  ghost.style.position = 'fixed';
-  ghost.style.left = `${targetRect.left}px`;
-  ghost.style.top = `${targetRect.top}px`;
-  ghost.style.width = `${targetRect.width}px`;
-  ghost.style.height = `${targetRect.height}px`;
-  ghost.style.margin = '0';
-  ghost.style.pointerEvents = 'none';
-  ghost.style.zIndex = '99999';
-  ghost.style.opacity = '0.98';
-  ghost.style.transformOrigin = 'center center';
-  ghost.style.transform = `translate(${Math.round(deltaX)}px, ${Math.round(deltaY)}px) scale(${startScaleX}, ${startScaleY})`;
-  ghost.style.transition = `transform ${Math.round(duration)}ms cubic-bezier(0.2, 0.72, 0.2, 1), opacity ${Math.round(Math.min(220, duration * 0.42))}ms ease`;
-  ghost.style.willChange = 'transform, opacity';
-
-  document.body.appendChild(ghost);
-
-  liveContent.style.opacity = '0';
-  liveContent.style.transition = 'opacity 180ms ease';
-
-  const revealDelay = Math.max(140, Math.round(duration * 0.55));
-  const revealTimer = window.setTimeout(() => {
-    liveContent.style.opacity = '1';
-  }, revealDelay);
-
-  requestAnimationFrame(() => {
-    ghost.style.transform = 'translate(0px, 0px) scale(1, 1)';
-  });
-
-  const cleanup = () => {
-    window.clearTimeout(revealTimer);
-    ghost.remove();
-  };
-
-  const removeTimer = window.setTimeout(cleanup, duration + 80);
-
-  return () => {
-    window.clearTimeout(revealTimer);
-    window.clearTimeout(removeTimer);
-    ghost.remove();
-  };
-};
-
 // Adds a quick pop-in/out animation on all popups
-export const enhancePopupAnimation = (popup, options = {}) => {
-  if (!popup) return popup;
-  popup.__animationOptions = options;
+export const enhancePopupAnimation = (popup) => {
+  if (!popup || popup.__animated) return popup;
   if (popup.__animated) return popup;
   const originalAddTo = popup.addTo.bind(popup);
   popup.addTo = (mapInstance) => {
-    const animationOptions = popup.__animationOptions || {};
-    const origin =
-      typeof animationOptions.getEnterOrigin === 'function'
-        ? animationOptions.getEnterOrigin({ popup, mapInstance })
-        : null;
     const res = originalAddTo(mapInstance);
     const el = popup.getElement();
     const content = el?.querySelector('.mapboxgl-popup-content');
     if (content) {
       content.classList.remove('popup-exit');
-      content.classList.remove('popup-enter');
-      if (typeof popup.__ghostCleanup === 'function') {
-        popup.__ghostCleanup();
-        popup.__ghostCleanup = null;
-      }
-      requestAnimationFrame(() => {
-        const liveContent = popup.getElement()?.querySelector('.mapboxgl-popup-content');
-        if (!liveContent) return;
-        popup.__ghostCleanup = animatePopupGhost({ liveContent, origin });
-        if (!popup.__ghostCleanup) {
-          liveContent.style.opacity = '';
-          liveContent.classList.add('popup-enter');
-        }
-      });
+      content.classList.add('popup-enter');
     }
     if (!popup.__autoCloseTimer) {
       popup.__autoCloseTimer = setTimeout(() => {
@@ -284,10 +165,6 @@ export const enhancePopupAnimation = (popup, options = {}) => {
     const el = popup.getElement();
     const content = el?.querySelector('.mapboxgl-popup-content');
     if (popup.__skipExitAnimation) {
-      if (typeof popup.__ghostCleanup === 'function') {
-        popup.__ghostCleanup();
-        popup.__ghostCleanup = null;
-      }
       if (popup.__autoCloseTimer) {
         clearTimeout(popup.__autoCloseTimer);
         popup.__autoCloseTimer = null;
@@ -298,15 +175,11 @@ export const enhancePopupAnimation = (popup, options = {}) => {
     if (content) {
       content.classList.remove('popup-enter');
       content.classList.add('popup-exit');
-      if (typeof popup.__ghostCleanup === 'function') {
-        popup.__ghostCleanup();
-        popup.__ghostCleanup = null;
-      }
       if (popup.__autoCloseTimer) {
         clearTimeout(popup.__autoCloseTimer);
         popup.__autoCloseTimer = null;
       }
-      setTimeout(() => originalRemove(), 220);
+      setTimeout(() => originalRemove(), 170);
       return popup;
     }
     if (popup.__autoCloseTimer) {
@@ -322,8 +195,8 @@ export const enhancePopupAnimation = (popup, options = {}) => {
 export const PopUpUsersStyles = () => (
   <style>{`
     @keyframes popupEnter {
-      from { opacity: 0.25; }
-      to { opacity: 1; }
+      from { transform: scale(0.9) translateY(4px); opacity: 0; }
+      to { transform: scale(1) translateY(0); opacity: 1; }
     }
     @keyframes popupExit {
       from { transform: scale(1) translateY(0); opacity: 1; }
@@ -331,12 +204,8 @@ export const PopUpUsersStyles = () => (
     }
     .mapboxgl-popup-content.popup-enter {
       animation: popupEnter 0.18s ease forwards;
-      will-change: opacity;
     }
     .mapboxgl-popup-content.popup-exit { animation: popupExit 0.16s ease forwards; }
-    .popup-ghost {
-      overflow: hidden;
-    }
     .user-presence-popup {
       transition: transform 0.16s ease-out;
       will-change: transform;

@@ -23,24 +23,36 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const functions = getFunctions(app);
 
+const isLocalhost =
+  typeof window !== "undefined" &&
+  ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+const useEmulators =
+  import.meta.env.DEV &&
+  import.meta.env.VITE_USE_EMULATOR === "true" &&
+  isLocalhost;
+
 // Robust Firestore initialization
-// Using default Firestore configuration to avoid CORS issues on Netlify
+// Firestore's default browser transport can fail behind some proxies/CDNs with
+// opaque CORS errors on hosted builds. Force long-polling and disable fetch
+// streams outside localhost to use the most compatible transport.
 let db;
+const firestoreSettings = useEmulators || isLocalhost
+  ? {}
+  : {
+      experimentalForceLongPolling: true,
+      useFetchStreams: false,
+    };
+
 try {
-  db = getFirestore(app);
+  db = initializeFirestore(app, firestoreSettings);
 } catch (e) {
-  // Fallback if getFirestore fails
-  db = initializeFirestore(app, {});
+  // Fall back to the existing instance during hot reload or repeated imports.
+  db = getFirestore(app);
 }
 
 // --- EMULATEURS EN DEV ---
 // Only use emulators when explicitly enabled to avoid desync between devices.
-const useEmulators =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_USE_EMULATOR === "true" &&
-  typeof window !== "undefined" &&
-  window.location.hostname === "localhost";
-
 if (useEmulators) {
   try {
     // Auth Emulator (par défaut port 9099)

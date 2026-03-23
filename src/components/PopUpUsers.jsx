@@ -231,11 +231,13 @@ export const PopUpUsersStyles = () => (
   <style>{`
     @keyframes popupRootEnter {
       from {
-        transform: translate(var(--popup-enter-dx, 0px), var(--popup-enter-dy, -24px)) scale(var(--popup-enter-scale, 0.985));
+        translate: var(--popup-enter-dx, 0px) var(--popup-enter-dy, -24px);
+        scale: var(--popup-enter-scale, 0.985);
         opacity: 0;
       }
       to {
-        transform: translate(0px, 0px) scale(1);
+        translate: 0px 0px;
+        scale: 1;
         opacity: 1;
       }
     }
@@ -254,7 +256,7 @@ export const PopUpUsersStyles = () => (
     .user-presence-popup.popup-enter-root {
       animation: popupRootEnter var(--popup-enter-duration, 420ms) cubic-bezier(0.2, 0.72, 0.2, 1) forwards;
       transform-origin: center center;
-      will-change: transform, opacity;
+      will-change: translate, scale, opacity;
     }
     .user-presence-popup.popup-exit-root {
       animation: popupRootExit 0.2s ease forwards;

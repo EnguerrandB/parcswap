@@ -1,6 +1,6 @@
 // src/components/PopUpUsers.jsx
 export const buildOtherUserPopupHTML = (t, isDark, name, lastSeen, opts = {}) => {
-  const { showBadge = true } = opts;
+  const { showBadge = true, metaText = '' } = opts;
   const lastSeenText = typeof lastSeen === 'string' ? lastSeen : lastSeen?.text;
   const online = typeof lastSeen === 'object' ? !!lastSeen?.isOnline : false;
   const cardBg = isDark ? 'rgba(11, 17, 27, 0.94)' : 'rgba(255,255,255,0.94)';
@@ -30,6 +30,11 @@ export const buildOtherUserPopupHTML = (t, isDark, name, lastSeen, opts = {}) =>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
             <div style="min-width:0;">
               <div style="font-weight:800;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name || t('user', 'User')}</div>
+              ${
+                metaText
+                  ? `<div style="margin-top:4px;font-size:12px;font-weight:700;color:${muted};font-family:'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;letter-spacing:0.08em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;">${metaText}</div>`
+                  : ''
+              }
             </div>
             ${
               showBadge && online

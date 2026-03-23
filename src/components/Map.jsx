@@ -246,6 +246,7 @@ const MapInner = ({
   initialStep,
   currentUserId,
   currentUserName,
+  selectedVehiclePlate,
   userCoords,
 }) => {
   const { t, i18n: i18nInstance } = useTranslation('common');
@@ -375,6 +376,21 @@ const MapInner = ({
     return [letters1, digits, letters2].filter(Boolean).join('-');
   };
   const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
+  const activeVehiclePlate = useMemo(() => {
+    const formatted = formatPlate(selectedVehiclePlate);
+    return isFullPlate(formatted) ? formatted : '';
+  }, [selectedVehiclePlate]);
+
+  const buildSelfMarkerPopupHTML = useCallback(
+    () => buildOtherUserPopupHTML(
+      t,
+      isDark,
+      currentUserName || t('user', 'User'),
+      { text: t('online', 'Online'), isOnline: true },
+      { showBadge: false, metaText: activeVehiclePlate },
+    ),
+    [activeVehiclePlate, currentUserName, isDark, t],
+  );
 
   useEffect(() => {
     if (isPublicParking) return undefined;
@@ -1547,13 +1563,7 @@ useEffect(() => {
 
 
          const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
-           buildOtherUserPopupHTML(
-             t,
-             isDark,
-             currentUserName || t('user', 'User'),
-             { text: t('online', 'Online'), isOnline: true },
-             { showBadge: false },
-           ),
+           buildSelfMarkerPopupHTML(),
          );
          enhancePopupAnimation(popup);
 
@@ -1621,15 +1631,7 @@ useEffect(() => {
       prevCoords = newCoords;
                        markerRef.current?.setLngLat(newCoords);
                        if (markerPopupRef.current) {
-                       markerPopupRef.current.setHTML(
-                         buildOtherUserPopupHTML(
-                           t,
-                           isDark,
-                           currentUserName || t('user', 'User'),
-                           { text: t('online', 'Online'), isOnline: true },
-                           { showBadge: false },
-                         ),
-                       );
+                       markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
                        }
                        const coordObj = { lat: latitude, lng: longitude };
                        setUserLoc(coordObj);
@@ -1682,15 +1684,7 @@ useEffect(() => {
       markerRef.current.setRotation(mapBearing);
                     
                     if (markerPopupRef.current) {
-                      markerPopupRef.current.setHTML(
-                        buildOtherUserPopupHTML(
-                          t,
-                          isDark,
-                          currentUserName || t('user', 'User'),
-                          { text: t('online', 'Online'), isOnline: true },
-                          { showBadge: false },
-                        ),
-                      );
+                      markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
                     }
                   }
                    
@@ -1730,22 +1724,14 @@ useEffect(() => {
             }
       };
     }
-  }, [navReady, navGeometry, navSteps, mapLoaded]);
+  }, [navReady, navGeometry, navSteps, mapLoaded, buildSelfMarkerPopupHTML]);
 
   // --- Subscribe to other users' locations and render markers ---
 	  useEffect(() => {
 	    if (!mapLoaded || !mapRef.current) return undefined;
 	    const updateSelfPopup = () => {
 	      if (markerPopupRef.current) {
-            markerPopupRef.current.setHTML(
-              buildOtherUserPopupHTML(
-                t,
-                isDark,
-                currentUserName || t('user', 'User'),
-                { text: t('online', 'Online'), isOnline: true },
-                { showBadge: false },
-              ),
-            );
+	        markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
 	      }
 	    };
     const locRef = collection(db, 'artifacts', appId, 'public', 'data', 'userLocations');
@@ -1931,7 +1917,7 @@ useEffect(() => {
       otherUserProfilesRef.current.clear();
       otherUserProfileFetchRef.current.clear();
     };
-  }, [mapLoaded, currentUserId, spot?.id]);
+  }, [mapLoaded, currentUserId, spot?.id, buildSelfMarkerPopupHTML]);
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">

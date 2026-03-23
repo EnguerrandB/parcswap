@@ -3374,6 +3374,7 @@ export default function ParkSwapApp() {
           initialStep={selectionSnapshot?.step || (bookedSpot ? 'booked' : null)}
           currentUserId={user?.uid || null}
           currentUserName={user?.displayName || 'User'}
+          selectedVehiclePlate={selectedVehicle?.plate || null}
           userCoords={userCoords}
         />
       )}

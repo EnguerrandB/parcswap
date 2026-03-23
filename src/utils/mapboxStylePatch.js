@@ -165,7 +165,11 @@ export const applyMapLabelLanguage = (map, language) => {
     const textField = layer.layout?.["text-field"];
     if (!hasNameField(textField)) return;
     try {
-      map.setLayoutProperty(layer.id, "text-field", patchMapLabelField(textField, fieldName));
+      map.setLayoutProperty(
+        layer.id,
+        "text-field",
+        patchMapLabelField(textField, fieldName),
+      );
       patched += 1;
     } catch (error) {
       console.warn(`Failed to localize ${layer.id}.text-field:`, error);

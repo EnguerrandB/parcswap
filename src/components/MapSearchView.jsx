@@ -222,6 +222,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const popupModeRef = useRef(new Map());
   const parkingPopupModeRef = useRef(new Map());
   const activePopupRef = useRef(null);
+  const popupGhostCleanupRef = useRef(null);
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const parkingFetchInFlightRef = useRef(false);
   const parkingFetchQueuedRef = useRef(null);
@@ -597,12 +598,91 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const buildParkingPopupForBind = (parking, _accent, mode) => buildParkingPopup(parking, mode);
 
+  const cleanupPopupGhost = useCallback(() => {
+    if (typeof popupGhostCleanupRef.current === 'function') {
+      popupGhostCleanupRef.current();
+      popupGhostCleanupRef.current = null;
+    }
+  }, []);
+
+  const animatePopupLinearTransition = useCallback((fromPopup, toPopup) => {
+    if (typeof document === 'undefined') return;
+    const fromContent = fromPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
+    const toContent = toPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
+    if (!(fromContent instanceof Element) || !(toContent instanceof Element)) return;
+
+    const fromRect = fromContent.getBoundingClientRect();
+    const toRect = toContent.getBoundingClientRect();
+    if (!Number.isFinite(fromRect.left) || !Number.isFinite(toRect.left)) return;
+
+    cleanupPopupGhost();
+
+    const ghost = fromContent.cloneNode(true);
+    const fromCenterX = fromRect.left + fromRect.width / 2;
+    const fromCenterY = fromRect.top + fromRect.height / 2;
+    const toCenterX = toRect.left + toRect.width / 2;
+    const toCenterY = toRect.top + toRect.height / 2;
+    const deltaX = fromCenterX - toCenterX;
+    const deltaY = fromCenterY - toCenterY;
+    const scaleX = Math.max(0.82, Math.min(1.18, fromRect.width / Math.max(toRect.width, 1)));
+    const scaleY = Math.max(0.82, Math.min(1.18, fromRect.height / Math.max(toRect.height, 1)));
+    const distance = Math.hypot(deltaX, deltaY);
+    const duration = Math.max(320, Math.min(520, 320 + distance * 0.12));
+
+    ghost.classList.remove('popup-enter', 'popup-exit');
+    ghost.style.position = 'fixed';
+    ghost.style.left = `${toRect.left}px`;
+    ghost.style.top = `${toRect.top}px`;
+    ghost.style.width = `${toRect.width}px`;
+    ghost.style.height = `${toRect.height}px`;
+    ghost.style.margin = '0';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.zIndex = '99999';
+    ghost.style.transformOrigin = 'center center';
+    ghost.style.transform = `translate(${Math.round(deltaX)}px, ${Math.round(deltaY)}px) scale(${scaleX}, ${scaleY})`;
+    ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
+    ghost.style.willChange = 'transform';
+
+    toContent.style.opacity = '0';
+    toContent.style.transition = 'opacity 120ms ease';
+    fromContent.style.opacity = '0';
+
+    document.body.appendChild(ghost);
+
+    const revealTimer = window.setTimeout(() => {
+      toContent.style.opacity = '1';
+    }, Math.max(180, duration - 110));
+
+    requestAnimationFrame(() => {
+      ghost.style.transform = 'translate(0px, 0px) scale(1, 1)';
+    });
+
+    const cleanup = () => {
+      window.clearTimeout(revealTimer);
+      toContent.style.opacity = '';
+      toContent.style.transition = '';
+      if (fromContent.isConnected) fromContent.style.opacity = '';
+      ghost.remove();
+    };
+
+    const removeTimer = window.setTimeout(cleanup, duration + 40);
+    popupGhostCleanupRef.current = () => {
+      window.clearTimeout(revealTimer);
+      window.clearTimeout(removeTimer);
+      toContent.style.opacity = '';
+      toContent.style.transition = '';
+      if (fromContent.isConnected) fromContent.style.opacity = '';
+      ghost.remove();
+    };
+  }, [cleanupPopupGhost]);
+
   const registerSinglePopup = useCallback((popup) => {
     if (!popup || popup.__singlePopupRegistered) return;
     popup.__singlePopupRegistered = true;
     popup.on('open', () => {
       const current = activePopupRef.current;
       if (current && current !== popup) {
+        animatePopupLinearTransition(current, popup);
         current.__skipExitAnimation = true;
         current.remove();
       }
@@ -611,7 +691,9 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     popup.on('close', () => {
       if (activePopupRef.current === popup) activePopupRef.current = null;
     });
-  }, []);
+  }, [animatePopupLinearTransition]);
+
+  useEffect(() => cleanupPopupGhost, [cleanupPopupGhost]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;

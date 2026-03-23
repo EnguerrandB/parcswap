@@ -37,12 +37,13 @@ const useEmulators =
 // opaque CORS errors on hosted builds. Force long-polling and disable fetch
 // streams outside localhost to use the most compatible transport.
 let db;
-const firestoreSettings = useEmulators || isLocalhost
-  ? {}
-  : {
-      experimentalForceLongPolling: true,
-      useFetchStreams: false,
-    };
+const firestoreSettings =
+  useEmulators || isLocalhost
+    ? {}
+    : {
+        experimentalForceLongPolling: true,
+        useFetchStreams: false,
+      };
 
 try {
   db = initializeFirestore(app, firestoreSettings);

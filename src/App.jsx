@@ -1235,6 +1235,37 @@ export default function ParkSwapApp() {
 	    return () => window.clearTimeout(timer);
 	  }, [myActiveSpot?.id, myActiveSpot?.status, myActiveSpot?.createdAt, myActiveSpot?.time]);
 
+    useEffect(() => {
+      const userId = user?.uid;
+      const activeSpotId = myActiveSpot?.id;
+      if (!userId || !activeSpotId) return undefined;
+
+      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', activeSpotId);
+      const unsubscribe = onSnapshot(
+        spotRef,
+        (snap) => {
+          if (!snap.exists()) {
+            setMyActiveSpot((current) => (current?.id === activeSpotId ? null : current));
+            return;
+          }
+
+          const liveSpot = { id: snap.id, ...snap.data() };
+          if (liveSpot.hostId !== userId) return;
+
+          setMyActiveSpot((current) => {
+            if (current?.id !== liveSpot.id) return current;
+            if (!isActiveProposeSpot(liveSpot)) return null;
+            return liveSpot;
+          });
+        },
+        (error) => {
+          console.error('Error subscribing to active host spot:', error);
+        },
+      );
+
+      return () => unsubscribe();
+    }, [user?.uid, myActiveSpot?.id]);
+
 	  // Restore selected spot (itinerary) from persisted state or current booking
   useEffect(() => {
     if (selectedSearchSpot?.isPublicParking) return;

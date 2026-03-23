@@ -24,6 +24,14 @@ import { functions } from '../firebase';
 import { getVoicePreference, pickPreferredVoice, scoreVoice, setVoicePreference } from '../utils/voice';
 import { formatCurrencyAmount } from '../utils/currency';
 
+const LANGUAGE_CURRENCY_MAP = {
+  en: 'GBP',
+  fr: 'EUR',
+  he: 'ILS',
+  ar: 'AED',
+  ru: 'RUB',
+};
+
 const ProfileView = ({
   user,
   vehicles = [],
@@ -173,9 +181,16 @@ const ProfileView = ({
     return '';
   };
 
+  const getCurrencyForLanguage = (lng) => {
+    const normalized = String(lng || '').split('-')[0].toLowerCase();
+    return LANGUAGE_CURRENCY_MAP[normalized] || 'EUR';
+  };
+
   const handleChangeLanguage = async (lng) => {
     if (!lng) return;
+    const nextCurrency = getCurrencyForLanguage(lng);
     setLanguage(lng);
+    setCurrency(nextCurrency);
     i18n.changeLanguage(lng);
     if (!user?.uid) return;
     await onUpdateProfile?.({
@@ -183,6 +198,7 @@ const ProfileView = ({
       email: user?.email || '',
       phone: user?.phone || '',
       language: lng,
+      currency: nextCurrency,
       phoneVerified: user?.phoneVerified,
     });
   };

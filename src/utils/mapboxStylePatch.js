@@ -64,6 +64,19 @@ const patchMapLabelField = (value, fieldName) => {
   return value.map((child) => patchMapLabelField(child, fieldName));
 };
 
+const getSafeStyle = (map) => {
+  if (!map || typeof map.getStyle !== "function") return null;
+  try {
+    if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) {
+      return null;
+    }
+    return map.getStyle();
+  } catch (error) {
+    console.warn("Map style not ready:", error);
+    return null;
+  }
+};
+
 // Original patchProps moved to global scope
 const patchProps = (map, layerId, props, setter) => {
   if (!props) return 0;
@@ -89,7 +102,12 @@ export const patchSizerankInStyle = (map) => {
     console.groupEnd();
     return;
   }
-  const style = map.getStyle();
+  const style = getSafeStyle(map);
+  if (!style) {
+    console.warn("Style not ready for patching");
+    console.groupEnd();
+    return;
+  }
   const layers = style?.layers;
   if (!Array.isArray(layers)) {
     console.warn("No layers found");
@@ -125,7 +143,12 @@ export const applyMapLabelLanguage = (map, language) => {
     console.groupEnd();
     return;
   }
-  const style = map.getStyle();
+  const style = getSafeStyle(map);
+  if (!style) {
+    console.warn("Style not ready for localization");
+    console.groupEnd();
+    return;
+  }
   const layers = style?.layers;
   if (!Array.isArray(layers)) {
     console.warn("No layers found");

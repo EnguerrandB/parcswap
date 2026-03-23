@@ -205,6 +205,7 @@ const MapSearchView = ({
   const { t, i18n } = useTranslation('common');
   const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
   const mapLabelLanguage = i18n.resolvedLanguage || i18n.language || 'en';
+  const mapLabelLanguageRef = useRef(mapLabelLanguage);
   const currencySymbol = getCurrencySymbol(currency);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
@@ -264,6 +265,11 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     return false;
   });
   const anyLabel = t('any', { defaultValue: 'Any' });
+
+  useEffect(() => {
+    mapLabelLanguageRef.current = mapLabelLanguage;
+  }, [mapLabelLanguage]);
+
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
   const showPublicParkingsRef = useRef(showPublicParkings);
@@ -894,7 +900,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     const handleStyleLoad = () => {
       applyDayNightPreset(map);
       patchSizerankInStyle(map);
-      applyMapLabelLanguage(map, mapLabelLanguage);
+      applyMapLabelLanguage(map, mapLabelLanguageRef.current);
     };
     const handleLoad = () => {
       setMapLoaded(true);
@@ -921,8 +927,17 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   }, [mapboxToken]);
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    applyMapLabelLanguage(mapRef.current, mapLabelLanguage);
+    const map = mapRef.current;
+    if (!map) return undefined;
+    if (typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : false) {
+      applyMapLabelLanguage(map, mapLabelLanguage);
+      return undefined;
+    }
+    const handleStyleLoad = () => applyMapLabelLanguage(map, mapLabelLanguageRef.current);
+    map.once('style.load', handleStyleLoad);
+    return () => {
+      map.off('style.load', handleStyleLoad);
+    };
   }, [mapLabelLanguage]);
 
   useEffect(() => {

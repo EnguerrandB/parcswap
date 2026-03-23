@@ -649,6 +649,7 @@ useEffect(() => {
 
   const navLanguage = i18nInstance?.language || 'en';
   const mapLabelLanguage = i18nInstance?.resolvedLanguage || i18nInstance?.language || 'en';
+  const mapLabelLanguageRef = useRef(mapLabelLanguage);
   const canSpeakNav = typeof window !== 'undefined' && !!window.speechSynthesis;
   const [navVoiceEnabled, setNavVoiceEnabled] = useState(true);
   const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
@@ -665,6 +666,10 @@ useEffect(() => {
     ],
     [],
   );
+
+  useEffect(() => {
+    mapLabelLanguageRef.current = mapLabelLanguage;
+  }, [mapLabelLanguage]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return undefined;
@@ -1041,7 +1046,7 @@ const handleStyleLoad = () => {
   console.group('🗺️ ParkSwap: Style loaded');
   applyDayNightPreset(map);
   patchSizerankInStyle(map);
-  applyMapLabelLanguage(map, mapLabelLanguage);
+  applyMapLabelLanguage(map, mapLabelLanguageRef.current);
   
   // Load missing images for place-labels
   const rankImages = [
@@ -1120,7 +1125,15 @@ const handleStyleLoad = () => {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    applyMapLabelLanguage(map, mapLabelLanguage);
+    if (typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : false) {
+      applyMapLabelLanguage(map, mapLabelLanguage);
+      return undefined;
+    }
+    const handleStyleLoad = () => applyMapLabelLanguage(map, mapLabelLanguageRef.current);
+    map.once('style.load', handleStyleLoad);
+    return () => {
+      map.off('style.load', handleStyleLoad);
+    };
   }, [mapLabelLanguage]);
 
   useEffect(() => {

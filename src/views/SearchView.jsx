@@ -447,7 +447,7 @@ const SwipeCard = forwardRef(({
                 <div className="text-[clamp(15px,4vw,18px)] font-bold">{distanceLabel}</div>
               </div>
               <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('openNowLabel', 'Open now')}</span></div>
+                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>↕</span><span>{t('heightLabel', 'Height')}</span></div>
                 <div className="text-[clamp(15px,4vw,18px)] font-bold">
                   {heightLabel ? t('heightValue', { value: heightLabel, defaultValue: 'Max {{value}}' }) : t('openNowValue', 'Open')}
                 </div>

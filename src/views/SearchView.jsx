@@ -1027,6 +1027,7 @@ const SearchView = ({
   const isActivePublicParking = !!activeSpot?.isPublicParking;
   const isActiveFreeSpot = !isActivePublicParking && isFreeSpot(activeSpot);
   const blockActiveFreeBooking = isActiveFreeSpot && !canAcceptFreeSpot;
+  const dismissSwipeProgress = dragX < 0 ? Math.min(Math.abs(dragX) / 140, 1) : 0;
   const rightButtonLabel = isActivePublicParking
     ? t('goThere', { defaultValue: 'Y aller' })
     : t('book', 'Book');
@@ -1671,14 +1672,17 @@ const SearchView = ({
                     activeCardRef.current.triggerSwipe('left');
                   }
                 }}
-                className={`rounded-full flex items-center justify-center border ${
-                  isDark
-                    ? 'bg-slate-900 text-rose-400 border-orange-400/70 shadow-lg'
-                    : 'bg-white text-rose-500 border-orange-400/70 shadow-lg'
-                }`}
+                className="search-dismiss-button"
                 style={{
                   width: 'clamp(52px, 14vw, 72px)',
                   height: 'clamp(52px, 14vw, 72px)',
+                  ['--dismiss-progress']: dismissSwipeProgress,
+                  ['--dismiss-surface']: isDark ? 'rgba(9, 14, 28, 0.82)' : 'rgba(255, 255, 255, 0.88)',
+                  ['--dismiss-surface-strong']: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+                  ['--dismiss-edge']: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)',
+                  ['--dismiss-highlight']: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.92)',
+                  ['--dismiss-glow']: isDark ? 'rgba(251, 113, 133, 0.42)' : 'rgba(244, 63, 94, 0.28)',
+                  ['--dismiss-icon']: isDark ? 'rgb(253, 164, 175)' : 'rgb(225, 29, 72)',
                   // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
                     dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
@@ -1690,9 +1694,12 @@ const SearchView = ({
                   willChange: 'transform, opacity',
                 }}
               >
+                <span className="search-dismiss-button__halo" aria-hidden="true" />
+                <span className="search-dismiss-button__shell" aria-hidden="true" />
+                <span className="search-dismiss-button__edge" aria-hidden="true" />
                 {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
                 <div
-                  className={`flex items-center justify-center w-full h-full transition-transform duration-75 ${
+                  className={`search-dismiss-button__icon flex items-center justify-center w-full h-full transition-transform duration-75 ${
                     dragX < -100 ? 'haptic-active' : ''
                   }`}
                   style={{

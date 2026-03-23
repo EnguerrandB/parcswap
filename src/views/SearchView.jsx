@@ -1028,7 +1028,6 @@ const SearchView = ({
   const isActiveFreeSpot = !isActivePublicParking && isFreeSpot(activeSpot);
   const blockActiveFreeBooking = isActiveFreeSpot && !canAcceptFreeSpot;
   const dismissSwipeProgress = dragX < 0 ? Math.min(Math.abs(dragX) / 140, 1) : 0;
-  const primarySwipeProgress = dragX > 0 ? Math.min(dragX / 140, 1) : 0;
   const rightButtonLabel = isActivePublicParking
     ? t('goThere', { defaultValue: 'Y aller' })
     : t('book', 'Book');
@@ -1726,13 +1725,12 @@ const SearchView = ({
 	                    activeCardRef.current.triggerSwipe('right');
 	                  }
 	                }}
-                  className={`search-primary-button ${blockActiveFreeBooking ? 'opacity-50 cursor-not-allowed' : ''}`}
+	                className={`px-7 rounded-full flex items-center justify-center text-white font-bold text-base ${
+	                  isDark
+	                    ? 'bg-gradient-to-r from-orange-500 to-amber-400'
+	                    : 'bg-gradient-to-r from-orange-500 to-amber-400'
+	                } ${blockActiveFreeBooking ? 'opacity-50 cursor-not-allowed' : ''}`}
 	                style={{
-                    ['--primary-progress']: primarySwipeProgress,
-                    ['--primary-text']: 'rgba(255,255,255,0.98)',
-                    ['--primary-glow']: isDark ? 'rgba(251, 146, 60, 0.48)' : 'rgba(249, 115, 22, 0.34)',
-                    ['--primary-highlight']: 'rgba(255,255,255,0.28)',
-                    ['--primary-surface']: 'linear-gradient(135deg, #fb923c 0%, #f97316 38%, #ea580c 72%, #f59e0b 100%)',
 	                  height: 'clamp(52px, 14vw, 72px)',
 	                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
 	                  transform: `translateX(${
@@ -1745,11 +1743,9 @@ const SearchView = ({
 willChange: 'transform, opacity',
                 }}
               >
-	                <span className="search-primary-button__halo" aria-hidden="true" />
-	                <span className="search-primary-button__shell" aria-hidden="true" />
                 {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
                 <div 
-	                  className={`search-primary-button__label flex items-center justify-center w-full h-full transition-transform duration-75 ${
+                  className={`flex items-center justify-center w-full h-full transition-transform duration-75 ${
                     dragX > 100 ? 'haptic-active' : ''
                   }`}
                   style={{

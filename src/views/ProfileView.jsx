@@ -566,9 +566,10 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-orange-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: 'right', textAlignLast: 'right' }}
               value={language}
               onChange={(e) => handleChangeLanguage(e.target.value)}
             >
@@ -594,9 +595,10 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: 'right', textAlignLast: 'right' }}
               value={currency}
               onChange={(e) => handleChangeCurrency(e.target.value)}
             >
@@ -623,9 +625,10 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: 'right', textAlignLast: 'right' }}
               value={voiceUri}
               onChange={(e) => handleVoiceChange(e.target.value)}
               disabled={!voices.length}

@@ -45,6 +45,7 @@ const ProfileView = ({
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
+    const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
 	  const iconColors = {
 	    rank: '#f97316',
 	    profile: '#ec4899',
@@ -519,13 +520,13 @@ const ProfileView = ({
           <button
             type="button"
             onClick={toggleTheme}
-            className={`w-full p-4 flex items-center justify-between text-left transition ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} transition ${
               isDark
                 ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
                 : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {theme === 'dark' ? <Moon size={20} style={iconStyle('appearance')} /> : <Sun size={20} style={iconStyle('appearance')} />}
               </div>
@@ -542,7 +543,7 @@ const ProfileView = ({
             >
               <span
                 className={`h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
-                  isDark ? 'translate-x-5' : 'translate-x-0'
+                  isDark ? (isRtl ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'
                 }`}
               />
             </span>

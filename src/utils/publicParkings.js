@@ -1,11 +1,11 @@
 const normalizeParkingText = (value) =>
-  String(value || '')
+  String(value || "")
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
 const extractTimeRanges = (raw) => {
-  const text = String(raw || '');
+  const text = String(raw || "");
   const matches = [...text.matchAll(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/gi)];
   const minutes = matches
     .map((match) => {
@@ -23,15 +23,17 @@ const extractTimeRanges = (raw) => {
   return ranges;
 };
 
-const isOpenEveryDayText = (text) => /\b7\s*j(?:ours)?\s*(?:\/|sur)\s*7\b/.test(text);
+const isOpenEveryDayText = (text) =>
+  /\b7\s*j(?:ours)?\s*(?:\/|sur)\s*7\b/.test(text);
 
 export const isParkingOpenNow = (record, now = new Date()) => {
   if (!record) return false;
-  const raw = record?.horaire_na ?? record?.horaire ?? record?.horaires ?? '';
+  const raw = record?.horaire_na ?? record?.horaire ?? record?.horaires ?? "";
   const text = normalizeParkingText(raw);
   if (!text) return false;
-  if (text.includes('ferme') || text.includes('fermee')) return false;
-  if (text.includes('24h') || text.includes('24 h') || text.includes('24/24')) return true;
+  if (text.includes("ferme") || text.includes("fermee")) return false;
+  if (text.includes("24h") || text.includes("24 h") || text.includes("24/24"))
+    return true;
   if (isOpenEveryDayText(text)) return true;
 
   const ranges = extractTimeRanges(text);
@@ -47,16 +49,21 @@ export const isParkingOpenNow = (record, now = new Date()) => {
 
 export const isResidentOnlyParking = (record) => {
   if (!record) return false;
-  const type = normalizeParkingText(record?.type_usagers ?? record?.type_usager ?? '');
-  const hours = normalizeParkingText(record?.horaire_na ?? '');
+  const type = normalizeParkingText(
+    record?.type_usagers ?? record?.type_usager ?? "",
+  );
+  const hours = normalizeParkingText(record?.horaire_na ?? "");
   const info = normalizeParkingText(
-    Array.isArray(record?.info) ? record.info.join(' ') : record?.info ?? '',
+    Array.isArray(record?.info) ? record.info.join(" ") : (record?.info ?? ""),
   );
   const isPublic =
-    type.includes('tous') || type.includes('public') || type.includes('visiteur') || type.includes('visitor');
+    type.includes("tous") ||
+    type.includes("public") ||
+    type.includes("visiteur") ||
+    type.includes("visitor");
   if (isPublic) return false;
-  if (type.includes('abonn') || type.includes('resident')) return true;
-  if (hours.includes('abonn')) return true;
-  if (info.includes('abonn')) return true;
+  if (type.includes("abonn") || type.includes("resident")) return true;
+  if (hours.includes("abonn")) return true;
+  if (info.includes("abonn")) return true;
   return false;
 };

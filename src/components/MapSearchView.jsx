@@ -597,6 +597,31 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const buildParkingPopupForBind = (parking, _accent, mode) => buildParkingPopup(parking, mode);
 
+  const getCameraPopupOrigin = useCallback(() => {
+    const rootRect = viewRef.current?.getBoundingClientRect();
+    if (!rootRect) return null;
+    return {
+      x: rootRect.left + rootRect.width / 2,
+      y: rootRect.top + Math.max(56, Math.min(rootRect.height * 0.18, 144)),
+    };
+  }, []);
+
+  const getPopupEnterOrigin = useCallback(({ popup }) => {
+    const current = activePopupRef.current;
+    if (current && current !== popup) {
+      const currentEl = current.getElement?.();
+      const currentContent = currentEl?.querySelector('.mapboxgl-popup-content') || currentEl;
+      const rect = currentContent?.getBoundingClientRect?.();
+      if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)) {
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
+    }
+    return getCameraPopupOrigin();
+  }, [getCameraPopupOrigin]);
+
   const registerSinglePopup = useCallback((popup) => {
     if (!popup || popup.__singlePopupRegistered) return;
     popup.__singlePopupRegistered = true;
@@ -1029,7 +1054,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup);
+        enhancePopupAnimation(popup, { getEnterOrigin: getPopupEnterOrigin });
         registerSinglePopup(popup);
         popup.on('close', () => {
           popupModeRef.current.delete(id);
@@ -1050,7 +1075,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         marker.setLngLat([displayPos.lng, displayPos.lat]);
         const popup = marker.getPopup();
         if (popup) {
-          enhancePopupAnimation(popup);
+          enhancePopupAnimation(popup, { getEnterOrigin: getPopupEnterOrigin });
           registerSinglePopup(popup);
           popup.setHTML(popupHtml);
           bindSpotPopupHandlers(popup, id, spot, accentColor);
@@ -1149,7 +1174,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup);
+        enhancePopupAnimation(popup, { getEnterOrigin: getPopupEnterOrigin });
         registerSinglePopup(popup);
         bindParkingPopupToMarker(popup, el, inner, id);
         popup.on('close', () => {
@@ -1197,7 +1222,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const markerInner = markerEl?.firstChild;
         const popup = marker.getPopup();
         if (popup) {
-          enhancePopupAnimation(popup);
+          enhancePopupAnimation(popup, { getEnterOrigin: getPopupEnterOrigin });
           registerSinglePopup(popup);
           bindParkingPopupToMarker(popup, markerEl, markerInner, id);
           popup.setHTML(popupHtml);
@@ -1213,7 +1238,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             closeButton: false,
             className: 'user-presence-popup',
           }).setHTML(popupHtml);
-          enhancePopupAnimation(nextPopup);
+          enhancePopupAnimation(nextPopup, { getEnterOrigin: getPopupEnterOrigin });
           registerSinglePopup(nextPopup);
           bindParkingPopupToMarker(nextPopup, markerEl, markerInner, id);
           nextPopup.on('close', () => {
@@ -1283,7 +1308,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup);
+        enhancePopupAnimation(popup, { getEnterOrigin: getPopupEnterOrigin });
         registerSinglePopup(popup);
         popupRef.current = popup;
         userMarkerRef.current = new mapboxgl.Marker({

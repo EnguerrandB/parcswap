@@ -140,17 +140,47 @@ export const buildSelfPopupHTML = (t, isDark, lastSeen) => {
     `;
 };
 
+const isFiniteCoord = (value) => typeof value === 'number' && Number.isFinite(value);
+
 // Adds a quick pop-in/out animation on all popups
-export const enhancePopupAnimation = (popup) => {
-  if (!popup || popup.__animated) return popup;
+export const enhancePopupAnimation = (popup, options = {}) => {
+  if (!popup) return popup;
+  popup.__animationOptions = options;
+  if (popup.__animated) return popup;
   const originalAddTo = popup.addTo.bind(popup);
   popup.addTo = (mapInstance) => {
+    const animationOptions = popup.__animationOptions || {};
+    const origin =
+      typeof animationOptions.getEnterOrigin === 'function'
+        ? animationOptions.getEnterOrigin({ popup, mapInstance })
+        : null;
     const res = originalAddTo(mapInstance);
     const el = popup.getElement();
     const content = el?.querySelector('.mapboxgl-popup-content');
     if (content) {
       content.classList.remove('popup-exit');
-      content.classList.add('popup-enter');
+      content.classList.remove('popup-enter');
+      content.style.opacity = '0';
+      requestAnimationFrame(() => {
+        const liveContent = popup.getElement()?.querySelector('.mapboxgl-popup-content');
+        if (!liveContent) return;
+        const rect = liveContent.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dx =
+          origin && isFiniteCoord(origin.x) && isFiniteCoord(centerX) ? origin.x - centerX : 0;
+        const dy =
+          origin && isFiniteCoord(origin.y) && isFiniteCoord(centerY) ? origin.y - centerY : 8;
+        const distance = Math.hypot(dx, dy);
+        const duration = Math.max(180, Math.min(320, 180 + distance * 0.1));
+        const startScale = distance > 80 ? 0.9 : 0.96;
+        liveContent.style.setProperty('--popup-enter-dx', `${Math.round(dx)}px`);
+        liveContent.style.setProperty('--popup-enter-dy', `${Math.round(dy)}px`);
+        liveContent.style.setProperty('--popup-enter-scale', String(startScale));
+        liveContent.style.setProperty('--popup-enter-duration', `${Math.round(duration)}ms`);
+        liveContent.style.opacity = '';
+        liveContent.classList.add('popup-enter');
+      });
     }
     if (!popup.__autoCloseTimer) {
       popup.__autoCloseTimer = setTimeout(() => {
@@ -194,14 +224,24 @@ export const enhancePopupAnimation = (popup) => {
 export const PopUpUsersStyles = () => (
   <style>{`
     @keyframes popupEnter {
-      from { transform: scale(0.9) translateY(4px); opacity: 0; }
-      to { transform: scale(1) translateY(0); opacity: 1; }
+      from {
+        transform: translate(var(--popup-enter-dx, 0px), var(--popup-enter-dy, 8px)) scale(var(--popup-enter-scale, 0.94));
+        opacity: 0;
+      }
+      to {
+        transform: translate(0px, 0px) scale(1);
+        opacity: 1;
+      }
     }
     @keyframes popupExit {
       from { transform: scale(1) translateY(0); opacity: 1; }
       to { transform: scale(0.92) translateY(4px); opacity: 0; }
     }
-    .mapboxgl-popup-content.popup-enter { animation: popupEnter 0.18s ease forwards; }
+    .mapboxgl-popup-content.popup-enter {
+      animation: popupEnter var(--popup-enter-duration, 180ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      transform-origin: center center;
+      will-change: transform, opacity;
+    }
     .mapboxgl-popup-content.popup-exit { animation: popupExit 0.16s ease forwards; }
     .user-presence-popup {
       transition: transform 0.16s ease-out;

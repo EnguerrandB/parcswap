@@ -607,22 +607,20 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const animatePopupLinearTransition = useCallback((fromPopup, toPopup) => {
     if (typeof document === 'undefined') return;
-    const fromContent = fromPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
-    if (!(fromContent instanceof Element)) return;
+    const fromEl = fromPopup?.getElement?.();
+    if (!(fromEl instanceof Element)) return;
 
-    const fromRect = fromContent.getBoundingClientRect();
+    const fromRect = fromEl.getBoundingClientRect();
     if (!Number.isFinite(fromRect.left)) return;
 
     cleanupPopupGhost();
 
-    const fromMarkup = fromContent.cloneNode(true);
+    const fromMarkup = fromEl.cloneNode(true);
     const rafIds = [];
-    const startAnimation = () => {
-      const toContent = toPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
-      if (!(toContent instanceof Element)) return;
-      const toRect = toContent.getBoundingClientRect();
-      if (!Number.isFinite(toRect.left) || !Number.isFinite(toRect.top)) return;
-      if (Math.abs(toRect.left) < 1 && Math.abs(toRect.top) < 1) return;
+    let cancelled = false;
+
+    const startAnimation = (toEl, toRect) => {
+      if (!(toEl instanceof Element)) return;
 
       const ghost = fromMarkup;
       const fromCenterX = fromRect.left + fromRect.width / 2;
@@ -650,14 +648,14 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
       ghost.style.willChange = 'transform';
 
-      toContent.style.opacity = '0';
-      toContent.style.transition = 'opacity 120ms ease';
-      fromContent.style.opacity = '0';
+      toEl.style.opacity = '0';
+      toEl.style.transition = 'opacity 120ms ease';
+      fromEl.style.opacity = '0';
 
       document.body.appendChild(ghost);
 
       const revealTimer = window.setTimeout(() => {
-        toContent.style.opacity = '1';
+        toEl.style.opacity = '1';
       }, Math.max(180, duration - 110));
 
       const launchRaf = requestAnimationFrame(() => {
@@ -667,9 +665,9 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
       const cleanup = () => {
         window.clearTimeout(revealTimer);
-        toContent.style.opacity = '';
-        toContent.style.transition = '';
-        if (fromContent.isConnected) fromContent.style.opacity = '';
+        toEl.style.opacity = '';
+        toEl.style.transition = '';
+        if (fromEl.isConnected) fromEl.style.opacity = '';
         ghost.remove();
       };
 
@@ -678,17 +676,48 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         rafIds.forEach((id) => cancelAnimationFrame(id));
         window.clearTimeout(revealTimer);
         window.clearTimeout(removeTimer);
-        toContent.style.opacity = '';
-        toContent.style.transition = '';
-        if (fromContent.isConnected) fromContent.style.opacity = '';
+        toEl.style.opacity = '';
+        toEl.style.transition = '';
+        if (fromEl.isConnected) fromEl.style.opacity = '';
         ghost.remove();
       };
+    };
+
+    const waitForTargetRect = (attempt = 0, previousRect = null) => {
+      if (cancelled) return;
+      const toEl = toPopup?.getElement?.();
+      if (!(toEl instanceof Element)) return;
+      const toRect = toEl.getBoundingClientRect();
+      const isValidRect =
+        Number.isFinite(toRect.left) &&
+        Number.isFinite(toRect.top) &&
+        Number.isFinite(toRect.width) &&
+        Number.isFinite(toRect.height) &&
+        toRect.width > 0 &&
+        toRect.height > 0 &&
+        !(Math.abs(toRect.left) < 1 && Math.abs(toRect.top) < 1);
+
+      const isStable =
+        previousRect &&
+        Math.abs(previousRect.left - toRect.left) < 0.5 &&
+        Math.abs(previousRect.top - toRect.top) < 0.5 &&
+        Math.abs(previousRect.width - toRect.width) < 0.5 &&
+        Math.abs(previousRect.height - toRect.height) < 0.5;
+
+      if (isValidRect && (isStable || attempt >= 8)) {
+        startAnimation(toEl, toRect);
+        return;
+      }
+
+      if (attempt >= 12) return;
+      const nextRaf = requestAnimationFrame(() => waitForTargetRect(attempt + 1, toRect));
+      rafIds.push(nextRaf);
     };
 
     const raf1 = requestAnimationFrame(() => {
       const raf2 = requestAnimationFrame(() => {
         const raf3 = requestAnimationFrame(() => {
-          startAnimation();
+          waitForTargetRect();
         });
         rafIds.push(raf3);
       });
@@ -697,8 +726,9 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     rafIds.push(raf1);
 
     popupGhostCleanupRef.current = () => {
+      cancelled = true;
       rafIds.forEach((id) => cancelAnimationFrame(id));
-      if (fromContent.isConnected) fromContent.style.opacity = '';
+      if (fromEl.isConnected) fromEl.style.opacity = '';
     };
   }, [cleanupPopupGhost]);
 

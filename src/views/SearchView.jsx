@@ -1696,7 +1696,6 @@ const SearchView = ({
               >
                 <span className="search-dismiss-button__halo" aria-hidden="true" />
                 <span className="search-dismiss-button__shell" aria-hidden="true" />
-                <span className="search-dismiss-button__edge" aria-hidden="true" />
                 {/* CONTENEUR INTERNE : GÈRE LE SCALE ET L'ANIMATION */}
                 <div
                   className={`search-dismiss-button__icon flex items-center justify-center w-full h-full transition-transform duration-75 ${

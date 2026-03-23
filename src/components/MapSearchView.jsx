@@ -613,7 +613,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const animatePopupLinearTransition = useCallback((fromPopup, toPopup) => {
     if (typeof document === 'undefined') return;
     const fromEl = fromPopup?.getElement?.();
+    const immediateToEl = toPopup?.getElement?.();
     if (!(fromEl instanceof Element)) return;
+    if (immediateToEl instanceof Element) {
+      immediateToEl.style.visibility = 'hidden';
+      immediateToEl.style.opacity = '0';
+    }
 
     const fromRect = fromEl.getBoundingClientRect();
     if (!Number.isFinite(fromRect.left)) return;
@@ -653,6 +658,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
       ghost.style.willChange = 'transform';
 
+      toEl.style.visibility = 'hidden';
       toEl.style.opacity = '0';
       toEl.style.transition = 'opacity 120ms ease';
       fromEl.style.opacity = '0';
@@ -660,6 +666,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       document.body.appendChild(ghost);
 
       const revealTimer = window.setTimeout(() => {
+        toEl.style.visibility = '';
         toEl.style.opacity = '1';
       }, Math.max(180, duration - 110));
 
@@ -670,6 +677,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
       const cleanup = () => {
         window.clearTimeout(revealTimer);
+        toEl.style.visibility = '';
         toEl.style.opacity = '';
         toEl.style.transition = '';
         if (fromEl.isConnected) fromEl.style.opacity = '';
@@ -681,6 +689,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         rafIds.forEach((id) => cancelAnimationFrame(id));
         window.clearTimeout(revealTimer);
         window.clearTimeout(removeTimer);
+        toEl.style.visibility = '';
         toEl.style.opacity = '';
         toEl.style.transition = '';
         if (fromEl.isConnected) fromEl.style.opacity = '';
@@ -733,6 +742,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     popupGhostCleanupRef.current = () => {
       cancelled = true;
       rafIds.forEach((id) => cancelAnimationFrame(id));
+      if (immediateToEl instanceof Element) {
+        immediateToEl.style.visibility = '';
+        immediateToEl.style.opacity = '';
+      }
       if (fromEl.isConnected) fromEl.style.opacity = '';
     };
   }, [cleanupPopupGhost]);

@@ -3,7 +3,7 @@ import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 import HttpBackend from "i18next-http-backend";
 
-const RTL_LANGUAGES = new Set(["ar", "he"]);
+const APP_DIRECTION = "ltr";
 
 const syncDocumentLanguage = (language) => {
   if (typeof document === "undefined") return;
@@ -11,7 +11,7 @@ const syncDocumentLanguage = (language) => {
   const normalized = String(language || "en")
     .split("-")[0]
     .toLowerCase();
-  const dir = RTL_LANGUAGES.has(normalized) ? "rtl" : "ltr";
+  const dir = APP_DIRECTION;
 
   document.documentElement.lang = normalized || "en";
   document.documentElement.dir = dir;
@@ -48,6 +48,8 @@ if (!i18n.isInitialized) {
       load: "languageOnly",
       debug: false,
     });
+
+  i18n.dir = () => APP_DIRECTION;
 
   syncDocumentLanguage(i18n.resolvedLanguage || i18n.language);
   i18n.on("languageChanged", syncDocumentLanguage);

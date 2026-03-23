@@ -45,15 +45,6 @@ const ProfileView = ({
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
-    const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
-  const profileRowDirectionClass = isRtl ? 'flex-row-reverse' : '';
-  const profileLeadingDirectionClass = isRtl ? 'flex-row-reverse' : '';
-  const profileTextAlignClass = isRtl ? 'text-right' : 'text-left';
-  const profileTrailingAlignClass = isRtl ? 'items-start text-left' : 'items-end text-right';
-  const profileChevronClass = isRtl ? 'rotate-180' : '';
-  const settingsRowDirectionClass = profileRowDirectionClass;
-  const settingsSelectAlignClass = isRtl ? 'text-left' : 'text-right';
-  const settingsSelectTextAlign = isRtl ? 'left' : 'right';
 	  const iconColors = {
 	    rank: '#f97316',
 	    profile: '#ec4899',
@@ -335,8 +326,8 @@ const ProfileView = ({
       data-role="account-sheet-scroll"
     >
       <div className="p-6 pb-6">
-        <div className={`flex items-center justify-between mb-8 mt-4 ${profileRowDirectionClass}`}>
-        <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+        <div className="flex items-center justify-between mb-8 mt-4">
+        <div className="flex items-center space-x-3">
           <img
             src={rankIcon(userTransactionCount)}
             alt="Rang"
@@ -382,8 +373,8 @@ const ProfileView = ({
             highlightVehiclesRequestId={highlightVehiclesRequestId}
           />
 
-          <div className={`w-full p-4 flex items-center justify-between ${profileRowDirectionClass} ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
-            <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <CreditCard size={20} style={iconStyle('stripe')} />
               </div>
@@ -400,11 +391,11 @@ const ProfileView = ({
             type="button"
             onClick={handleStartKyc}
             disabled={kycLoading}
-            className={`w-full p-4 flex items-center justify-between ${profileRowDirectionClass} ${profileTextAlignClass} transition ${
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
               isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
             } ${kycLoading ? 'opacity-70 cursor-wait' : ''}`}
           >
-            <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <ShieldCheck size={20} style={iconStyle('kyc')} />
               </div>
@@ -427,11 +418,11 @@ const ProfileView = ({
           <button
             type="button"
             onClick={() => setShowWalletModal(true)}
-            className={`w-full p-4 flex items-center justify-between ${profileRowDirectionClass} ${profileTextAlignClass} transition ${
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
               isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
             }`}
           >
-            <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+            <div className="flex items-center space-x-3">
               <div
                 className={`p-2 rounded-lg border ${
                   isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'
@@ -443,7 +434,7 @@ const ProfileView = ({
                 {t('wallet', { defaultValue: 'Wallet' })}
               </span>
             </div>
-            <div className={`flex flex-col gap-1 ${profileTrailingAlignClass}`}>
+            <div className="flex flex-col items-end gap-1">
               <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
                 {formatWallet(walletDisplay)}
               </span>
@@ -477,13 +468,13 @@ const ProfileView = ({
           <button
             type="button"
             onClick={() => onInvite?.()}
-            className={`w-full p-4 flex items-center justify-between ${profileRowDirectionClass} ${profileTextAlignClass} transition ${
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
               isDark
                 ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
                 : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
-            <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <ArrowRight size={20} style={iconStyle('invite')} />
               </div>
@@ -491,7 +482,7 @@ const ProfileView = ({
                 {t('inviteFriends', { defaultValue: 'Inviter des amis' })}
               </span>
             </div>
-            <ArrowRight size={16} className={`${isDark ? 'text-slate-500' : 'text-gray-300'} ${profileChevronClass}`} />
+            <ArrowRight size={16} className={isDark ? 'text-slate-500' : 'text-gray-300'} />
           </button>
 
           <Achievements
@@ -528,13 +519,13 @@ const ProfileView = ({
           <button
             type="button"
             onClick={toggleTheme}
-            className={`w-full p-4 flex items-center justify-between ${profileRowDirectionClass} ${profileTextAlignClass} transition ${
+            className={`w-full p-4 flex items-center justify-between text-left transition ${
               isDark
                 ? '[@media(hover:hover)]:hover:bg-slate-800 text-slate-100'
                 : '[@media(hover:hover)]:hover:bg-gray-50 text-gray-900'
             }`}
           >
-            <div className={`flex items-center gap-3 ${profileLeadingDirectionClass}`}>
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {theme === 'dark' ? <Moon size={20} style={iconStyle('appearance')} /> : <Sun size={20} style={iconStyle('appearance')} />}
               </div>
@@ -551,18 +542,18 @@ const ProfileView = ({
             >
               <span
                 className={`h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
-                  isDark ? (isRtl ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'
+                  isDark ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </span>
           </button>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${settingsRowDirectionClass} ${
+            className={`w-full p-4 flex items-center justify-between text-left ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {getLanguageFlag(language) ? (
                   <span className="text-lg leading-none">{getLanguageFlag(language)}</span>
@@ -575,11 +566,9 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              dir={isRtl ? 'rtl' : 'ltr'}
-              className={`border rounded-xl px-3 py-2 text-sm ${settingsSelectAlignClass} focus:outline-none focus:ring-2 focus:ring-orange-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
-              style={{ textAlign: settingsSelectTextAlign, textAlignLast: settingsSelectTextAlign }}
               value={language}
               onChange={(e) => handleChangeLanguage(e.target.value)}
             >
@@ -592,11 +581,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${settingsRowDirectionClass} ${
+            className={`w-full p-4 flex items-center justify-between text-left ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Wallet size={20} style={iconStyle('wallet')} />
               </div>
@@ -605,11 +594,9 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              dir={isRtl ? 'rtl' : 'ltr'}
-              className={`border rounded-xl px-3 py-2 text-sm ${settingsSelectAlignClass} focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
-              style={{ textAlign: settingsSelectTextAlign, textAlignLast: settingsSelectTextAlign }}
               value={currency}
               onChange={(e) => handleChangeCurrency(e.target.value)}
             >
@@ -623,11 +610,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${settingsRowDirectionClass} ${
+            className={`w-full p-4 flex items-center justify-between text-left ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Volume2 size={20} style={iconStyle('voice')} />
               </div>
@@ -636,11 +623,9 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              dir={isRtl ? 'rtl' : 'ltr'}
-              className={`border rounded-xl px-3 py-2 text-sm ${settingsSelectAlignClass} focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
-              style={{ textAlign: settingsSelectTextAlign, textAlignLast: settingsSelectTextAlign }}
               value={voiceUri}
               onChange={(e) => handleVoiceChange(e.target.value)}
               disabled={!voices.length}
@@ -672,7 +657,7 @@ const ProfileView = ({
         <button
           type="button"
           onClick={() => onLogout?.()}
-          className={`w-full px-6 py-5 shadow-sm flex items-center gap-3 ${profileLeadingDirectionClass} border-t transition rounded-t-2xl rounded-b-none ${
+          className={`w-full px-6 py-5 shadow-sm flex items-center space-x-3 border-t transition rounded-t-2xl rounded-b-none ${
             isDark
               ? 'bg-slate-950/95 border-white/10 text-slate-100 [@media(hover:hover)]:hover:bg-slate-950'
               : 'bg-white/95 border-gray-200 text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'

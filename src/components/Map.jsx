@@ -17,7 +17,7 @@ import userCar4 from '../assets/user-car-4.png';
 import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
-import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
+import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStylePatch';
 import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
 
 // --- SAFE NUMERIC HELPERS ---
@@ -648,6 +648,7 @@ useEffect(() => {
   const nextInstruction = stepsToShow?.[navIndex + 1] || null;
 
   const navLanguage = i18nInstance?.language || 'en';
+  const mapLabelLanguage = i18nInstance?.resolvedLanguage || i18nInstance?.language || 'en';
   const canSpeakNav = typeof window !== 'undefined' && !!window.speechSynthesis;
   const [navVoiceEnabled, setNavVoiceEnabled] = useState(true);
   const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
@@ -1040,6 +1041,7 @@ const handleStyleLoad = () => {
   console.group('🗺️ ParkSwap: Style loaded');
   applyDayNightPreset(map);
   patchSizerankInStyle(map);
+  applyMapLabelLanguage(map, mapLabelLanguage);
   
   // Load missing images for place-labels
   const rankImages = [
@@ -1114,6 +1116,12 @@ const handleStyleLoad = () => {
       destMarkerRef.current = null;
     };
   }, [mapboxToken]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyMapLabelLanguage(map, mapLabelLanguage);
+  }, [mapLabelLanguage]);
 
   useEffect(() => {
     const map = mapRef.current;

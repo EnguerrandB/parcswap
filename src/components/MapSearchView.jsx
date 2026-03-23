@@ -13,7 +13,7 @@ import { buildSpotActionPopupHTML, buildSpotPopupHTML } from './SpotPopups';
 import { newId } from '../utils/ids';
 import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
-import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
+import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStylePatch';
 import {
   CARD_COLOR_SALT,
   colorForSpot,
@@ -204,6 +204,7 @@ const MapSearchView = ({
 }) => {
   const { t, i18n } = useTranslation('common');
   const isRtl = i18n.dir(i18n.resolvedLanguage || i18n.language) === 'rtl';
+  const mapLabelLanguage = i18n.resolvedLanguage || i18n.language || 'en';
   const currencySymbol = getCurrencySymbol(currency);
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const mapRef = useRef(null);
@@ -893,6 +894,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     const handleStyleLoad = () => {
       applyDayNightPreset(map);
       patchSizerankInStyle(map);
+      applyMapLabelLanguage(map, mapLabelLanguage);
     };
     const handleLoad = () => {
       setMapLoaded(true);
@@ -917,6 +919,11 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       setMapLoaded(false);
     };
   }, [mapboxToken]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    applyMapLabelLanguage(mapRef.current, mapLabelLanguage);
+  }, [mapLabelLanguage]);
 
   useEffect(() => {
     if (!mapRef.current) return;

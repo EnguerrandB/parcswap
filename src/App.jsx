@@ -82,6 +82,13 @@ const walletCentsToEuros = (cents) => {
   return Number.isFinite(n) ? n / 100 : 0;
 };
 
+const isLikelyFirstLogin = (fbUser) => {
+  const creationMs = Date.parse(fbUser?.metadata?.creationTime || '');
+  const lastSignInMs = Date.parse(fbUser?.metadata?.lastSignInTime || '');
+  if (!Number.isFinite(creationMs) || !Number.isFinite(lastSignInMs)) return false;
+  return Math.abs(lastSignInMs - creationMs) < 10_000;
+};
+
 // --- SAFE NUMERIC HELPERS ---
 // These helpers prevent NaN/Infinity from being written to Firestore, which would cause 400 errors.
 
@@ -174,51 +181,119 @@ const ConfettiOverlay = ({ seedKey }) => {
   );
 };
 
-const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '' }) => (
-  <div className="fixed inset-0 z-[10000] flex items-center justify-center">
-    <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
-    <div
-      className={`relative w-[min(320px,84vw)] rounded-3xl border px-6 py-5 shadow-2xl ${
-        theme === 'dark'
-          ? 'bg-slate-900/70 border-white/10 text-slate-100'
-          : 'bg-white/80 border-white/60 text-slate-900'
-      }`}
-      style={{ WebkitBackdropFilter: 'blur(18px) saturate(180%)', backdropFilter: 'blur(18px) saturate(180%)' }}
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-3">
+const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '', variant = 'welcome' }) => {
+  const isDark = theme === 'dark';
+  const onboardingItems = [
+    {
+      number: '1',
+      title: i18n.t('welcomeOnboardingSearchTitle', 'Find a spot'),
+      body: i18n.t('welcomeOnboardingSearchBody', 'See nearby live spots and book one in seconds.'),
+    },
+    {
+      number: '2',
+      title: i18n.t('welcomeOnboardingProposeTitle', 'Offer yours'),
+      body: i18n.t('welcomeOnboardingProposeBody', 'Publish your departure, set a price, and let the app find a driver.'),
+    },
+    {
+      number: '3',
+      title: i18n.t('welcomeOnboardingProfileTitle', 'Manage your account'),
+      body: i18n.t('welcomeOnboardingProfileBody', 'Add vehicles, track your wallet, and review your history.'),
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-md" />
+      <div
+        className={`relative w-[min(360px,88vw)] rounded-3xl border px-6 py-5 shadow-2xl ${
+          isDark
+            ? 'bg-slate-900/70 border-white/10 text-slate-100'
+            : 'bg-white/80 border-white/60 text-slate-900'
+        }`}
+        style={{ WebkitBackdropFilter: 'blur(18px) saturate(180%)', backdropFilter: 'blur(18px) saturate(180%)' }}
+        role="status"
+        aria-live="polite"
+      >
         {mode === 'out' ? (
-          <div className="h-5 w-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+          <div className="flex items-center gap-3">
+            <div className="h-5 w-5 rounded-full border-2 border-orange-500 border-t-transparent animate-spin" />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">{i18n.t('loggingOut', 'Déconnexion…')}</div>
+            </div>
+          </div>
+        ) : variant === 'onboarding' ? (
+          <div>
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-[0_10px_24px_rgba(249,115,22,0.35)] text-white">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold">{i18n.t('welcomeOnboardingTitle', 'Bienvenue sur ParkSwap')}</div>
+                <div className={`mt-0.5 text-xs ${isDark ? 'text-slate-300/80' : 'text-slate-600'}`}>
+                  {i18n.t('welcomeOnboardingSubtitle', 'Voici l’essentiel pour démarrer.')}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {onboardingItems.map((item) => (
+                <div
+                  key={item.number}
+                  className={`rounded-2xl border px-3 py-3 ${
+                    isDark ? 'border-white/10 bg-white/5' : 'border-slate-200/70 bg-white/65'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                      isDark ? 'bg-orange-400/20 text-orange-200' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {item.number}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">{item.title}</div>
+                      <div className={`mt-1 text-xs leading-relaxed ${isDark ? 'text-slate-300/80' : 'text-slate-600'}`}>
+                        {item.body}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : (
-          <div className="h-5 w-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 shadow-[0_10px_24px_rgba(249,115,22,0.35)] flex items-center justify-center">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M20 6L9 17l-5-5"
-                stroke="white"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+          <div className="flex items-center gap-3">
+            <div className="h-5 w-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-400 shadow-[0_10px_24px_rgba(249,115,22,0.35)] flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M20 6L9 17l-5-5"
+                  stroke="white"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">{i18n.t('connected', 'Connecté')}</div>
+              <div className="mt-0.5 text-xs opacity-70 truncate">
+                {name
+                  ? i18n.t('welcomeBackName', { defaultValue: 'Welcome back, {{name}}', name })
+                  : i18n.t('welcomeBack', 'Welcome back')}
+              </div>
+            </div>
           </div>
         )}
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">
-            {mode === 'out' ? i18n.t('loggingOut', 'Déconnexion…') : i18n.t('connected', 'Connecté')}
-          </div>
-          {mode === 'in' && (
-            <div className="mt-0.5 text-xs opacity-70 truncate">
-              {name
-                ? i18n.t('welcomeBackName', { defaultValue: 'Welcome back, {{name}}', name })
-                : i18n.t('welcomeBack', 'Welcome back')}
-            </div>
-          )}
-        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const LogoutOverlay = ({ theme = 'light' }) => <AuthTransitionOverlay theme={theme} mode="out" />;
 
@@ -369,6 +444,8 @@ export default function ParkSwapApp() {
 		  const celebrationSeenRef = useRef(new Set());
 		  const [loggingOut, setLoggingOut] = useState(false);
 		  const [loggingIn, setLoggingIn] = useState(false);
+      const [loginOverlayVariant, setLoginOverlayVariant] = useState('welcome');
+      const [loginOverlayName, setLoginOverlayName] = useState('');
 		  const lastKnownLocationRef = useRef(null);
 		  const selectionWriteInFlight = useRef(false);
 		  const selectionQueueRef = useRef(null);
@@ -1040,12 +1117,19 @@ export default function ParkSwapApp() {
 		          const nextUser = await hydrateUser(fbUser);
 		          if (cancelled) return;
 		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
+              const firstLogin = isLikelyFirstLogin(fbUser);
 		          if (nextUser?.language) i18n.changeLanguage(nextUser.language);
 		          setUser(nextUser);
 		          if (wasLoggedOut) {
 		            if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
-		            setLoggingIn(true);
-		            loginOverlayTimerRef.current = window.setTimeout(() => setLoggingIn(false), 1200);
+                setLoginOverlayVariant(firstLogin ? 'onboarding' : 'welcome');
+                setLoginOverlayName(nextUser?.displayName || '');
+                setLoggingIn(true);
+                loginOverlayTimerRef.current = window.setTimeout(() => {
+                  setLoggingIn(false);
+                  setLoginOverlayVariant('welcome');
+                  setLoginOverlayName('');
+                }, firstLogin ? 2600 : 1200);
 		          }
 		        } else if (!loggingOut) {
 		          setUser(null);
@@ -2885,7 +2969,7 @@ export default function ParkSwapApp() {
         }`}
       >
        <AuthView />
-       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name="" />}
+      {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
        <OrientationBlockedOverlay visible={orientationBlocked} />
        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
@@ -2935,7 +3019,7 @@ export default function ParkSwapApp() {
           : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
       }`}
     >
-      {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={user?.displayName || ''} />}
+      {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       <OrientationBlockedOverlay visible={orientationBlocked} />
       {renewWave ? (

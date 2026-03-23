@@ -88,6 +88,8 @@
   "myCarLabel": "My Car",
   "leavingInLabel": "Leaving in",
   "minutes": "{{count}} minutes",
+  "minuteUnitShort": "min",
+  "meterUnitShort": "m",
   "askingPrice": "Asking Price",
   "spotLengthLabel": "Length of the spot",
   "publishSpot": "Publish Spot",

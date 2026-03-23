@@ -88,6 +88,8 @@
   "myCarLabel": "مركبتي",
   "leavingInLabel": "المغادرة",
   "minutes": "{{count}} دقائق",
+  "minuteUnitShort": "د",
+  "meterUnitShort": "م",
   "askingPrice": "السعر المطلوب",
   "spotLengthLabel": "طول المكان",
   "publishSpot": "نشر المكان",

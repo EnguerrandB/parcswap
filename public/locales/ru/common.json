@@ -88,6 +88,8 @@
   "myCarLabel": "Мое авто",
   "leavingInLabel": "Уезжаю через",
   "minutes": "{{count}} минут",
+  "minuteUnitShort": "мин",
+  "meterUnitShort": "м",
   "askingPrice": "Цена",
   "spotLengthLabel": "Длина места",
   "publishSpot": "Опубликовать место",

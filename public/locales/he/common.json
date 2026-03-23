@@ -88,6 +88,8 @@
   "myCarLabel": "הרכב שלי",
   "leavingInLabel": "עזיבה",
   "minutes": "{{count}} דקות",
+  "minuteUnitShort": "דק׳",
+  "meterUnitShort": "מ׳",
   "askingPrice": "מחיר מבוקש",
   "spotLengthLabel": "אורך החניה",
   "publishSpot": "פרסום החניה",

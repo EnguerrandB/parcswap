@@ -88,6 +88,8 @@
   "myCarLabel": "Mon véhicule",
   "leavingInLabel": "Départ",
   "minutes": "{{count}} minutes",
+  "minuteUnitShort": "min",
+  "meterUnitShort": "m",
   "askingPrice": "Prix demandé",
   "spotLengthLabel": "Longueur de la place",
   "publishSpot": "Publier la place",

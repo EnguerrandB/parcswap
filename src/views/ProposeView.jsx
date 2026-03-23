@@ -22,6 +22,8 @@ const ProposeView = forwardRef(({
   const { t } = useTranslation('common');
   const { isOnline, isPoorConnection } = useConnectionQuality();
   const currencySymbol = getCurrencySymbol(currency);
+  const minuteUnitShort = t('minuteUnitShort', 'min');
+  const meterUnitShort = t('meterUnitShort', 'm');
   const formatPlate = (value) => {
     const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     let letters1 = '';
@@ -362,7 +364,7 @@ const ProposeView = forwardRef(({
                 {proposeForm.time}
               </span>
               <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                min
+                {minuteUnitShort}
               </span>
             </div>
           </div>
@@ -404,10 +406,10 @@ const ProposeView = forwardRef(({
             />
             {/* Indicateurs Min/Max */}
             <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              1 min
+              {`1 ${minuteUnitShort}`}
             </div>
             <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              30 min
+              {`30 ${minuteUnitShort}`}
             </div>
           </div>
         </div>
@@ -507,7 +509,7 @@ const ProposeView = forwardRef(({
                 {proposeForm.length}
               </span>
               <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                m
+                {meterUnitShort}
               </span>
             </div>
           </div>
@@ -545,10 +547,10 @@ const ProposeView = forwardRef(({
               "
             />
             <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              4 m
+              {`4 ${meterUnitShort}`}
             </div>
             <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              6 m
+              {`6 ${meterUnitShort}`}
             </div>
           </div>
         </div>

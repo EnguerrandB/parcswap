@@ -608,71 +608,97 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const animatePopupLinearTransition = useCallback((fromPopup, toPopup) => {
     if (typeof document === 'undefined') return;
     const fromContent = fromPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
-    const toContent = toPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
-    if (!(fromContent instanceof Element) || !(toContent instanceof Element)) return;
+    if (!(fromContent instanceof Element)) return;
 
     const fromRect = fromContent.getBoundingClientRect();
-    const toRect = toContent.getBoundingClientRect();
-    if (!Number.isFinite(fromRect.left) || !Number.isFinite(toRect.left)) return;
+    if (!Number.isFinite(fromRect.left)) return;
 
     cleanupPopupGhost();
 
-    const ghost = fromContent.cloneNode(true);
-    const fromCenterX = fromRect.left + fromRect.width / 2;
-    const fromCenterY = fromRect.top + fromRect.height / 2;
-    const toCenterX = toRect.left + toRect.width / 2;
-    const toCenterY = toRect.top + toRect.height / 2;
-    const deltaX = fromCenterX - toCenterX;
-    const deltaY = fromCenterY - toCenterY;
-    const scaleX = Math.max(0.82, Math.min(1.18, fromRect.width / Math.max(toRect.width, 1)));
-    const scaleY = Math.max(0.82, Math.min(1.18, fromRect.height / Math.max(toRect.height, 1)));
-    const distance = Math.hypot(deltaX, deltaY);
-    const duration = Math.max(320, Math.min(520, 320 + distance * 0.12));
+    const fromMarkup = fromContent.cloneNode(true);
+    const rafIds = [];
+    const startAnimation = () => {
+      const toContent = toPopup?.getElement?.()?.querySelector?.('.mapboxgl-popup-content');
+      if (!(toContent instanceof Element)) return;
+      const toRect = toContent.getBoundingClientRect();
+      if (!Number.isFinite(toRect.left) || !Number.isFinite(toRect.top)) return;
+      if (Math.abs(toRect.left) < 1 && Math.abs(toRect.top) < 1) return;
 
-    ghost.classList.remove('popup-enter', 'popup-exit');
-    ghost.style.position = 'fixed';
-    ghost.style.left = `${toRect.left}px`;
-    ghost.style.top = `${toRect.top}px`;
-    ghost.style.width = `${toRect.width}px`;
-    ghost.style.height = `${toRect.height}px`;
-    ghost.style.margin = '0';
-    ghost.style.pointerEvents = 'none';
-    ghost.style.zIndex = '99999';
-    ghost.style.transformOrigin = 'center center';
-    ghost.style.transform = `translate(${Math.round(deltaX)}px, ${Math.round(deltaY)}px) scale(${scaleX}, ${scaleY})`;
-    ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
-    ghost.style.willChange = 'transform';
+      const ghost = fromMarkup;
+      const fromCenterX = fromRect.left + fromRect.width / 2;
+      const fromCenterY = fromRect.top + fromRect.height / 2;
+      const toCenterX = toRect.left + toRect.width / 2;
+      const toCenterY = toRect.top + toRect.height / 2;
+      const deltaX = fromCenterX - toCenterX;
+      const deltaY = fromCenterY - toCenterY;
+      const scaleX = Math.max(0.82, Math.min(1.18, fromRect.width / Math.max(toRect.width, 1)));
+      const scaleY = Math.max(0.82, Math.min(1.18, fromRect.height / Math.max(toRect.height, 1)));
+      const distance = Math.hypot(deltaX, deltaY);
+      const duration = Math.max(320, Math.min(520, 320 + distance * 0.12));
 
-    toContent.style.opacity = '0';
-    toContent.style.transition = 'opacity 120ms ease';
-    fromContent.style.opacity = '0';
+      ghost.classList.remove('popup-enter', 'popup-exit');
+      ghost.style.position = 'fixed';
+      ghost.style.left = `${toRect.left}px`;
+      ghost.style.top = `${toRect.top}px`;
+      ghost.style.width = `${toRect.width}px`;
+      ghost.style.height = `${toRect.height}px`;
+      ghost.style.margin = '0';
+      ghost.style.pointerEvents = 'none';
+      ghost.style.zIndex = '99999';
+      ghost.style.transformOrigin = 'center center';
+      ghost.style.transform = `translate(${Math.round(deltaX)}px, ${Math.round(deltaY)}px) scale(${scaleX}, ${scaleY})`;
+      ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
+      ghost.style.willChange = 'transform';
 
-    document.body.appendChild(ghost);
+      toContent.style.opacity = '0';
+      toContent.style.transition = 'opacity 120ms ease';
+      fromContent.style.opacity = '0';
 
-    const revealTimer = window.setTimeout(() => {
-      toContent.style.opacity = '1';
-    }, Math.max(180, duration - 110));
+      document.body.appendChild(ghost);
 
-    requestAnimationFrame(() => {
-      ghost.style.transform = 'translate(0px, 0px) scale(1, 1)';
-    });
+      const revealTimer = window.setTimeout(() => {
+        toContent.style.opacity = '1';
+      }, Math.max(180, duration - 110));
 
-    const cleanup = () => {
-      window.clearTimeout(revealTimer);
-      toContent.style.opacity = '';
-      toContent.style.transition = '';
-      if (fromContent.isConnected) fromContent.style.opacity = '';
-      ghost.remove();
+      const launchRaf = requestAnimationFrame(() => {
+        ghost.style.transform = 'translate(0px, 0px) scale(1, 1)';
+      });
+      rafIds.push(launchRaf);
+
+      const cleanup = () => {
+        window.clearTimeout(revealTimer);
+        toContent.style.opacity = '';
+        toContent.style.transition = '';
+        if (fromContent.isConnected) fromContent.style.opacity = '';
+        ghost.remove();
+      };
+
+      const removeTimer = window.setTimeout(cleanup, duration + 40);
+      popupGhostCleanupRef.current = () => {
+        rafIds.forEach((id) => cancelAnimationFrame(id));
+        window.clearTimeout(revealTimer);
+        window.clearTimeout(removeTimer);
+        toContent.style.opacity = '';
+        toContent.style.transition = '';
+        if (fromContent.isConnected) fromContent.style.opacity = '';
+        ghost.remove();
+      };
     };
 
-    const removeTimer = window.setTimeout(cleanup, duration + 40);
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        const raf3 = requestAnimationFrame(() => {
+          startAnimation();
+        });
+        rafIds.push(raf3);
+      });
+      rafIds.push(raf2);
+    });
+    rafIds.push(raf1);
+
     popupGhostCleanupRef.current = () => {
-      window.clearTimeout(revealTimer);
-      window.clearTimeout(removeTimer);
-      toContent.style.opacity = '';
-      toContent.style.transition = '';
+      rafIds.forEach((id) => cancelAnimationFrame(id));
       if (fromContent.isConnected) fromContent.style.opacity = '';
-      ghost.remove();
     };
   }, [cleanupPopupGhost]);
 

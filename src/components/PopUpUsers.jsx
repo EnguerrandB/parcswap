@@ -141,27 +141,17 @@ export const buildSelfPopupHTML = (t, isDark, lastSeen) => {
 };
 
 // Adds a quick pop-in/out animation on all popups
-export const enhancePopupAnimation = (popup, options = {}) => {
+export const enhancePopupAnimation = (popup) => {
   if (!popup || popup.__animated) return popup;
   if (popup.__animated) return popup;
   const originalAddTo = popup.addTo.bind(popup);
   popup.addTo = (mapInstance) => {
-    const shouldAnimateEnter =
-      typeof options.shouldAnimateEnter === 'function'
-        ? options.shouldAnimateEnter({ popup, mapInstance })
-        : true;
     const res = originalAddTo(mapInstance);
     const el = popup.getElement();
     const content = el?.querySelector('.mapboxgl-popup-content');
     if (content) {
       content.classList.remove('popup-exit');
-      content.classList.remove('popup-enter');
-      if (shouldAnimateEnter) {
-        content.style.opacity = '';
-        content.classList.add('popup-enter');
-      } else {
-        content.style.opacity = '';
-      }
+      content.classList.add('popup-enter');
     }
     if (!popup.__autoCloseTimer) {
       popup.__autoCloseTimer = setTimeout(() => {

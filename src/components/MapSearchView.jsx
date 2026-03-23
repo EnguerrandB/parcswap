@@ -222,7 +222,6 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const popupModeRef = useRef(new Map());
   const parkingPopupModeRef = useRef(new Map());
   const activePopupRef = useRef(null);
-  const popupGhostCleanupRef = useRef(null);
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const parkingFetchInFlightRef = useRef(false);
   const parkingFetchQueuedRef = useRef(null);
@@ -598,165 +597,12 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const buildParkingPopupForBind = (parking, _accent, mode) => buildParkingPopup(parking, mode);
 
-  const shouldAnimatePopupEnter = useCallback(({ popup }) => {
-    const current = activePopupRef.current;
-    return !current || current === popup;
-  }, []);
-
-  const cleanupPopupGhost = useCallback(() => {
-    if (typeof popupGhostCleanupRef.current === 'function') {
-      popupGhostCleanupRef.current();
-      popupGhostCleanupRef.current = null;
-    }
-  }, []);
-
-  const animatePopupLinearTransition = useCallback((fromPopup, toPopup) => {
-    if (typeof document === 'undefined') return;
-    const fromEl = fromPopup?.getElement?.();
-    const immediateToEl = toPopup?.getElement?.();
-    if (!(fromEl instanceof Element)) return;
-    if (immediateToEl instanceof Element) {
-      immediateToEl.style.visibility = 'hidden';
-      immediateToEl.style.opacity = '0';
-    }
-
-    const fromRect = fromEl.getBoundingClientRect();
-    if (!Number.isFinite(fromRect.left)) return;
-
-    cleanupPopupGhost();
-
-    const fromMarkup = fromEl.cloneNode(true);
-    const rafIds = [];
-    let cancelled = false;
-
-    const startAnimation = (toEl, toRect) => {
-      if (!(toEl instanceof Element)) return;
-
-      const ghost = fromMarkup;
-      const fromCenterX = fromRect.left + fromRect.width / 2;
-      const fromCenterY = fromRect.top + fromRect.height / 2;
-      const toCenterX = toRect.left + toRect.width / 2;
-      const toCenterY = toRect.top + toRect.height / 2;
-      const deltaX = fromCenterX - toCenterX;
-      const deltaY = fromCenterY - toCenterY;
-      const scaleX = Math.max(0.82, Math.min(1.18, fromRect.width / Math.max(toRect.width, 1)));
-      const scaleY = Math.max(0.82, Math.min(1.18, fromRect.height / Math.max(toRect.height, 1)));
-      const distance = Math.hypot(deltaX, deltaY);
-      const duration = Math.max(320, Math.min(520, 320 + distance * 0.12));
-
-      ghost.classList.remove('popup-enter', 'popup-exit');
-      ghost.style.position = 'fixed';
-      ghost.style.left = `${toRect.left}px`;
-      ghost.style.top = `${toRect.top}px`;
-      ghost.style.width = `${toRect.width}px`;
-      ghost.style.height = `${toRect.height}px`;
-      ghost.style.margin = '0';
-      ghost.style.pointerEvents = 'none';
-      ghost.style.zIndex = '99999';
-      ghost.style.transformOrigin = 'center center';
-      ghost.style.transform = `translate(${Math.round(deltaX)}px, ${Math.round(deltaY)}px) scale(${scaleX}, ${scaleY})`;
-      ghost.style.transition = `transform ${Math.round(duration)}ms linear, opacity 140ms ease`;
-      ghost.style.willChange = 'transform';
-
-      toEl.style.visibility = 'hidden';
-      toEl.style.opacity = '0';
-      toEl.style.transition = 'opacity 120ms ease';
-      fromEl.style.opacity = '0';
-
-      document.body.appendChild(ghost);
-
-      const revealTimer = window.setTimeout(() => {
-        toEl.style.visibility = '';
-        toEl.style.opacity = '1';
-      }, Math.max(180, duration - 110));
-
-      const launchRaf = requestAnimationFrame(() => {
-        ghost.style.transform = 'translate(0px, 0px) scale(1, 1)';
-      });
-      rafIds.push(launchRaf);
-
-      const cleanup = () => {
-        window.clearTimeout(revealTimer);
-        toEl.style.visibility = '';
-        toEl.style.opacity = '';
-        toEl.style.transition = '';
-        if (fromEl.isConnected) fromEl.style.opacity = '';
-        ghost.remove();
-      };
-
-      const removeTimer = window.setTimeout(cleanup, duration + 40);
-      popupGhostCleanupRef.current = () => {
-        rafIds.forEach((id) => cancelAnimationFrame(id));
-        window.clearTimeout(revealTimer);
-        window.clearTimeout(removeTimer);
-        toEl.style.visibility = '';
-        toEl.style.opacity = '';
-        toEl.style.transition = '';
-        if (fromEl.isConnected) fromEl.style.opacity = '';
-        ghost.remove();
-      };
-    };
-
-    const waitForTargetRect = (attempt = 0, previousRect = null) => {
-      if (cancelled) return;
-      const toEl = toPopup?.getElement?.();
-      if (!(toEl instanceof Element)) return;
-      const toRect = toEl.getBoundingClientRect();
-      const isValidRect =
-        Number.isFinite(toRect.left) &&
-        Number.isFinite(toRect.top) &&
-        Number.isFinite(toRect.width) &&
-        Number.isFinite(toRect.height) &&
-        toRect.width > 0 &&
-        toRect.height > 0 &&
-        !(Math.abs(toRect.left) < 1 && Math.abs(toRect.top) < 1);
-
-      const isStable =
-        previousRect &&
-        Math.abs(previousRect.left - toRect.left) < 0.5 &&
-        Math.abs(previousRect.top - toRect.top) < 0.5 &&
-        Math.abs(previousRect.width - toRect.width) < 0.5 &&
-        Math.abs(previousRect.height - toRect.height) < 0.5;
-
-      if (isValidRect && (isStable || attempt >= 8)) {
-        startAnimation(toEl, toRect);
-        return;
-      }
-
-      if (attempt >= 12) return;
-      const nextRaf = requestAnimationFrame(() => waitForTargetRect(attempt + 1, toRect));
-      rafIds.push(nextRaf);
-    };
-
-    const raf1 = requestAnimationFrame(() => {
-      const raf2 = requestAnimationFrame(() => {
-        const raf3 = requestAnimationFrame(() => {
-          waitForTargetRect();
-        });
-        rafIds.push(raf3);
-      });
-      rafIds.push(raf2);
-    });
-    rafIds.push(raf1);
-
-    popupGhostCleanupRef.current = () => {
-      cancelled = true;
-      rafIds.forEach((id) => cancelAnimationFrame(id));
-      if (immediateToEl instanceof Element) {
-        immediateToEl.style.visibility = '';
-        immediateToEl.style.opacity = '';
-      }
-      if (fromEl.isConnected) fromEl.style.opacity = '';
-    };
-  }, [cleanupPopupGhost]);
-
   const registerSinglePopup = useCallback((popup) => {
     if (!popup || popup.__singlePopupRegistered) return;
     popup.__singlePopupRegistered = true;
     popup.on('open', () => {
       const current = activePopupRef.current;
       if (current && current !== popup) {
-        animatePopupLinearTransition(current, popup);
         current.__skipExitAnimation = true;
         current.remove();
       }
@@ -765,9 +611,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     popup.on('close', () => {
       if (activePopupRef.current === popup) activePopupRef.current = null;
     });
-  }, [animatePopupLinearTransition]);
-
-  useEffect(() => cleanupPopupGhost, [cleanupPopupGhost]);
+  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -1185,7 +1029,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+        enhancePopupAnimation(popup);
         registerSinglePopup(popup);
         popup.on('close', () => {
           popupModeRef.current.delete(id);
@@ -1206,7 +1050,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         marker.setLngLat([displayPos.lng, displayPos.lat]);
         const popup = marker.getPopup();
         if (popup) {
-          enhancePopupAnimation(popup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+          enhancePopupAnimation(popup);
           registerSinglePopup(popup);
           popup.setHTML(popupHtml);
           bindSpotPopupHandlers(popup, id, spot, accentColor);
@@ -1305,7 +1149,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+        enhancePopupAnimation(popup);
         registerSinglePopup(popup);
         bindParkingPopupToMarker(popup, el, inner, id);
         popup.on('close', () => {
@@ -1353,7 +1197,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const markerInner = markerEl?.firstChild;
         const popup = marker.getPopup();
         if (popup) {
-          enhancePopupAnimation(popup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+          enhancePopupAnimation(popup);
           registerSinglePopup(popup);
           bindParkingPopupToMarker(popup, markerEl, markerInner, id);
           popup.setHTML(popupHtml);
@@ -1369,7 +1213,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
             closeButton: false,
             className: 'user-presence-popup',
           }).setHTML(popupHtml);
-          enhancePopupAnimation(nextPopup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+          enhancePopupAnimation(nextPopup);
           registerSinglePopup(nextPopup);
           bindParkingPopupToMarker(nextPopup, markerEl, markerInner, id);
           nextPopup.on('close', () => {
@@ -1439,7 +1283,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         const popup = new mapboxgl.Popup({ offset: 18, closeButton: false, className: 'user-presence-popup' }).setHTML(
           popupHtml,
         );
-        enhancePopupAnimation(popup, { shouldAnimateEnter: shouldAnimatePopupEnter });
+        enhancePopupAnimation(popup);
         registerSinglePopup(popup);
         popupRef.current = popup;
         userMarkerRef.current = new mapboxgl.Marker({

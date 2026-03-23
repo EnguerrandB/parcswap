@@ -550,11 +550,11 @@ const ProfileView = ({
           </button>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'flex-row-reverse text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {getLanguageFlag(language) ? (
                   <span className="text-lg leading-none">{getLanguageFlag(language)}</span>
@@ -584,11 +584,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'flex-row-reverse text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Wallet size={20} style={iconStyle('wallet')} />
               </div>
@@ -615,11 +615,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'flex-row-reverse text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${isRtl ? 'flex-row-reverse' : ''}`}>
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Volume2 size={20} style={iconStyle('voice')} />
               </div>

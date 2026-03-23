@@ -172,8 +172,8 @@ export const enhancePopupAnimation = (popup, options = {}) => {
         const dy =
           origin && isFiniteCoord(origin.y) && isFiniteCoord(centerY) ? origin.y - centerY : 8;
         const distance = Math.hypot(dx, dy);
-        const duration = Math.max(180, Math.min(320, 180 + distance * 0.1));
-        const startScale = distance > 80 ? 0.9 : 0.96;
+        const duration = Math.max(260, Math.min(460, 260 + distance * 0.16));
+        const startScale = origin && distance > 36 ? 0.985 : 0.97;
         liveContent.style.setProperty('--popup-enter-dx', `${Math.round(dx)}px`);
         liveContent.style.setProperty('--popup-enter-dy', `${Math.round(dy)}px`);
         liveContent.style.setProperty('--popup-enter-scale', String(startScale));
@@ -238,7 +238,7 @@ export const PopUpUsersStyles = () => (
       to { transform: scale(0.92) translateY(4px); opacity: 0; }
     }
     .mapboxgl-popup-content.popup-enter {
-      animation: popupEnter var(--popup-enter-duration, 180ms) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      animation: popupEnter var(--popup-enter-duration, 260ms) cubic-bezier(0.16, 0.84, 0.24, 1) forwards;
       transform-origin: center center;
       will-change: transform, opacity;
     }

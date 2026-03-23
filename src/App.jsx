@@ -100,6 +100,30 @@ const safeCoord = (value, fallback = 0) => {
   return n;
 };
 
+const isValidLatLng = (coords) => {
+  const lat = Number(coords?.lat);
+  const lng = Number(coords?.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+};
+
+const getRandomNearbyLocation = (center, minDistanceMeters = 200, maxDistanceMeters = 900) => {
+  const fallbackCenter = { lat: 48.8738, lng: 2.295 };
+  const origin = isValidLatLng(center) ? center : fallbackCenter;
+  const angle = Math.random() * Math.PI * 2;
+  const distanceMeters = minDistanceMeters + Math.random() * (maxDistanceMeters - minDistanceMeters);
+  const metersPerDegLat = 111_111;
+  const lat = safeCoord(origin.lat, fallbackCenter.lat);
+  const lng = safeCoord(origin.lng, fallbackCenter.lng);
+  const deltaLat = (distanceMeters * Math.cos(angle)) / metersPerDegLat;
+  const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos((lat * Math.PI) / 180));
+  const deltaLng = (distanceMeters * Math.sin(angle)) / metersPerDegLng;
+
+  return {
+    lat: lat + deltaLat,
+    lng: lng + deltaLng,
+  };
+};
+
 const ConfettiOverlay = ({ seedKey }) => {
   const pieces = React.useMemo(() => {
     const rand = mulberry32(hashSeed(seedKey || 'parkswap'));
@@ -1514,10 +1538,6 @@ export default function ParkSwapApp() {
   // --- Handlers ---
 	  const handleProposeSpot = async ({ car, time, price, length, vehiclePlate, vehicleId }) => {
 	    if (!user) return;
-	    // Best-effort: keep location fresh, but don't block publishing on geolocation (iOS can take seconds).
-	    logCurrentLocation('propose_spot');
-	    const arcLat = 48.8738;
-	    const arcLng = 2.2950;
 	    const vehicleToUse = car || selectedVehicle?.model || '';
 	    // Use safe numeric helpers to prevent NaN values that would cause Firestore 400 errors
 	    const x = safeCoord(50 + (Math.random() * 40 - 20), 50);
@@ -1528,6 +1548,12 @@ export default function ParkSwapApp() {
 	        err.code = 'active_spot_exists';
 	        throw err;
 	      }
+
+        const seekerCoords =
+          (isValidLatLng(userCoords) && userCoords) ||
+          (isValidLatLng(lastKnownLocationRef.current) && lastKnownLocationRef.current) ||
+          await logCurrentLocation('propose_spot');
+        const spotCoords = getRandomNearbyLocation(seekerCoords, 200, 900);
 
 	      const spotPayload = {
 	        hostId: user.uid,
@@ -1540,11 +1566,11 @@ export default function ParkSwapApp() {
 	        length: length ?? null,
 	        x,
 	        y,
-	        lat: arcLat,
-	        lng: arcLng,
+          lat: safeCoord(spotCoords.lat, 48.8738),
+          lng: safeCoord(spotCoords.lng, 2.295),
 	        status: 'available',
 	        createdAt: serverTimestamp(),
-	        address: 'Arc de Triomphe, Paris',
+          address: '',
 	      };
 
 	      const spotRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'spots'), spotPayload);

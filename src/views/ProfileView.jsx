@@ -550,11 +550,11 @@ const ProfileView = ({
           </button>
 
           <div
-            className={`w-full p-4 flex items-center justify-between text-left ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 {getLanguageFlag(language) ? (
                   <span className="text-lg leading-none">{getLanguageFlag(language)}</span>
@@ -567,9 +567,11 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 ${
+              dir={isRtl ? 'rtl' : 'ltr'}
+              className={`border rounded-xl px-3 py-2 text-sm ${isRtl ? 'text-right' : 'text-left'} focus:outline-none focus:ring-2 focus:ring-orange-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: isRtl ? 'right' : 'left', textAlignLast: isRtl ? 'right' : 'left' }}
               value={language}
               onChange={(e) => handleChangeLanguage(e.target.value)}
             >
@@ -582,11 +584,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between text-left ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Wallet size={20} style={iconStyle('wallet')} />
               </div>
@@ -595,9 +597,11 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
+              dir={isRtl ? 'rtl' : 'ltr'}
+              className={`border rounded-xl px-3 py-2 text-sm ${isRtl ? 'text-right' : 'text-left'} focus:outline-none focus:ring-2 focus:ring-emerald-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: isRtl ? 'right' : 'left', textAlignLast: isRtl ? 'right' : 'left' }}
               value={currency}
               onChange={(e) => handleChangeCurrency(e.target.value)}
             >
@@ -611,11 +615,11 @@ const ProfileView = ({
           </div>
 
           <div
-            className={`w-full p-4 flex items-center justify-between text-left ${
+            className={`w-full p-4 flex items-center justify-between ${isRtl ? 'text-right' : 'text-left'} ${
               isDark ? 'text-slate-100' : 'text-gray-900'
             }`}
           >
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <div className="bg-white p-2 rounded-lg border border-gray-100">
                 <Volume2 size={20} style={iconStyle('voice')} />
               </div>
@@ -624,9 +628,11 @@ const ProfileView = ({
               </span>
             </div>
             <select
-              className={`border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+              dir={isRtl ? 'rtl' : 'ltr'}
+              className={`border rounded-xl px-3 py-2 text-sm ${isRtl ? 'text-right' : 'text-left'} focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                 isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-gray-200 text-gray-900'
               }`}
+              style={{ textAlign: isRtl ? 'right' : 'left', textAlignLast: isRtl ? 'right' : 'left' }}
               value={voiceUri}
               onChange={(e) => handleVoiceChange(e.target.value)}
               disabled={!voices.length}

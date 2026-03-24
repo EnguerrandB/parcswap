@@ -214,11 +214,10 @@ const MyVehicules = ({
                 />
               </div>
               <div className="space-y-2">
-                <div className={`flex items-center justify-between ${isRtl ? 'flex-row-reverse' : ''}`}>
+                <div className={`${isRtl ? 'text-right' : 'text-left'}`}>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
                     {t('vehiclePlateCountryLabel', 'Registration country')}
                   </p>
-                  <p className="text-xs text-gray-400 font-mono">{selectedPlateCountry.template}</p>
                 </div>
                 <div className="flex gap-2">
                   <select

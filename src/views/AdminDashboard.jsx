@@ -23,9 +23,11 @@ import {
   Navigation,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   ShieldAlert,
+  SlidersHorizontal,
   Users,
   Wallet,
   X,
@@ -41,6 +43,56 @@ const FALLBACK_CENTER = [2.3522, 48.8566];
 const SUPPORTED_CURRENCIES = ['EUR', 'GBP', 'ILS', 'AED', 'RUB', 'USD'];
 const SUPPORTED_LANGUAGES = ['en', 'fr', 'he', 'ar', 'ru'];
 const SUPPORTED_KYC_STATUSES = ['unverified', 'pending', 'processing', 'verified', 'approved', 'failed', 'rejected'];
+const USER_ACTIVITY_FILTERS = ['all', 'online', 'recent24h', 'recent7d', 'dormant', 'neverSeen'];
+const USER_TRANSACTION_FILTERS = ['all', 'none', 'low', 'active', 'power'];
+const USER_WALLET_FILTERS = ['all', 'empty', 'positive', 'high', 'reserved'];
+
+const getUserActivityFilterLabel = (value) => {
+  switch (value) {
+    case 'online':
+      return 'En ligne';
+    case 'recent24h':
+      return 'Actif < 24h';
+    case 'recent7d':
+      return 'Actif < 7j';
+    case 'dormant':
+      return 'Dormant';
+    case 'neverSeen':
+      return 'Sans heartbeat';
+    default:
+      return 'Toute activite';
+  }
+};
+
+const getUserTransactionFilterLabel = (value) => {
+  switch (value) {
+    case 'none':
+      return '0 transaction';
+    case 'low':
+      return '1 a 4 transactions';
+    case 'active':
+      return '5 a 19 transactions';
+    case 'power':
+      return '20+ transactions';
+    default:
+      return 'Toutes transactions';
+  }
+};
+
+const getUserWalletFilterLabel = (value) => {
+  switch (value) {
+    case 'empty':
+      return 'Wallet vide';
+    case 'positive':
+      return 'Wallet positif';
+    case 'high':
+      return 'Wallet >= 100 EUR';
+    case 'reserved':
+      return 'Avec reserve';
+    default:
+      return 'Tous wallets';
+  }
+};
 
 const getMillis = (value) => {
   if (!value) return 0;
@@ -226,6 +278,9 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const [showOnlyOnline, setShowOnlyOnline] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [userSearch, setUserSearch] = useState('');
+  const [userActivityFilter, setUserActivityFilter] = useState('all');
+  const [userTransactionsFilter, setUserTransactionsFilter] = useState('all');
+  const [userWalletFilter, setUserWalletFilter] = useState('all');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedUserVehicles, setSelectedUserVehicles] = useState([]);
   const [selectedUserForm, setSelectedUserForm] = useState(null);
@@ -328,14 +383,41 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
 
   const filteredUsers = useMemo(() => {
     const query = String(userSearch || '').trim().toLowerCase();
-    if (!query) return mergedUsers;
     return mergedUsers.filter((entry) => (
-      String(entry.displayName || '').toLowerCase().includes(query)
-      || String(entry.email || '').toLowerCase().includes(query)
-      || String(entry.phone || '').toLowerCase().includes(query)
-      || String(entry.language || '').toLowerCase().includes(query)
+      (query === ''
+        || String(entry.displayName || '').toLowerCase().includes(query)
+        || String(entry.email || '').toLowerCase().includes(query)
+        || String(entry.phone || '').toLowerCase().includes(query)
+        || String(entry.language || '').toLowerCase().includes(query))
+      && (() => {
+        if (userActivityFilter === 'all') return true;
+        if (userActivityFilter === 'online') return entry.online;
+        if (userActivityFilter === 'neverSeen') return !entry.lastSeenMs;
+        if (!entry.lastSeenMs) return false;
+        const elapsed = Date.now() - entry.lastSeenMs;
+        if (userActivityFilter === 'recent24h') return elapsed <= 86_400_000;
+        if (userActivityFilter === 'recent7d') return elapsed <= 604_800_000;
+        if (userActivityFilter === 'dormant') return elapsed > 604_800_000;
+        return true;
+      })()
+      && (() => {
+        if (userTransactionsFilter === 'all') return true;
+        if (userTransactionsFilter === 'none') return entry.transactions === 0;
+        if (userTransactionsFilter === 'low') return entry.transactions >= 1 && entry.transactions <= 4;
+        if (userTransactionsFilter === 'active') return entry.transactions >= 5 && entry.transactions <= 19;
+        if (userTransactionsFilter === 'power') return entry.transactions >= 20;
+        return true;
+      })()
+      && (() => {
+        if (userWalletFilter === 'all') return true;
+        if (userWalletFilter === 'empty') return entry.walletAvailableCents <= 0 && entry.walletReservedCents <= 0;
+        if (userWalletFilter === 'positive') return entry.walletAvailableCents > 0;
+        if (userWalletFilter === 'high') return entry.walletAvailableCents >= 10_000;
+        if (userWalletFilter === 'reserved') return entry.walletReservedCents > 0;
+        return true;
+      })()
     ));
-  }, [mergedUsers, userSearch]);
+  }, [mergedUsers, userActivityFilter, userSearch, userTransactionsFilter, userWalletFilter]);
 
   const selectedUser = useMemo(
     () => mergedUsers.find((entry) => entry.id === selectedUserId) || null,
@@ -1043,6 +1125,85 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                     placeholder="Rechercher par nom, email, telephone, langue"
                     className={`${inputClassName(isDark)} pl-11`}
                   />
+                </div>
+                <div className="mt-4 rounded-[24px] border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                      <SlidersHorizontal size={14} />
+                      Filtres rapides
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserSearch('');
+                        setUserActivityFilter('all');
+                        setUserTransactionsFilter('all');
+                        setUserWalletFilter('all');
+                      }}
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${isDark ? 'bg-white/8 text-slate-200 hover:bg-white/12' : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'}`}
+                    >
+                      <RotateCcw size={13} />
+                      Reinitialiser
+                    </button>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Activite recente</div>
+                      <select
+                        value={userActivityFilter}
+                        onChange={(event) => setUserActivityFilter(event.target.value)}
+                        className={selectClassName(isDark)}
+                      >
+                        {USER_ACTIVITY_FILTERS.map((value) => (
+                          <option key={value} value={value}>{getUserActivityFilterLabel(value)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Transactions</div>
+                      <select
+                        value={userTransactionsFilter}
+                        onChange={(event) => setUserTransactionsFilter(event.target.value)}
+                        className={selectClassName(isDark)}
+                      >
+                        {USER_TRANSACTION_FILTERS.map((value) => (
+                          <option key={value} value={value}>{getUserTransactionFilterLabel(value)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Wallet</div>
+                      <select
+                        value={userWalletFilter}
+                        onChange={(event) => setUserWalletFilter(event.target.value)}
+                        className={selectClassName(isDark)}
+                      >
+                        {USER_WALLET_FILTERS.map((value) => (
+                          <option key={value} value={value}>{getUserWalletFilterLabel(value)}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                    <span className={`rounded-full px-3 py-1.5 font-semibold ${isDark ? 'bg-white/8 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                      {filteredUsers.length} resultat{filteredUsers.length > 1 ? 's' : ''}
+                    </span>
+                    {userActivityFilter !== 'all' ? (
+                      <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200">
+                        {getUserActivityFilterLabel(userActivityFilter)}
+                      </span>
+                    ) : null}
+                    {userTransactionsFilter !== 'all' ? (
+                      <span className="rounded-full bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">
+                        {getUserTransactionFilterLabel(userTransactionsFilter)}
+                      </span>
+                    ) : null}
+                    {userWalletFilter !== 'all' ? (
+                      <span className="rounded-full bg-orange-50 px-3 py-1.5 font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-200">
+                        {getUserWalletFilterLabel(userWalletFilter)}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 

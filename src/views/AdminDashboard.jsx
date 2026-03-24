@@ -2,18 +2,33 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { collection, onSnapshot } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
 import {
   Activity,
   BadgeCheck,
+  CarFront,
+  CheckCircle2,
   Clock3,
   Globe,
   MapPin,
+  Plus,
   RefreshCw,
+  Save,
+  Search,
   ShieldAlert,
   Users,
   Wallet,
   X,
+  Trash2,
 } from 'lucide-react';
 import { db, appId } from '../firebase';
 import { formatCurrencyAmount } from '../utils/currency';
@@ -22,6 +37,8 @@ import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStyl
 const ONLINE_WINDOW_MS = 90_000;
 const MAP_STYLE = 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce';
 const FALLBACK_CENTER = [2.3522, 48.8566];
+const SUPPORTED_CURRENCIES = ['EUR', 'GBP', 'ILS', 'AED', 'RUB', 'USD'];
+const SUPPORTED_KYC_STATUSES = ['unverified', 'pending', 'processing', 'verified', 'approved', 'failed', 'rejected'];
 
 const getMillis = (value) => {
   if (!value) return 0;
@@ -77,9 +94,48 @@ const compactNumber = (value) => new Intl.NumberFormat('en', { notation: 'compac
 
 const formatAdminMoney = (cents) => formatCurrencyAmount((Number(cents) || 0) / 100, 'EUR');
 
+const parseNonNegativeInt = (value, fallback = 0) => {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+const normalizePlate = (value) => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 const getKycStatus = (data) => String(data?.kycStatus || data?.kyc?.status || 'unverified').toLowerCase();
 
+const getAdminFlag = (data) => {
+  if (data?.isAdmin === true || data?.admin === true) return true;
+  const role = String(data?.role || data?.userRole || '').trim().toLowerCase();
+  if (role === 'admin' || role === 'superadmin') return true;
+  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  return roles.some((entry) => {
+    const normalized = String(entry || '').trim().toLowerCase();
+    return normalized === 'admin' || normalized === 'superadmin';
+  });
+};
+
 const statusTone = (online) => (online ? 'bg-emerald-400 shadow-[0_0_0_6px_rgba(52,211,153,0.18)]' : 'bg-slate-400 shadow-[0_0_0_6px_rgba(148,163,184,0.14)]');
+
+const inputClassName = (isDark) => `h-11 w-full rounded-2xl border px-4 text-sm transition outline-none ${isDark
+  ? 'border-white/10 bg-white/5 text-white placeholder:text-slate-500 focus:border-orange-400/40 focus:bg-white/8'
+  : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-orange-300 focus:bg-orange-50/20'}`;
+
+const selectClassName = (isDark) => `h-11 w-full rounded-2xl border px-4 text-sm transition outline-none ${isDark
+  ? 'border-white/10 bg-white/5 text-white focus:border-orange-400/40 focus:bg-white/8'
+  : 'border-slate-200 bg-white text-slate-900 focus:border-orange-300 focus:bg-orange-50/20'}`;
+
+const TextField = ({ label, value, onChange, isDark, type = 'text', placeholder = '' }) => (
+  <label className="block">
+    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">{label}</div>
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      className={inputClassName(isDark)}
+    />
+  </label>
+);
 
 const getUserPopupHtml = (entry) => {
   const statusLabel = entry.online ? 'Online' : `Seen ${escapeHtml(getRelativeTimeLabel(entry.lastSeenMs))}`;
@@ -135,6 +191,13 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const [spots, setSpots] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [showOnlyOnline, setShowOnlyOnline] = useState(true);
+  const [userSearch, setUserSearch] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserVehicles, setSelectedUserVehicles] = useState([]);
+  const [selectedUserForm, setSelectedUserForm] = useState(null);
+  const [vehicleForms, setVehicleForms] = useState({});
+  const [newVehicleForm, setNewVehicleForm] = useState({ model: '', plate: '' });
+  const [saveState, setSaveState] = useState({ tone: 'idle', message: '' });
 
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
   const isDark = theme === 'dark';
@@ -208,6 +271,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
           createdAtMs: getMillis(user.createdAt),
           lastSeenMs,
           online,
+          isAdmin: getAdminFlag(user),
           lat: Number(location?.lat),
           lng: Number(location?.lng),
           hasCoords: isValidCoord(location?.lng, location?.lat),
@@ -227,6 +291,188 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const visibleMapUsers = useMemo(() => (
     showOnlyOnline ? mappedUsers.filter((entry) => entry.online) : mappedUsers
   ), [mappedUsers, showOnlyOnline]);
+
+  const filteredUsers = useMemo(() => {
+    const query = String(userSearch || '').trim().toLowerCase();
+    if (!query) return mergedUsers;
+    return mergedUsers.filter((entry) => (
+      String(entry.displayName || '').toLowerCase().includes(query)
+      || String(entry.email || '').toLowerCase().includes(query)
+      || String(entry.phone || '').toLowerCase().includes(query)
+      || String(entry.language || '').toLowerCase().includes(query)
+    ));
+  }, [mergedUsers, userSearch]);
+
+  const selectedUser = useMemo(
+    () => mergedUsers.find((entry) => entry.id === selectedUserId) || null,
+    [mergedUsers, selectedUserId],
+  );
+
+  const selectedUserTransactions = useMemo(() => {
+    if (!selectedUserId) return [];
+    return transactions
+      .filter((tx) => tx.userId === selectedUserId || tx.hostId === selectedUserId || tx.bookerId === selectedUserId)
+      .sort((left, right) => getMillis(right.updatedAt || right.createdAt) - getMillis(left.updatedAt || left.createdAt))
+      .slice(0, 10);
+  }, [selectedUserId, transactions]);
+
+  useEffect(() => {
+    if (!filteredUsers.length) {
+      if (selectedUserId) setSelectedUserId('');
+      return;
+    }
+    const stillVisible = filteredUsers.some((entry) => entry.id === selectedUserId);
+    if (!selectedUserId || !stillVisible) {
+      setSelectedUserId(filteredUsers[0].id);
+    }
+  }, [filteredUsers, selectedUserId]);
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setSelectedUserForm(null);
+      return;
+    }
+    setSelectedUserForm({
+      displayName: selectedUser.displayName || '',
+      email: selectedUser.email || '',
+      phone: selectedUser.phone || '',
+      language: selectedUser.language || 'en',
+      currency: SUPPORTED_CURRENCIES.includes(String(selectedUser.currency || '').toUpperCase())
+        ? String(selectedUser.currency || '').toUpperCase()
+        : 'EUR',
+      kycStatus: selectedUser.kycStatus || 'unverified',
+      premiumParks: String(selectedUser.premiumParks ?? 0),
+      walletAvailableCents: String(selectedUser.walletAvailableCents ?? 0),
+      walletReservedCents: String(selectedUser.walletReservedCents ?? 0),
+      isAdmin: selectedUser.isAdmin === true,
+    });
+    setSaveState({ tone: 'idle', message: '' });
+  }, [selectedUser]);
+
+  useEffect(() => {
+    if (!selectedUserId) {
+      setSelectedUserVehicles([]);
+      return undefined;
+    }
+
+    const vehiclesRef = collection(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId, 'vehicles');
+    const unsubVehicles = onSnapshot(
+      vehiclesRef,
+      (snapshot) => {
+        const nextVehicles = snapshot.docs
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .sort((left, right) => {
+            if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+            return String(left.model || '').localeCompare(String(right.model || ''), undefined, { sensitivity: 'base' });
+          });
+        setSelectedUserVehicles(nextVehicles);
+      },
+      (error) => setSaveState({ tone: 'error', message: error?.message || 'Impossible de charger les vehicules.' }),
+    );
+
+    return () => unsubVehicles();
+  }, [selectedUserId]);
+
+  useEffect(() => {
+    setVehicleForms(
+      selectedUserVehicles.reduce((acc, vehicle) => {
+        acc[vehicle.id] = {
+          model: vehicle.model || '',
+          plate: vehicle.plate || '',
+          isDefault: vehicle.isDefault === true,
+        };
+        return acc;
+      }, {}),
+    );
+  }, [selectedUserVehicles]);
+
+  const handleSaveUser = async () => {
+    if (!selectedUserId || !selectedUserForm) return;
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId);
+    try {
+      const payload = {
+        displayName: selectedUserForm.displayName.trim() || null,
+        email: selectedUserForm.email.trim() || null,
+        phone: selectedUserForm.phone.trim() || null,
+        language: selectedUserForm.language.trim() || 'en',
+        currency: String(selectedUserForm.currency || 'EUR').toUpperCase(),
+        kycStatus: selectedUserForm.kycStatus || 'unverified',
+        premiumParks: parseNonNegativeInt(selectedUserForm.premiumParks, 0),
+        walletAvailableCents: parseNonNegativeInt(selectedUserForm.walletAvailableCents, 0),
+        walletReservedCents: parseNonNegativeInt(selectedUserForm.walletReservedCents, 0),
+        isAdmin: selectedUserForm.isAdmin === true,
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(userRef, payload, { merge: true });
+      setSaveState({ tone: 'success', message: 'Utilisateur mis a jour en temps reel.' });
+    } catch (error) {
+      setSaveState({ tone: 'error', message: error?.message || 'Echec de la mise a jour utilisateur.' });
+    }
+  };
+
+  const handleSaveVehicle = async (vehicleId) => {
+    if (!selectedUserId || !vehicleId) return;
+    const draft = vehicleForms[vehicleId];
+    if (!draft) return;
+    try {
+      await updateDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId, 'vehicles', vehicleId),
+        {
+          model: String(draft.model || '').trim(),
+          plate: normalizePlate(draft.plate),
+          isDefault: draft.isDefault === true,
+        },
+      );
+      setSaveState({ tone: 'success', message: 'Vehicule mis a jour.' });
+    } catch (error) {
+      setSaveState({ tone: 'error', message: error?.message || 'Echec de mise a jour du vehicule.' });
+    }
+  };
+
+  const handleSetDefaultVehicle = async (vehicleId) => {
+    if (!selectedUserId || !vehicleId) return;
+    try {
+      await Promise.all(
+        selectedUserVehicles.map((vehicle) => updateDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId, 'vehicles', vehicle.id),
+          { isDefault: vehicle.id === vehicleId },
+        )),
+      );
+      setSaveState({ tone: 'success', message: 'Vehicule par defaut mis a jour.' });
+    } catch (error) {
+      setSaveState({ tone: 'error', message: error?.message || 'Echec du changement de vehicule par defaut.' });
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicleId) => {
+    if (!selectedUserId || !vehicleId) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId, 'vehicles', vehicleId));
+      setSaveState({ tone: 'success', message: 'Vehicule supprime.' });
+    } catch (error) {
+      setSaveState({ tone: 'error', message: error?.message || 'Echec de suppression du vehicule.' });
+    }
+  };
+
+  const handleAddVehicle = async () => {
+    if (!selectedUserId) return;
+    const model = String(newVehicleForm.model || '').trim();
+    const plate = normalizePlate(newVehicleForm.plate);
+    if (!model || !plate) return;
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users', selectedUserId, 'vehicles'), {
+        ownerId: selectedUserId,
+        model,
+        plate,
+        isDefault: selectedUserVehicles.length === 0,
+        createdAt: serverTimestamp(),
+      });
+      setNewVehicleForm({ model: '', plate: '' });
+      setSaveState({ tone: 'success', message: 'Vehicule ajoute.' });
+    } catch (error) {
+      setSaveState({ tone: 'error', message: error?.message || 'Echec d ajout du vehicule.' });
+    }
+  };
 
   const stats = useMemo(() => {
     const totalUsers = mergedUsers.length;
@@ -269,16 +515,6 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       .sort((left, right) => right[1] - left[1])
       .slice(0, 5);
   }, [mergedUsers]);
-
-  const recentTransactions = useMemo(() => {
-    return [...transactions]
-      .sort((left, right) => {
-        const leftMs = getMillis(left.updatedAt || left.createdAt);
-        const rightMs = getMillis(right.updatedAt || right.createdAt);
-        return rightMs - leftMs;
-      })
-      .slice(0, 8);
-  }, [transactions]);
 
   useEffect(() => {
     if (!mapboxToken || !mapContainerRef.current || mapRef.current) return undefined;
@@ -584,101 +820,372 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
             </aside>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
             <section className="overflow-hidden rounded-[32px] border border-white/12 bg-white/70 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
               <div className="border-b border-slate-200/70 px-5 py-5 dark:border-white/10">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Users</div>
-                <h3 className="mt-2 text-xl font-black tracking-tight">Supervision utilisateurs</h3>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">User directory</div>
+                <h3 className="mt-2 text-xl font-black tracking-tight">Vue dediee aux utilisateurs</h3>
+                <div className="mt-4 relative">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={userSearch}
+                    onChange={(event) => setUserSearch(event.target.value)}
+                    placeholder="Rechercher par nom, email, telephone, langue"
+                    className={`${inputClassName(isDark)} pl-11`}
+                  />
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-900/[0.03] text-xs uppercase tracking-[0.16em] text-slate-500 dark:bg-white/[0.03] dark:text-slate-400">
-                    <tr>
-                      <th className="px-5 py-4 font-semibold">Utilisateur</th>
-                      <th className="px-5 py-4 font-semibold">Presence</th>
-                      <th className="px-5 py-4 font-semibold">KYC</th>
-                      <th className="px-5 py-4 font-semibold">Wallet</th>
-                      <th className="px-5 py-4 font-semibold">Transactions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mergedUsers.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-5 py-8 text-center text-slate-500 dark:text-slate-400">Aucun utilisateur charge.</td>
-                      </tr>
-                    ) : mergedUsers.map((entry) => (
-                      <tr key={entry.id} className="border-t border-slate-200/70 dark:border-white/8">
-                        <td className="px-5 py-4 align-top">
-                          <div className="font-semibold text-slate-900 dark:text-white">{entry.displayName}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{entry.email || 'No email'}</div>
-                          <div className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">{entry.language}</div>
-                        </td>
-                        <td className="px-5 py-4 align-top">
-                          <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 dark:text-slate-200">
-                            <span className={`h-2.5 w-2.5 rounded-full ${statusTone(entry.online)}`} />
-                            {entry.online ? 'online' : 'offline'}
-                          </div>
-                          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">{entry.lastSeenMs ? getRelativeTimeLabel(entry.lastSeenMs) : 'No heartbeat'}</div>
-                          {entry.hasCoords ? (
-                            <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{entry.lat.toFixed(4)}, {entry.lng.toFixed(4)}</div>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-4 align-top">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${entry.kycStatus === 'verified' || entry.kycStatus === 'approved'
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
-                            : entry.kycStatus === 'pending' || entry.kycStatus === 'processing'
-                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-200'
-                              : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}
-                          >
-                            {entry.kycStatus}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 align-top">
-                          <div className="font-semibold text-slate-900 dark:text-white">{formatAdminMoney(entry.walletAvailableCents)}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">reserve {formatAdminMoney(entry.walletReservedCents)}</div>
-                        </td>
-                        <td className="px-5 py-4 align-top">
-                          <div className="font-semibold text-slate-900 dark:text-white">{entry.transactions}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">premium parks {entry.premiumParks}</div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <div className="max-h-[940px] overflow-y-auto p-3">
+                {filteredUsers.length === 0 ? (
+                  <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                    Aucun utilisateur ne correspond a la recherche.
+                  </div>
+                ) : filteredUsers.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => setSelectedUserId(entry.id)}
+                    className={`mb-3 w-full rounded-[24px] border p-4 text-left transition ${selectedUserId === entry.id
+                      ? isDark
+                        ? 'border-orange-400/30 bg-orange-500/10 shadow-[0_18px_45px_rgba(249,115,22,0.12)]'
+                        : 'border-orange-200 bg-orange-50/90 shadow-[0_18px_45px_rgba(249,115,22,0.1)]'
+                      : isDark
+                        ? 'border-white/8 bg-white/4 hover:bg-white/6'
+                        : 'border-slate-200/70 bg-white/75 hover:bg-white'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-slate-900 dark:text-white">{entry.displayName}</div>
+                        <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{entry.email || 'No email'}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                          <span>{entry.language}</span>
+                          <span>{entry.phone || 'No phone'}</span>
+                        </div>
+                      </div>
+                      <span className={`h-3 w-3 shrink-0 rounded-full ${statusTone(entry.online)}`} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2.5 py-1 font-semibold uppercase tracking-[0.12em] ${entry.online
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
+                        : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}
+                      >
+                        {entry.online ? 'online' : 'offline'}
+                      </span>
+                      <span className="text-slate-500 dark:text-slate-400">{entry.transactions} tx</span>
+                      <span className="text-slate-500 dark:text-slate-400">{formatAdminMoney(entry.walletAvailableCents)}</span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </section>
 
             <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Activity feed</div>
-                  <h3 className="mt-2 text-xl font-black tracking-tight">Transactions recentes</h3>
+              {!selectedUser || !selectedUserForm ? (
+                <div className="flex min-h-[640px] items-center justify-center rounded-[24px] border border-dashed border-slate-200 text-center text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                  Selectionne un utilisateur pour afficher sa fiche, ses vehicules et ses actions admin.
                 </div>
-                <Clock3 size={18} className="text-slate-400" />
-              </div>
-              <div className="mt-5 space-y-3">
-                {recentTransactions.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
-                    Aucune transaction recente.
-                  </div>
-                ) : recentTransactions.map((tx) => {
-                  const updatedMs = getMillis(tx.updatedAt || tx.createdAt);
-                  return (
-                    <div key={tx.id} className="rounded-2xl border border-slate-200/70 bg-white/65 px-4 py-3 dark:border-white/10 dark:bg-white/5">
-                      <div className="flex items-start justify-between gap-3">
+              ) : (
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)]">
+                  <div className="space-y-6">
+                    <div className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-white/55 p-5 dark:bg-white/5">
+                      <div className="flex items-start justify-between gap-4">
                         <div>
-                          <div className="font-semibold text-slate-900 dark:text-white">{tx.title || 'Swap'}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tx.status || 'unknown'} · {tx.role || 'n/a'}</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">User profile</div>
+                          <h3 className="mt-2 text-2xl font-black tracking-tight">{selectedUser.displayName}</h3>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <span>{selectedUser.id}</span>
+                            <span>•</span>
+                            <span>{selectedUser.lastSeenMs ? getRelativeTimeLabel(selectedUser.lastSeenMs) : 'No heartbeat'}</span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="font-semibold text-slate-900 dark:text-white">{formatCurrencyAmount(Number(tx.amount || tx.price || 0), 'EUR')}</div>
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{getRelativeTimeLabel(updatedMs)}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${selectedUser.online
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
+                            : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}
+                          >
+                            {selectedUser.online ? 'online' : 'offline'}
+                          </span>
+                          {selectedUserForm.isAdmin ? (
+                            <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-orange-700 dark:bg-orange-500/10 dark:text-orange-200">
+                              admin
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {saveState.message ? (
+                        <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${saveState.tone === 'success'
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
+                          : saveState.tone === 'error'
+                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-200'
+                            : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}
+                        >
+                          {saveState.message}
+                        </div>
+                      ) : null}
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <TextField
+                          label="Nom"
+                          value={selectedUserForm.displayName}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, displayName: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <TextField
+                          label="Email"
+                          value={selectedUserForm.email}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, email: event.target.value }))}
+                          isDark={isDark}
+                          type="email"
+                        />
+                        <TextField
+                          label="Telephone"
+                          value={selectedUserForm.phone}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, phone: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <TextField
+                          label="Langue"
+                          value={selectedUserForm.language}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, language: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <label className="block">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Currency</div>
+                          <select
+                            value={selectedUserForm.currency}
+                            onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, currency: event.target.value }))}
+                            className={selectClassName(isDark)}
+                          >
+                            {SUPPORTED_CURRENCIES.map((currency) => (
+                              <option key={currency} value={currency}>{currency}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">KYC</div>
+                          <select
+                            value={selectedUserForm.kycStatus}
+                            onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, kycStatus: event.target.value }))}
+                            className={selectClassName(isDark)}
+                          >
+                            {SUPPORTED_KYC_STATUSES.map((status) => (
+                              <option key={status} value={status}>{status}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <TextField
+                          label="Wallet disponible (cents)"
+                          value={selectedUserForm.walletAvailableCents}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, walletAvailableCents: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <TextField
+                          label="Wallet reserve (cents)"
+                          value={selectedUserForm.walletReservedCents}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, walletReservedCents: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <TextField
+                          label="Premium parks"
+                          value={selectedUserForm.premiumParks}
+                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, premiumParks: event.target.value }))}
+                          isDark={isDark}
+                        />
+                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200/80 px-4 py-3 dark:border-white/10">
+                          <input
+                            type="checkbox"
+                            checked={selectedUserForm.isAdmin}
+                            onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, isAdmin: event.target.checked }))}
+                            className="h-4 w-4 rounded border-slate-300 text-orange-500 focus:ring-orange-400"
+                          />
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 dark:text-white">Admin access</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">Active ou retire l acces admin cote document utilisateur.</div>
+                          </div>
+                        </label>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleSaveUser}
+                          className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                        >
+                          <Save size={16} />
+                          Enregistrer en temps reel
+                        </button>
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          Transactions: <span className="font-semibold text-slate-900 dark:text-white">{selectedUser.transactions}</span>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+
+                    <div className="rounded-[28px] border border-white/10 bg-white/55 p-5 dark:bg-white/5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Vehicles</div>
+                          <h4 className="mt-2 text-xl font-black tracking-tight">Vehicules de l utilisateur</h4>
+                        </div>
+                        <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200">
+                          <CarFront size={14} />
+                          {selectedUserVehicles.length}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_auto]">
+                        <input
+                          type="text"
+                          value={newVehicleForm.model}
+                          onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, model: event.target.value }))}
+                          placeholder="Modele"
+                          className={inputClassName(isDark)}
+                        />
+                        <input
+                          type="text"
+                          value={newVehicleForm.plate}
+                          onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, plate: event.target.value.toUpperCase() }))}
+                          placeholder="Plaque"
+                          className={inputClassName(isDark)}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddVehicle}
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 text-sm font-semibold text-white transition hover:brightness-110"
+                        >
+                          <Plus size={16} />
+                          Ajouter
+                        </button>
+                      </div>
+
+                      <div className="mt-5 space-y-3">
+                        {selectedUserVehicles.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                            Aucun vehicule pour cet utilisateur.
+                          </div>
+                        ) : selectedUserVehicles.map((vehicle) => {
+                          const draft = vehicleForms[vehicle.id] || { model: '', plate: '', isDefault: false };
+                          return (
+                            <div key={vehicle.id} className="rounded-[24px] border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_200px_auto]">
+                                <input
+                                  type="text"
+                                  value={draft.model}
+                                  onChange={(event) => setVehicleForms((prev) => ({ ...prev, [vehicle.id]: { ...prev[vehicle.id], model: event.target.value } }))}
+                                  className={inputClassName(isDark)}
+                                  placeholder="Modele"
+                                />
+                                <input
+                                  type="text"
+                                  value={draft.plate}
+                                  onChange={(event) => setVehicleForms((prev) => ({ ...prev, [vehicle.id]: { ...prev[vehicle.id], plate: event.target.value.toUpperCase() } }))}
+                                  className={inputClassName(isDark)}
+                                  placeholder="Plaque"
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveVehicle(vehicle.id)}
+                                    className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+                                  >
+                                    <Save size={15} />
+                                    Sauver
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteVehicle(vehicle.id)}
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-rose-200 text-rose-600 transition hover:bg-rose-50 dark:border-rose-400/20 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetDefaultVehicle(vehicle.id)}
+                                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] ${vehicle.isDefault
+                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
+                                    : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}
+                                >
+                                  <CheckCircle2 size={14} />
+                                  {vehicle.isDefault ? 'Defaut' : 'Mettre par defaut'}
+                                </button>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">{vehicle.ownerId || selectedUserId}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="rounded-[28px] border border-white/10 bg-white/55 p-5 dark:bg-white/5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Live summary</div>
+                      <h4 className="mt-2 text-xl font-black tracking-tight">Etat instantane</h4>
+                      <div className="mt-5 grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                          <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Presence</div>
+                          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{selectedUser.online ? 'Online' : 'Offline'}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                          <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Wallet</div>
+                          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{formatAdminMoney(selectedUser.walletAvailableCents)}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                          <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Premium parks</div>
+                          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{selectedUser.premiumParks}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                          <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">KYC</div>
+                          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{selectedUser.kycStatus}</div>
+                        </div>
+                      </div>
+                      {selectedUser.hasCoords ? (
+                        <div className="mt-4 rounded-2xl border border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300/80">
+                          Derniere position: {selectedUser.lat.toFixed(5)}, {selectedUser.lng.toFixed(5)}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-[28px] border border-white/10 bg-white/55 p-5 dark:bg-white/5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Transactions</div>
+                          <h4 className="mt-2 text-xl font-black tracking-tight">Historique recent de l utilisateur</h4>
+                        </div>
+                        <Clock3 size={18} className="text-slate-400" />
+                      </div>
+                      <div className="mt-5 space-y-3">
+                        {selectedUserTransactions.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                            Aucune transaction pour cet utilisateur.
+                          </div>
+                        ) : selectedUserTransactions.map((tx) => {
+                          const updatedMs = getMillis(tx.updatedAt || tx.createdAt);
+                          return (
+                            <div key={tx.id} className="rounded-2xl border border-slate-200/70 bg-white/70 px-4 py-3 dark:border-white/10 dark:bg-white/5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="font-semibold text-slate-900 dark:text-white">{tx.title || 'Swap'}</div>
+                                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tx.status || 'unknown'} · {tx.role || 'n/a'}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-semibold text-slate-900 dark:text-white">{formatCurrencyAmount(Number(tx.amount || tx.price || 0), 'EUR')}</div>
+                                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{getRelativeTimeLabel(updatedMs)}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         </div>

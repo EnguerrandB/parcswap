@@ -215,7 +215,10 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       })
       .sort((left, right) => {
         if (left.online !== right.online) return left.online ? -1 : 1;
-        return (right.lastSeenMs || 0) - (left.lastSeenMs || 0);
+        return left.displayName.localeCompare(right.displayName, undefined, {
+          sensitivity: 'base',
+          numeric: true,
+        });
       });
   }, [locationByUserId, users]);
 

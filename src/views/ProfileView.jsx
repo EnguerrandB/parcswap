@@ -1,7 +1,6 @@
 // src/views/ProfileView.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  CreditCard,
   Wallet,
   LogOut,
   ArrowRight,
@@ -388,20 +387,6 @@ const ProfileView = ({
             openAddVehicleRequestId={openAddVehicleRequestId}
             highlightVehiclesRequestId={highlightVehiclesRequestId}
           />
-
-          <div className={`w-full p-4 flex items-center justify-between ${isDark ? 'text-slate-100' : 'text-gray-900'}`}>
-            <div className="flex items-center space-x-3">
-              <div className="bg-white p-2 rounded-lg border border-gray-100">
-                <CreditCard size={20} style={iconStyle('stripe')} />
-              </div>
-              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-                {t('walletTestMode', 'Mode test wallet')}
-              </span>
-            </div>
-            <span className="text-xs text-emerald-600 font-bold bg-emerald-100 px-2 py-1 rounded">
-              {t('walletInstantCredits', 'Crédits instantanés')}
-            </span>
-          </div>
 
           <button
             type="button"

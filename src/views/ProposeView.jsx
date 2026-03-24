@@ -1,11 +1,12 @@
 // src/views/ProposeView.jsx
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Car, Clock, Euro, Plus, Ruler, WifiOff, Wifi } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MOCK_CARS } from '../constants';
 import WaitingView from './WaitingView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
+import { formatStoredVehiclePlate, inferPlateCountryFromPlate } from '../utils/vehiclePlates';
 
 const ProposeView = forwardRef(({
   myActiveSpot,
@@ -24,27 +25,6 @@ const ProposeView = forwardRef(({
   const currencySymbol = getCurrencySymbol(currency);
   const minuteUnitShort = t('minuteUnitShort', 'min');
   const meterUnitShort = t('meterUnitShort', 'm');
-  const formatPlate = (value) => {
-    const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    let letters1 = '';
-    let digits = '';
-    let letters2 = '';
-    for (const ch of cleaned) {
-      if (letters1.length < 2 && /[A-Z]/.test(ch)) {
-        letters1 += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
-        digits += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
-        letters2 += ch;
-      }
-    }
-    return [letters1, digits, letters2].filter(Boolean).join('-');
-  };
-  const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
   const firstVehicle = vehicles.find((v) => v.isDefault) || vehicles[0];
   const [proposeForm, setProposeForm] = useState({
     car: firstVehicle?.model || '',
@@ -264,7 +244,7 @@ const ProposeView = forwardRef(({
                             {vehicles[0]?.model || t('unknown', 'Unknown')}
                           </span>
                           <span className="text-xs text-gray-500 font-mono tracking-widest truncate">
-                            {vehicles[0]?.plate || '—'}
+                            {vehicles[0]?.plate ? formatStoredVehiclePlate(vehicles[0].plate, vehicles[0].plateCountry || inferPlateCountryFromPlate(vehicles[0].plate)) : '—'}
                           </span>
                         </div>
                       </div>
@@ -306,7 +286,7 @@ const ProposeView = forwardRef(({
                         )}
                       </button>
                       <p className="font-semibold text-sm">{v.model}</p>
-                      <p className="text-xs text-gray-400">{v.plate}</p>
+                      <p className="text-xs text-gray-400">{formatStoredVehiclePlate(v.plate, v.plateCountry || inferPlateCountryFromPlate(v.plate))}</p>
                     </button>
                   ))}
                 </div>

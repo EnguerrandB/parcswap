@@ -19,6 +19,14 @@ import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStylePatch';
 import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
+import {
+  formatStoredVehiclePlate,
+  formatVehiclePlate,
+  getDefaultPlateCountry,
+  getPlateCountryMeta,
+  inferPlateCountryFromPlate,
+  isValidVehiclePlate,
+} from '../utils/vehiclePlates';
 
 // --- SAFE NUMERIC HELPERS ---
 // These helpers prevent NaN/Infinity from being written to Firestore, which would cause 400 errors.
@@ -355,31 +363,18 @@ const MapInner = ({
     };
   }, []);
 
-  const formatPlate = (value) => {
-    const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    let letters1 = '';
-    let digits = '';
-    let letters2 = '';
-    for (const ch of cleaned) {
-      if (letters1.length < 2 && /[A-Z]/.test(ch)) {
-        letters1 += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
-        digits += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
-        letters2 += ch;
-      }
-    }
-    return [letters1, digits, letters2].filter(Boolean).join('-');
-  };
-  const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
+  const defaultPlateCountry = getDefaultPlateCountry(i18n.resolvedLanguage || i18n.language);
+  const hostPlateCountry = useMemo(
+    () => inferPlateCountryFromPlate(spot?.hostVehiclePlate) || defaultPlateCountry,
+    [defaultPlateCountry, spot?.hostVehiclePlate],
+  );
+  const hostPlateMeta = useMemo(() => getPlateCountryMeta(hostPlateCountry), [hostPlateCountry]);
   const activeVehiclePlate = useMemo(() => {
-    const formatted = formatPlate(selectedVehiclePlate);
-    return isFullPlate(formatted) ? formatted : '';
-  }, [selectedVehiclePlate]);
+    if (!selectedVehiclePlate) return '';
+    const selectedCountry = inferPlateCountryFromPlate(selectedVehiclePlate) || defaultPlateCountry;
+    const formatted = formatStoredVehiclePlate(selectedVehiclePlate, selectedCountry);
+    return isValidVehiclePlate(formatted, selectedCountry) ? formatted : selectedVehiclePlate;
+  }, [defaultPlateCountry, selectedVehiclePlate]);
 
   const buildSelfMarkerPopupHTML = useCallback(
     () => buildOtherUserPopupHTML(
@@ -424,8 +419,8 @@ const MapInner = ({
     e?.preventDefault?.();
     e?.stopPropagation?.();
     if (!spot?.id) return;
-    const formatted = formatPlate(plateConfirmInput);
-    if (!isFullPlate(formatted)) return;
+    const formatted = formatVehiclePlate(plateConfirmInput, hostPlateCountry);
+    if (!isValidVehiclePlate(formatted, hostPlateCountry)) return;
     setPlateConfirmSubmitting(true);
     setPlateConfirmError(null);
 	    try {
@@ -2373,8 +2368,8 @@ useEffect(() => {
                 <input
                   type="text"
                   value={plateConfirmInput}
-                  onChange={(ev) => setPlateConfirmInput(formatPlate(ev.target.value))}
-                  placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
+                  onChange={(ev) => setPlateConfirmInput(formatVehiclePlate(ev.target.value, hostPlateCountry))}
+                  placeholder={hostPlateMeta.placeholder}
                   className="
                     w-full rounded-2xl px-4 py-4
                     text-center text-2xl font-mono uppercase tracking-widest
@@ -2383,6 +2378,7 @@ useEffect(() => {
                     focus:outline-none focus:ring-4 focus:ring-orange-500/20 focus:border-orange-400
                     transition
                   "
+                  inputMode={hostPlateMeta.inputMode}
                 />
                 {plateConfirmError && <p className="mt-2 text-sm text-red-600">{plateConfirmError}</p>}
 
@@ -2401,7 +2397,7 @@ useEffect(() => {
                   </button>
                   <button
                     type="submit"
-                    disabled={plateConfirmSubmitting || !isFullPlate(formatPlate(plateConfirmInput))}
+                    disabled={plateConfirmSubmitting || !isValidVehiclePlate(plateConfirmInput, hostPlateCountry)}
                     className="
                       h-12 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500
                       text-white font-extrabold shadow-[0_12px_30px_rgba(249,115,22,0.35)]

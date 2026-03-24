@@ -1,5 +1,5 @@
 // src/views/WaitingView.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Clock, MapPin, Car, Phone, User, CheckCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -151,27 +151,6 @@ const WaitingView = ({
     return ms > 0 ? ms : 0;
   })();
 
-  const formatPlate = (value) => {
-    const cleaned = (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    let letters1 = '';
-    let digits = '';
-    let letters2 = '';
-    for (const ch of cleaned) {
-      if (letters1.length < 2 && /[A-Z]/.test(ch)) {
-        letters1 += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length < 3 && /[0-9]/.test(ch)) {
-        digits += ch;
-        continue;
-      }
-      if (letters1.length === 2 && digits.length === 3 && letters2.length < 2 && /[A-Z]/.test(ch)) {
-        letters2 += ch;
-      }
-    }
-    return [letters1, digits, letters2].filter(Boolean).join('-');
-  };
-  const isFullPlate = (plate) => /^[A-Z]{2}-\d{3}-[A-Z]{2}$/.test(plate || '');
   const isValidCoord = (lng, lat) => (
     typeof lng === 'number' && typeof lat === 'number' &&
     !Number.isNaN(lng) && !Number.isNaN(lat) &&
@@ -241,8 +220,6 @@ const WaitingView = ({
           onConfirmPlate={onConfirmPlate}
           plateInput={plateInput}
           setPlateInput={setPlateInput}
-          formatPlate={formatPlate}
-          isFullPlate={isFullPlate}
           isValidCoord={isValidCoord}
         />
       );

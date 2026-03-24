@@ -302,7 +302,7 @@ const isResidentOnlyParking = (record) => {
   );
   const hours = normalizeParkingText(record?.horaire_na ?? "");
   const info = normalizeParkingText(
-    Array.isArray(record?.info) ? record.info.join(" ") : record?.info ?? "",
+    Array.isArray(record?.info) ? record.info.join(" ") : (record?.info ?? ""),
   );
   const isPublic =
     type.includes("tous") ||
@@ -438,10 +438,7 @@ const fetchParisPublicParkings = async ({ lat, lng, radiusMeters, limit }) => {
     "where",
     `distance(geo_point_2d, geom'POINT(${lng} ${lat})', ${radiusMeters}m)`,
   );
-  params.set(
-    "order_by",
-    `distance(geo_point_2d, geom'POINT(${lng} ${lat})')`,
-  );
+  params.set("order_by", `distance(geo_point_2d, geom'POINT(${lng} ${lat})')`);
   params.set("limit", String(limit));
   const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
   const data = await fetchJson(url);
@@ -461,7 +458,8 @@ const fetchParisPublicParkings = async ({ lat, lng, radiusMeters, limit }) => {
     const coords = pickParisPoint(record, { lat, lng });
     if (!coords || !isValidCoord(coords.lng, coords.lat)) return;
 
-    const id = row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
+    const id =
+      row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
     const address =
       record?.adresse ||
       (Array.isArray(record?.adress_geo_entrees)
@@ -495,7 +493,9 @@ const fetchParisPublicParkings = async ({ lat, lng, radiusMeters, limit }) => {
   });
 
   return Array.from(unique.values())
-    .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+    .sort(
+      (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity),
+    )
     .slice(0, limit);
 };
 
@@ -512,26 +512,34 @@ const parseHeightToCm = (value) => {
 };
 
 const parseHourlyRate = (charge, fee) => {
-  if (String(fee || "").trim().toLowerCase() === "no") return 0;
-  const text = String(charge || "").trim().toLowerCase().replace(/,/g, ".");
+  if (
+    String(fee || "")
+      .trim()
+      .toLowerCase() === "no"
+  )
+    return 0;
+  const text = String(charge || "")
+    .trim()
+    .toLowerCase()
+    .replace(/,/g, ".");
   if (!text) return null;
 
-  const directMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(h|hr|heure|hour)\b/);
+  const directMatch = text.match(
+    /(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(h|hr|heure|hour)\b/,
+  );
   if (directMatch) {
     const amount = Number(directMatch[1]);
     return Number.isFinite(amount) ? amount : null;
   }
 
-  const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(\d+)\s*min/);
+  const minuteMatch = text.match(
+    /(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(\d+)\s*min/,
+  );
   if (minuteMatch) {
     const amount = Number(minuteMatch[1]);
     const minutes = Number(minuteMatch[2]);
-    if (
-      Number.isFinite(amount) &&
-      Number.isFinite(minutes) &&
-      minutes > 0
-    ) {
-      return Math.round((amount * (60 / minutes)) * 100) / 100;
+    if (Number.isFinite(amount) && Number.isFinite(minutes) && minutes > 0) {
+      return Math.round(amount * (60 / minutes) * 100) / 100;
     }
   }
 
@@ -614,7 +622,13 @@ const fetchOverpassData = async ({ lat, lng, radiusMeters }) => {
   throw new Error(`overpass_unavailable: ${errors.join(" | ")}`);
 };
 
-const fetchOverpassPublicParkings = async ({ city, lat, lng, radiusMeters, limit }) => {
+const fetchOverpassPublicParkings = async ({
+  city,
+  lat,
+  lng,
+  radiusMeters,
+  limit,
+}) => {
   const data = await fetchOverpassData({ lat, lng, radiusMeters });
 
   const elements = Array.isArray(data?.elements) ? data.elements : [];
@@ -653,7 +667,9 @@ const fetchOverpassPublicParkings = async ({ city, lat, lng, radiusMeters, limit
   });
 
   return Array.from(unique.values())
-    .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+    .sort(
+      (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity),
+    )
     .slice(0, limit);
 };
 
@@ -666,7 +682,9 @@ exports.fetchPublicParkings = functions
     const lng = Number(data?.lng);
     const lat = Number(data?.lat);
     const forceCityId =
-      typeof data?.forceCityId === "string" ? data.forceCityId.trim().toLowerCase() : "";
+      typeof data?.forceCityId === "string"
+        ? data.forceCityId.trim().toLowerCase()
+        : "";
     const limit = clamp(
       Math.round(Number(data?.limit) || PUBLIC_PARKING_DEFAULT_LIMIT),
       1,
@@ -685,7 +703,9 @@ exports.fetchPublicParkings = functions
       );
     }
 
-    const city = getPublicParkingCityById(forceCityId) || resolvePublicParkingCity({ lat, lng });
+    const city =
+      getPublicParkingCityById(forceCityId) ||
+      resolvePublicParkingCity({ lat, lng });
     if (!city) {
       return { parkings: [], cityId: null };
     }

@@ -1,5 +1,5 @@
 // src/views/GotConfirmedView.jsx
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -11,6 +11,13 @@ import PremiumParksDeltaToast from '../components/PremiumParksDeltaToast';
 import BottomNav from '../components/BottomNav';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import { patchSizerankInStyle } from '../utils/mapboxStylePatch';
+import {
+  formatVehiclePlate,
+  getDefaultPlateCountry,
+  getPlateCountryMeta,
+  inferPlateCountryFromPlate,
+  isValidVehiclePlate,
+} from '../utils/vehiclePlates';
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
@@ -50,17 +57,14 @@ const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
 const GotConfirmedView = ({
   spot,
   bookerCoords,
-  distanceText,
   mapboxToken,
   onCancel,
   onConfirmPlate,
   plateInput,
   setPlateInput,
-  formatPlate,
-  isFullPlate,
   isValidCoord,
 }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -98,6 +102,11 @@ const GotConfirmedView = ({
   const hasSpotCoords = isValidCoord(spotLng, spotLat);
   const hasBookerCoords = isValidCoord(bookerLng, bookerLat);
   const fallbackBookerName = spot?.bookerName || t('seeker', 'Seeker');
+  const plateCountry = useMemo(
+    () => inferPlateCountryFromPlate(spot?.bookerVehiclePlate) || getDefaultPlateCountry(i18n.resolvedLanguage || i18n.language),
+    [i18n.language, i18n.resolvedLanguage, spot?.bookerVehiclePlate],
+  );
+  const plateCountryMeta = useMemo(() => getPlateCountryMeta(plateCountry), [plateCountry]);
   const [bookerProfile, setBookerProfile] = useState(() => ({
     name: fallbackBookerName,
     transactions: spot?.bookerTransactions ?? spot?.bookerTx ?? null,
@@ -333,8 +342,8 @@ const GotConfirmedView = ({
     setShowPlateModal(true);
   };
   const handleSubmitPlate = async () => {
-    const formatted = formatPlate(plateInput);
-    if (!isFullPlate(formatted)) return;
+    const formatted = formatVehiclePlate(plateInput, plateCountry);
+    if (!isValidVehiclePlate(formatted, plateCountry)) return;
     setPlateSubmitting(true);
     setPlateError(null);
 	    try {
@@ -346,6 +355,7 @@ const GotConfirmedView = ({
 	      }
       closePlateModal();
     } catch (err) {
+      void err;
       setPlateError(t('plateConfirmError', { defaultValue: 'Error confirming. Please try again.' }));
     } finally {
       setPlateSubmitting(false);
@@ -560,6 +570,7 @@ const GotConfirmedView = ({
         routeCoordsReverseRef.current = coords.length > 1 ? [...coords].reverse() : [];
         upsertRoute(map, feature);
       } catch (err) {
+        void err;
         if (controller.signal.aborted) return;
         const fallback = getFallbackLineFeature(startLngLat, endLngLat);
         const coords = fallback.geometry?.coordinates || [];
@@ -933,7 +944,7 @@ const GotConfirmedView = ({
             </div>
             <input
               type="text"
-              placeholder={t('platePlaceholder', 'e.g., AB-123-CD')}
+              placeholder={plateCountryMeta.placeholder}
               className={`
                 w-full rounded-2xl px-4 py-4
                 text-center text-2xl font-mono uppercase tracking-widest
@@ -947,7 +958,8 @@ const GotConfirmedView = ({
                 }
               `}
               value={plateInput}
-              onChange={(e) => setPlateInput(formatPlate(e.target.value))}
+              onChange={(e) => setPlateInput(formatVehiclePlate(e.target.value, plateCountry))}
+              inputMode={plateCountryMeta.inputMode}
             />
             {plateError && <p className={`mt-3 text-sm ${isDark ? 'text-red-300' : 'text-red-600'}`}>{plateError}</p>}
             <button
@@ -958,7 +970,7 @@ const GotConfirmedView = ({
                 text-white font-bold shadow-[0_12px_30px_rgba(16,185,129,0.35)]
                 hover:brightness-110 transition disabled:opacity-50
               "
-              disabled={plateSubmitting || !isFullPlate(formatPlate(plateInput))}
+              disabled={plateSubmitting || !isValidVehiclePlate(plateInput, plateCountry)}
             >
               {t('confirmPlate', 'Confirm Plate')}
             </button>

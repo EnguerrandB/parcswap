@@ -2609,13 +2609,14 @@ export default function ParkSwapApp() {
 	    }
 	  };
 
-  const handleAddVehicle = async ({ model, plate, photo }) => {
+  const handleAddVehicle = async ({ model, plate, plateCountry, photo }) => {
     if (!user || !model || !plate) return;
     try {
       await addDoc(vehiclesCollectionForUser(user.uid), {
         ownerId: user.uid,
         model,
         plate,
+        plateCountry: plateCountry || null,
         photo: photo || null,
         isDefault: vehicles.length === 0,
         createdAt: serverTimestamp(),

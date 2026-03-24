@@ -613,10 +613,15 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
         style: MAP_STYLE,
         center: [selectedUser.lng, selectedUser.lat],
         zoom: 13.5,
+        minZoom: 2,
         attributionControl: false,
-        interactive: false,
+        interactive: true,
+        dragRotate: false,
+        pitchWithRotate: false,
       });
       userMiniMapRef.current = miniMap;
+      miniMap.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+      miniMap.touchZoomRotate.disableRotation();
       miniMap.on('load', () => {
         patchSizerankInStyle(miniMap);
         applyMapLabelLanguage(miniMap, currentUser?.language || 'en');
@@ -1234,14 +1239,20 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                       <h4 className="mt-2 text-xl font-black tracking-tight">Etat instantane</h4>
                       <div className="mt-5 grid grid-cols-2 gap-3">
                         <div className={`rounded-2xl p-4 ${selectedUser.online
-                          ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-500/12 dark:text-emerald-100'
-                          : 'bg-slate-100 text-slate-800 dark:bg-slate-500/12 dark:text-slate-100'}`}>
-                          <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Presence</div>
-                          <div className="mt-2 flex items-center gap-2 text-lg font-black">
+                          ? 'bg-emerald-50 dark:bg-emerald-500/12'
+                          : 'bg-slate-100 dark:bg-slate-500/12'}`}>
+                          <div className={`text-xs uppercase tracking-[0.16em] ${selectedUser.online
+                            ? 'text-emerald-700 dark:text-emerald-200'
+                            : 'text-slate-500 dark:text-slate-400'}`}>Presence</div>
+                          <div className={`mt-2 flex items-center gap-2 text-lg font-black ${selectedUser.online
+                            ? 'text-emerald-950 dark:text-emerald-50'
+                            : 'text-slate-900 dark:text-white'}`}>
                             <span className={`h-3 w-3 rounded-full ${selectedUser.online ? 'bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.18)]' : 'bg-slate-400 shadow-[0_0_0_6px_rgba(148,163,184,0.14)]'}`} />
                             {selectedUser.online ? 'Actif' : 'Inactif'}
                           </div>
-                          <div className="mt-2 text-xs font-medium opacity-80">{selectedUser.lastSeenMs ? `Dernier signal ${getRelativeTimeLabel(selectedUser.lastSeenMs)}` : 'Aucun heartbeat recu'}</div>
+                          <div className={`mt-2 text-xs font-medium ${selectedUser.online
+                            ? 'text-emerald-800 dark:text-emerald-100/90'
+                            : 'text-slate-600 dark:text-slate-300/80'}`}>{selectedUser.lastSeenMs ? `Dernier signal ${getRelativeTimeLabel(selectedUser.lastSeenMs)}` : 'Aucun heartbeat recu'}</div>
                         </div>
                         <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
                           <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Wallet</div>

@@ -26,7 +26,7 @@ import {
 import { appId, db } from '../firebase';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
-import { isParkingOpenNow, isResidentOnlyParking } from '../utils/publicParkings';
+import { fetchNearbyPublicParkings } from '../utils/publicParkingApi';
 
 const isValidCoord = (lng, lat) =>
   typeof lng === 'number' &&
@@ -84,11 +84,6 @@ const loadParkingCache = (lng, lat) => {
   } catch (e) {
     return null;
   }
-};
-
-const toNumberOrNull = (value) => {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
 };
 
 const normalizeFiniteNumberOrNull = (value) => {
@@ -694,113 +689,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       lastParkingFetchRef.current = { at: now, lat: safeLat, lng: safeLng };
       parkingFetchInFlightRef.current = true;
       setParkingLoading(true);
-      const params = new URLSearchParams();
-      params.set(
-        'where',
-        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})', ${PARKING_FETCH_RADIUS_M}m)`,
-      );
-      params.set(
-        'order_by',
-        `distance(geo_point_2d, geom'POINT(${safeLng} ${safeLat})')`,
-      );
-      params.set('limit', '20');
-      const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
-
-      fetch(url, { mode: 'cors', credentials: 'omit' })
-        .then((res) => {
-          if (!res.ok) throw new Error(`parking_fetch_${res.status}`);
-          return res.json();
-        })
-        .then((data) => {
-          if (!isMountedRef.current || !showPublicParkingsRef.current) return;
-          const raw = Array.isArray(data?.results) ? data.results : Array.isArray(data?.records) ? data.records : [];
-          const next = [];
-          raw.forEach((row, idx) => {
-            const record = row?.fields ?? row;
-            if (!record) return;
-            if (isResidentOnlyParking(record)) return;
-            if (!isParkingOpenNow(record)) return;
-            const id = row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
-            const shape = record?.geo_shape || record?.geometry || null;
-            let lng = null;
-            let lat = null;
-            if (shape?.type === 'Point' && Array.isArray(shape.coordinates)) {
-              [lng, lat] = shape.coordinates;
-            } else if (Array.isArray(shape?.coordinates) && typeof shape.coordinates[0] === 'number') {
-              [lng, lat] = shape.coordinates;
-            } else if (shape?.geometry?.type === 'Point' && Array.isArray(shape.geometry.coordinates)) {
-              [lng, lat] = shape.geometry.coordinates;
-            }
-            if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
-              const point = record?.geo_point_2d || record?.geo_point || null;
-              const parsePointArray = (arr) => {
-                if (!Array.isArray(arr) || arr.length < 2) return null;
-                const a = Number(arr[0]);
-                const b = Number(arr[1]);
-                if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-                const cand1 = { lat: a, lng: b };
-                const cand2 = { lat: b, lng: a };
-                const d1 = getDistanceMetersBetween(cand1, { lat: safeLat, lng: safeLng });
-                const d2 = getDistanceMetersBetween(cand2, { lat: safeLat, lng: safeLng });
-                return d1 <= d2 ? cand1 : cand2;
-              };
-              if (Array.isArray(point)) {
-                const picked = parsePointArray(point);
-                if (picked) {
-                  lat = picked.lat;
-                  lng = picked.lng;
-                }
-              } else if (typeof point === 'string') {
-                const parts = point.split(/[,\s]+/).filter(Boolean).map((v) => Number(v));
-                const picked = parsePointArray(parts);
-                if (picked) {
-                  lat = picked.lat;
-                  lng = picked.lng;
-                }
-              } else if (point && typeof point === 'object') {
-                lat = Number(point.lat ?? point.latitude ?? point.y);
-                lng = Number(point.lon ?? point.lng ?? point.longitude ?? point.x);
-              }
-            }
-            const parsedLng = Number(lng);
-            const parsedLat = Number(lat);
-            if (!isValidCoord(parsedLng, parsedLat)) return;
-            const name = record?.nom || record?.name || record?.nom_parc || '';
-            const address =
-              record?.adresse ||
-              (Array.isArray(record?.adress_geo_entrees) ? record.adress_geo_entrees[0] : record?.adress_geo_entrees) ||
-              record?.adress ||
-              '';
-            const distanceMeters = getDistanceMetersBetween(
-              { lng: safeLng, lat: safeLat },
-              { lng: parsedLng, lat: parsedLat },
-            );
-            next.push({
-              id,
-              lng: parsedLng,
-              lat: parsedLat,
-              name,
-              address,
-              distanceMeters,
-              typeUsagers: record?.type_usagers ?? record?.type_usager ?? '',
-              hours: record?.horaire_na ?? '',
-              heightMaxCm: toNumberOrNull(record?.hauteur_max),
-              tarif1h: toNumberOrNull(record?.tarif_1h),
-              tarif2h: toNumberOrNull(record?.tarif_2h),
-              tarif24h: toNumberOrNull(record?.tarif_24h),
-              nbPlaces: toNumberOrNull(record?.nb_places),
-              nbPmr: toNumberOrNull(record?.nb_pmr),
-              nbEv: toNumberOrNull(record?.nb_voitures_electriques),
-              url: record?.url ?? '',
-              phone: record?.tel ?? '',
-            });
-          });
-
-          const unique = new Map();
-          next.forEach((item) => {
-            if (!unique.has(item.id)) unique.set(item.id, item);
-          });
-          const list = Array.from(unique.values());
+      fetchNearbyPublicParkings({
+        lng: safeLng,
+        lat: safeLat,
+        radiusMeters: PARKING_FETCH_RADIUS_M,
+        limit: 20,
+      })
+        .then((list) => {
           if (isMountedRef.current && showPublicParkingsRef.current) {
             setPublicParkings(list);
             saveParkingCache(safeLng, safeLat, list);

@@ -160,6 +160,510 @@ const computeFeeCents = (amountCents) => {
   return { feeCents, totalCents };
 };
 
+const PUBLIC_PARKING_DEFAULT_LIMIT = 20;
+const PUBLIC_PARKING_MAX_LIMIT = 40;
+const PUBLIC_PARKING_DEFAULT_RADIUS_M = 2000;
+const PUBLIC_PARKING_MAX_RADIUS_M = 4000;
+
+const PUBLIC_PARKING_CITIES = [
+  {
+    id: "paris",
+    name: "Paris",
+    source: "paris",
+    center: { lat: 48.8566, lng: 2.3522 },
+    radiusMeters: 25000,
+  },
+  {
+    id: "marseille",
+    name: "Marseille",
+    source: "overpass",
+    center: { lat: 43.2965, lng: 5.3698 },
+    radiusMeters: 18000,
+  },
+  {
+    id: "lyon",
+    name: "Lyon",
+    source: "overpass",
+    center: { lat: 45.764, lng: 4.8357 },
+    radiusMeters: 18000,
+  },
+  {
+    id: "toulouse",
+    name: "Toulouse",
+    source: "overpass",
+    center: { lat: 43.6047, lng: 1.4442 },
+    radiusMeters: 18000,
+  },
+  {
+    id: "nice",
+    name: "Nice",
+    source: "overpass",
+    center: { lat: 43.7102, lng: 7.262 },
+    radiusMeters: 15000,
+  },
+];
+
+const isValidCoord = (lng, lat) =>
+  Number.isFinite(lng) &&
+  Number.isFinite(lat) &&
+  Math.abs(lng) <= 180 &&
+  Math.abs(lat) <= 90;
+
+const toFiniteNumberOrNull = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const getDistanceMetersBetween = (a, b) => {
+  if (!a || !b) return Infinity;
+  if (!isValidCoord(a.lng, a.lat) || !isValidCoord(b.lng, b.lat)) {
+    return Infinity;
+  }
+  const R = 6371e3;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const c =
+    2 *
+    Math.atan2(
+      Math.sqrt(
+        Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2,
+      ),
+      Math.sqrt(
+        1 -
+          (Math.sin(dLat / 2) ** 2 +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2),
+      ),
+    );
+  return R * c;
+};
+
+const normalizeParkingText = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const extractTimeRanges = (raw) => {
+  const text = String(raw || "");
+  const matches = [...text.matchAll(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/gi)];
+  const minutes = matches
+    .map((match) => {
+      const hour = Number(match[1]);
+      const min = match[2] ? Number(match[2]) : 0;
+      if (!Number.isFinite(hour) || hour < 0 || hour > 24) return null;
+      if (!Number.isFinite(min) || min < 0 || min > 59) return null;
+      return hour === 24 ? 24 * 60 : hour * 60 + min;
+    })
+    .filter((value) => value != null);
+  const ranges = [];
+  for (let i = 0; i + 1 < minutes.length; i += 2) {
+    ranges.push([minutes[i], minutes[i + 1]]);
+  }
+  return ranges;
+};
+
+const isOpenEveryDayText = (text) =>
+  /\b7\s*j(?:ours)?\s*(?:\/|sur)\s*7\b/.test(text);
+
+const isParkingOpenNow = (record, now = new Date()) => {
+  if (!record) return false;
+  const raw = record?.horaire_na ?? record?.horaire ?? record?.horaires ?? "";
+  const text = normalizeParkingText(raw);
+  if (!text) return false;
+  if (text.includes("ferme") || text.includes("fermee")) return false;
+  if (text.includes("24h") || text.includes("24 h") || text.includes("24/24")) {
+    return true;
+  }
+  if (isOpenEveryDayText(text)) return true;
+
+  const ranges = extractTimeRanges(text);
+  if (!ranges.length) return false;
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  return ranges.some(([start, end]) => {
+    if (start == null || end == null) return false;
+    if (start === end) return false;
+    if (end > start) return nowMinutes >= start && nowMinutes <= end;
+    return nowMinutes >= start || nowMinutes <= end;
+  });
+};
+
+const isResidentOnlyParking = (record) => {
+  if (!record) return false;
+  const type = normalizeParkingText(
+    record?.type_usagers ?? record?.type_usager ?? "",
+  );
+  const hours = normalizeParkingText(record?.horaire_na ?? "");
+  const info = normalizeParkingText(
+    Array.isArray(record?.info) ? record.info.join(" ") : record?.info ?? "",
+  );
+  const isPublic =
+    type.includes("tous") ||
+    type.includes("public") ||
+    type.includes("visiteur") ||
+    type.includes("visitor");
+  if (isPublic) return false;
+  if (type.includes("abonn") || type.includes("resident")) return true;
+  if (hours.includes("abonn")) return true;
+  if (info.includes("abonn")) return true;
+  return false;
+};
+
+const resolvePublicParkingCity = (coords) => {
+  if (!coords) return null;
+  let bestCity = null;
+  let bestDistance = Infinity;
+  PUBLIC_PARKING_CITIES.forEach((city) => {
+    const distance = getDistanceMetersBetween(coords, city.center);
+    if (distance <= city.radiusMeters && distance < bestDistance) {
+      bestCity = city;
+      bestDistance = distance;
+    }
+  });
+  return bestCity;
+};
+
+const withTimeout = async (promiseFactory, timeoutMs = 12000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await promiseFactory(controller.signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const fetchJson = async (url, options = {}, timeoutMs = 12000) =>
+  withTimeout(async (signal) => {
+    const response = await fetch(url, {
+      ...options,
+      signal,
+      headers: {
+        Accept: "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`public_parking_fetch_${response.status}`);
+    }
+    return response.json();
+  }, timeoutMs);
+
+const pickParisPoint = (record, origin) => {
+  const shape = record?.geo_shape || record?.geometry || null;
+  let lng = null;
+  let lat = null;
+  if (shape?.type === "Point" && Array.isArray(shape.coordinates)) {
+    [lng, lat] = shape.coordinates;
+  } else if (
+    Array.isArray(shape?.coordinates) &&
+    typeof shape.coordinates[0] === "number"
+  ) {
+    [lng, lat] = shape.coordinates;
+  } else if (
+    shape?.geometry?.type === "Point" &&
+    Array.isArray(shape.geometry.coordinates)
+  ) {
+    [lng, lat] = shape.geometry.coordinates;
+  }
+  if (Number.isFinite(lng) && Number.isFinite(lat)) {
+    return { lng: Number(lng), lat: Number(lat) };
+  }
+
+  const point = record?.geo_point_2d || record?.geo_point || null;
+  const parsePointArray = (arr) => {
+    if (!Array.isArray(arr) || arr.length < 2) return null;
+    const a = Number(arr[0]);
+    const b = Number(arr[1]);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    const cand1 = { lat: a, lng: b };
+    const cand2 = { lat: b, lng: a };
+    const d1 = getDistanceMetersBetween(cand1, origin);
+    const d2 = getDistanceMetersBetween(cand2, origin);
+    return d1 <= d2 ? cand1 : cand2;
+  };
+
+  if (Array.isArray(point)) {
+    return parsePointArray(point);
+  }
+  if (typeof point === "string") {
+    const parts = point
+      .split(/[,\s]+/)
+      .filter(Boolean)
+      .map((value) => Number(value));
+    return parsePointArray(parts);
+  }
+  if (point && typeof point === "object") {
+    const parsed = {
+      lat: Number(point.lat ?? point.latitude ?? point.y),
+      lng: Number(point.lon ?? point.lng ?? point.longitude ?? point.x),
+    };
+    return isValidCoord(parsed.lng, parsed.lat) ? parsed : null;
+  }
+  return null;
+};
+
+const fetchParisPublicParkings = async ({ lat, lng, radiusMeters, limit }) => {
+  const params = new URLSearchParams();
+  params.set(
+    "where",
+    `distance(geo_point_2d, geom'POINT(${lng} ${lat})', ${radiusMeters}m)`,
+  );
+  params.set(
+    "order_by",
+    `distance(geo_point_2d, geom'POINT(${lng} ${lat})')`,
+  );
+  params.set("limit", String(limit));
+  const url = `https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/stationnement-en-ouvrage/records?${params.toString()}`;
+  const data = await fetchJson(url);
+  const raw = Array.isArray(data?.results)
+    ? data.results
+    : Array.isArray(data?.records)
+      ? data.records
+      : [];
+  const unique = new Map();
+
+  raw.forEach((row, idx) => {
+    const record = row?.fields ?? row;
+    if (!record) return;
+    if (isResidentOnlyParking(record)) return;
+    if (!isParkingOpenNow(record)) return;
+
+    const coords = pickParisPoint(record, { lat, lng });
+    if (!coords || !isValidCoord(coords.lng, coords.lat)) return;
+
+    const id = row?.recordid || record?.recordid || record?.id || `parking-${idx}`;
+    const address =
+      record?.adresse ||
+      (Array.isArray(record?.adress_geo_entrees)
+        ? record.adress_geo_entrees[0]
+        : record?.adress_geo_entrees) ||
+      record?.adress ||
+      "";
+
+    unique.set(id, {
+      id,
+      cityId: "paris",
+      cityName: "Paris",
+      lng: coords.lng,
+      lat: coords.lat,
+      name: record?.nom || record?.name || record?.nom_parc || "",
+      address,
+      distanceMeters: getDistanceMetersBetween({ lat, lng }, coords),
+      typeUsagers: record?.type_usagers ?? record?.type_usager ?? "",
+      hours: record?.horaire_na ?? "",
+      heightMaxCm: toFiniteNumberOrNull(record?.hauteur_max),
+      tarif1h: toFiniteNumberOrNull(record?.tarif_1h),
+      tarif2h: toFiniteNumberOrNull(record?.tarif_2h),
+      tarif24h: toFiniteNumberOrNull(record?.tarif_24h),
+      nbPlaces: toFiniteNumberOrNull(record?.nb_places),
+      nbPmr: toFiniteNumberOrNull(record?.nb_pmr),
+      nbEv: toFiniteNumberOrNull(record?.nb_voitures_electriques),
+      url: record?.url ?? "",
+      phone: record?.tel ?? "",
+      source: "paris",
+    });
+  });
+
+  return Array.from(unique.values())
+    .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+    .slice(0, limit);
+};
+
+const parseHeightToCm = (value) => {
+  if (value == null || value === "") return null;
+  const text = String(value).trim().toLowerCase().replace(/,/g, ".");
+  const match = text.match(/(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (text.includes("cm")) return Math.round(amount);
+  if (text.includes("m") || amount <= 5) return Math.round(amount * 100);
+  return Math.round(amount);
+};
+
+const parseHourlyRate = (charge, fee) => {
+  if (String(fee || "").trim().toLowerCase() === "no") return 0;
+  const text = String(charge || "").trim().toLowerCase().replace(/,/g, ".");
+  if (!text) return null;
+
+  const directMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(h|hr|heure|hour)\b/);
+  if (directMatch) {
+    const amount = Number(directMatch[1]);
+    return Number.isFinite(amount) ? amount : null;
+  }
+
+  const minuteMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:€|eur).*(?:\/|per)?\s*(\d+)\s*min/);
+  if (minuteMatch) {
+    const amount = Number(minuteMatch[1]);
+    const minutes = Number(minuteMatch[2]);
+    if (
+      Number.isFinite(amount) &&
+      Number.isFinite(minutes) &&
+      minutes > 0
+    ) {
+      return Math.round((amount * (60 / minutes)) * 100) / 100;
+    }
+  }
+
+  return null;
+};
+
+const buildAddressFromTags = (tags = {}) => {
+  const line1 = [tags["addr:housenumber"], tags["addr:street"]]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const line2 = [tags["addr:postcode"], tags["addr:city"]]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return [line1, line2].filter(Boolean).join(", ");
+};
+
+const buildOverpassQuery = ({ lat, lng, radiusMeters }) => `
+[out:json][timeout:12];
+(
+  node["amenity"="parking"]["access"!~"^(private|customers|permit|residents)$"]["parking"!~"^(street_side|lane)$"](around:${radiusMeters},${lat},${lng});
+  way["amenity"="parking"]["access"!~"^(private|customers|permit|residents)$"]["parking"!~"^(street_side|lane)$"](around:${radiusMeters},${lat},${lng});
+  relation["amenity"="parking"]["access"!~"^(private|customers|permit|residents)$"]["parking"!~"^(street_side|lane)$"](around:${radiusMeters},${lat},${lng});
+);
+out center tags;
+`;
+
+const pickOverpassCoords = (element) => {
+  const direct = {
+    lat: Number(element?.lat),
+    lng: Number(element?.lon),
+  };
+  if (isValidCoord(direct.lng, direct.lat)) return direct;
+  const center = {
+    lat: Number(element?.center?.lat),
+    lng: Number(element?.center?.lon),
+  };
+  return isValidCoord(center.lng, center.lat) ? center : null;
+};
+
+const fetchOverpassPublicParkings = async ({ city, lat, lng, radiusMeters, limit }) => {
+  const body = new URLSearchParams({
+    data: buildOverpassQuery({ lat, lng, radiusMeters }),
+  }).toString();
+  const data = await fetchJson(
+    "https://overpass-api.de/api/interpreter",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      },
+      body,
+    },
+    15000,
+  );
+
+  const elements = Array.isArray(data?.elements) ? data.elements : [];
+  const unique = new Map();
+
+  elements.forEach((element, idx) => {
+    const tags = element?.tags || {};
+    const coords = pickOverpassCoords(element);
+    if (!coords) return;
+
+    const name = String(tags.name || tags.operator || "").trim();
+    const id = `${element?.type || "parking"}-${element?.id || idx}`;
+    const distanceMeters = getDistanceMetersBetween({ lat, lng }, coords);
+    unique.set(id, {
+      id,
+      cityId: city.id,
+      cityName: city.name,
+      lng: coords.lng,
+      lat: coords.lat,
+      name,
+      address: buildAddressFromTags(tags),
+      distanceMeters,
+      typeUsagers: tags.access || "public",
+      hours: tags.opening_hours || "",
+      heightMaxCm: parseHeightToCm(tags.maxheight),
+      tarif1h: parseHourlyRate(tags.charge, tags.fee),
+      tarif2h: null,
+      tarif24h: null,
+      nbPlaces: toFiniteNumberOrNull(tags.capacity),
+      nbPmr: toFiniteNumberOrNull(tags["capacity:disabled"]),
+      nbEv: toFiniteNumberOrNull(tags["capacity:charging"]),
+      url: tags.website || tags.url || "",
+      phone: tags.phone || "",
+      source: "overpass",
+    });
+  });
+
+  return Array.from(unique.values())
+    .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
+    .slice(0, limit);
+};
+
+exports.fetchPublicParkings = functions
+  .runWith({
+    cors: true,
+    timeoutSeconds: 20,
+  })
+  .https.onCall(async (data) => {
+    const lng = Number(data?.lng);
+    const lat = Number(data?.lat);
+    const limit = clamp(
+      Math.round(Number(data?.limit) || PUBLIC_PARKING_DEFAULT_LIMIT),
+      1,
+      PUBLIC_PARKING_MAX_LIMIT,
+    );
+    const radiusMeters = clamp(
+      Math.round(Number(data?.radiusMeters) || PUBLIC_PARKING_DEFAULT_RADIUS_M),
+      300,
+      PUBLIC_PARKING_MAX_RADIUS_M,
+    );
+
+    if (!isValidCoord(lng, lat)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Valid coordinates are required.",
+      );
+    }
+
+    const city = resolvePublicParkingCity({ lat, lng });
+    if (!city) {
+      return { parkings: [], cityId: null };
+    }
+
+    try {
+      const parkings =
+        city.source === "paris"
+          ? await fetchParisPublicParkings({ lat, lng, radiusMeters, limit })
+          : await fetchOverpassPublicParkings({
+              city,
+              lat,
+              lng,
+              radiusMeters,
+              limit,
+            });
+      return {
+        parkings,
+        cityId: city.id,
+        cityName: city.name,
+      };
+    } catch (err) {
+      functions.logger.error("fetchPublicParkings failed", {
+        cityId: city.id,
+        lat,
+        lng,
+        message: err?.message || String(err),
+      });
+      throw new functions.https.HttpsError(
+        "internal",
+        err?.message || "Unable to fetch public parkings.",
+      );
+    }
+  });
+
 exports.bookSpotSecure = functions
   .runWith({
     cors: true,

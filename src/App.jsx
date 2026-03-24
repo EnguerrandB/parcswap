@@ -166,6 +166,7 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 const safePrice = (value) => safeNumber(value, 0);
+const MAX_INLINE_VEHICLE_PHOTO_LENGTH = 700_000;
 
 const sanitizeStorageSegment = (value, fallback = 'file') => {
   const normalized = String(value || '')
@@ -175,6 +176,63 @@ const sanitizeStorageSegment = (value, fallback = 'file') => {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
   return normalized || fallback;
+};
+
+const fileToDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Unable to read file.'));
+    reader.readAsDataURL(file);
+  });
+
+const loadImageFromObjectUrl = (objectUrl) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Unable to decode image.'));
+    image.src = objectUrl;
+  });
+
+const compressVehiclePhotoForFirestore = async (file) => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return fileToDataUrl(file);
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await loadImageFromObjectUrl(objectUrl);
+    const canvas = document.createElement('canvas');
+    const longestSide = Math.max(image.naturalWidth || image.width || 0, image.naturalHeight || image.height || 0) || 1;
+    const scale = Math.min(1, 1280 / longestSide);
+    const width = Math.max(1, Math.round((image.naturalWidth || image.width || 1) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || image.height || 1) * scale));
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) return fileToDataUrl(file);
+
+    context.drawImage(image, 0, 0, width, height);
+
+    let quality = 0.82;
+    let result = canvas.toDataURL('image/jpeg', quality);
+
+    while (result.length > MAX_INLINE_VEHICLE_PHOTO_LENGTH && quality > 0.4) {
+      quality -= 0.08;
+      result = canvas.toDataURL('image/jpeg', quality);
+    }
+
+    if (result.length > MAX_INLINE_VEHICLE_PHOTO_LENGTH) {
+      return fileToDataUrl(file);
+    }
+
+    return result;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 };
 
 const safeCoord = (value, fallback = 0) => {
@@ -2632,6 +2690,7 @@ export default function ParkSwapApp() {
       const vehicleRef = doc(vehiclesRef);
       let photoUrl = null;
       let photoStoragePath = null;
+      let inlinePhoto = null;
 
       if (photo instanceof File) {
         const safeName = sanitizeStorageSegment(photo.name, 'vehicle-photo');
@@ -2644,8 +2703,9 @@ export default function ParkSwapApp() {
           });
           photoUrl = await getDownloadURL(uploadSnapshot.ref);
         } catch (uploadError) {
+          console.error('Vehicle photo upload failed, falling back to inline Firestore storage:', uploadError);
+          inlinePhoto = await compressVehiclePhotoForFirestore(photo);
           photoStoragePath = null;
-          throw uploadError;
         }
       }
 
@@ -2656,6 +2716,7 @@ export default function ParkSwapApp() {
           plate,
           plateCountry: plateCountry || null,
           photoUrl,
+          photo: inlinePhoto,
           photoStoragePath,
           isDefault: vehicles.length === 0,
           createdAt: serverTimestamp(),

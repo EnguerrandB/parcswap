@@ -21,13 +21,13 @@ import {
 
 
 const DEFAULT_CENTER = [2.295, 48.8738]; // Arc de Triomphe
-const ROUTE_SOURCE_ID = 'parkswap-route';
-const ROUTE_LAYER_ID = 'parkswap-route-line';
-const ROUTE_GLOW_ID = 'parkswap-route-glow';
-const ROUTE_OUTLINE_ID = 'parkswap-route-outline';
-const ROUTE_DOTS_SOURCE_ID = 'parkswap-route-dots';
-const ROUTE_DOTS_LAYER_ID = 'parkswap-route-dots-layer';
-const ROUTE_DOTS_GLOW_ID = 'parkswap-route-dots-glow';
+const ROUTE_SOURCE_ID = 'lolopark-route';
+const ROUTE_LAYER_ID = 'lolopark-route-line';
+const ROUTE_GLOW_ID = 'lolopark-route-glow';
+const ROUTE_OUTLINE_ID = 'lolopark-route-outline';
+const ROUTE_DOTS_SOURCE_ID = 'lolopark-route-dots';
+const ROUTE_DOTS_LAYER_ID = 'lolopark-route-dots-layer';
+const ROUTE_DOTS_GLOW_ID = 'lolopark-route-dots-glow';
 const PERSISTENT_MAP_KEY = 'got-confirmed-map';
 
 const getPathPoints = (geometry, spacingMeters, offsetMeters) => {

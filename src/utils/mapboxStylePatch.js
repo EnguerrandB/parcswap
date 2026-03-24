@@ -96,7 +96,7 @@ const patchProps = (map, layerId, props, setter) => {
 };
 
 export const patchSizerankInStyle = (map) => {
-  console.group("🔧 ParkSwap: Patching sizerank");
+  console.group("🔧 LoloPark: Patching sizerank");
   if (!map || typeof map.getStyle !== "function") {
     console.warn("Map not ready for patching");
     console.groupEnd();
@@ -137,7 +137,7 @@ export const patchSizerankInStyle = (map) => {
 };
 
 export const applyMapLabelLanguage = (map, language) => {
-  console.group("🌍 ParkSwap: Applying map label language");
+  console.group("🌍 LoloPark: Applying map label language");
   if (!map || typeof map.getStyle !== "function") {
     console.warn("Map not ready for localization");
     console.groupEnd();

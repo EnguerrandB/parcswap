@@ -7,7 +7,7 @@ const AppLogo = ({ size = 40, className = '' }) => (
     className={`relative rounded-full overflow-visible flex items-center justify-center ${className}`}
     style={{ width: size, height: size }}
   >
-    <img src={logo} alt="ParkSwap logo" className="w-full h-full object-contain" />
+    <img src={logo} alt="LoloPark logo" className="w-full h-full object-contain" />
   </div>
 );
 

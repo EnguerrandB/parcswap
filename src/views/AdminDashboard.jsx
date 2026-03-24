@@ -816,7 +816,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
           <div className="flex flex-col gap-4 rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-600 dark:text-orange-300">Admin Control Room</div>
-              <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Vue globale temps reel de ParkSwap</h1>
+              <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Vue globale temps reel de LoloPark</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
                 Presence live, activite produit, suivi KYC et portefeuille. Les donnees proviennent directement de Firebase en ecoute temps reel.
               </p>

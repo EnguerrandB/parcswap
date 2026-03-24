@@ -910,7 +910,7 @@ useEffect(() => {
 
 setShowRoute(true);
 setShowSteps(true);
-console.group('🚀 ParkSwap:NavStart');
+console.group('🚀 LoloPark:NavStart');
 console.log('Accept nav - proceeding to nav_started');
 console.groupEnd();
 setAcceptingNav(false);
@@ -1054,7 +1054,7 @@ setAcceptingNav(false);
     };
 
 const handleStyleLoad = () => {
-  console.group('🗺️ ParkSwap: Style loaded');
+  console.group('🗺️ LoloPark: Style loaded');
   applyDayNightPreset(map);
   patchSizerankInStyle(map);
   applyMapLabelLanguage(map, mapLabelLanguageRef.current);
@@ -1095,7 +1095,7 @@ const handleStyleLoad = () => {
 
     map.on('style.load', handleStyleLoad);
     map.on('idle', () => {
-      console.log('🛋️ ParkSwap: Map idle - repatching sizerank');
+      console.log('🛋️ LoloPark: Map idle - repatching sizerank');
       patchSizerankInStyle(map);
     });
     map.on('error', handleError);

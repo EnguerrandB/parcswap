@@ -154,9 +154,9 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const body = `ParkSwap: ${displayTitle} - ${formatCurrencyAmount(tx.amount, currency)}`;
+                            const body = `LoloPark: ${displayTitle} - ${formatCurrencyAmount(tx.amount, currency)}`;
                             if (navigator.share) {
-                              navigator.share({ title: 'ParkSwap', text: body }).catch(() => {});
+                              navigator.share({ title: 'LoloPark', text: body }).catch(() => {});
                             } else {
                               navigator.clipboard.writeText(body);
                             }

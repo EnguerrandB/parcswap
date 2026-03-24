@@ -1,6 +1,24 @@
-const VOICE_URI_KEY = 'parkswap.voiceUri';
-const VOICE_NAME_KEY = 'parkswap.voiceName';
-const VOICE_LANG_KEY = 'parkswap.voiceLang';
+const VOICE_URI_KEYS = ['lolopark.voiceUri', 'parkswap.voiceUri'];
+const VOICE_NAME_KEYS = ['lolopark.voiceName', 'parkswap.voiceName'];
+const VOICE_LANG_KEYS = ['lolopark.voiceLang', 'parkswap.voiceLang'];
+
+const readStoredValue = (keys) => {
+  for (const key of keys) {
+    const value = window.localStorage?.getItem(key);
+    if (value) return value;
+  }
+  return '';
+};
+
+const writeStoredValue = (keys, value) => {
+  const [primaryKey, ...legacyKeys] = keys;
+  if (value) window.localStorage?.setItem(primaryKey, value);
+  else window.localStorage?.removeItem(primaryKey);
+  legacyKeys.forEach((key) => {
+    if (value) window.localStorage?.removeItem(key);
+    else window.localStorage?.removeItem(key);
+  });
+};
 
 export const getVoicePreference = () => {
   if (typeof window === 'undefined') {
@@ -8,9 +26,9 @@ export const getVoicePreference = () => {
   }
   try {
     return {
-      voiceUri: window.localStorage?.getItem(VOICE_URI_KEY) || '',
-      voiceName: window.localStorage?.getItem(VOICE_NAME_KEY) || '',
-      voiceLang: window.localStorage?.getItem(VOICE_LANG_KEY) || '',
+      voiceUri: readStoredValue(VOICE_URI_KEYS),
+      voiceName: readStoredValue(VOICE_NAME_KEYS),
+      voiceLang: readStoredValue(VOICE_LANG_KEYS),
     };
   } catch (_) {
     return { voiceUri: '', voiceName: '', voiceLang: '' };
@@ -23,12 +41,9 @@ export const setVoicePreference = (pref) => {
   const voiceName = pref?.voiceName || '';
   const voiceLang = pref?.voiceLang || '';
   try {
-    if (voiceUri) window.localStorage?.setItem(VOICE_URI_KEY, voiceUri);
-    else window.localStorage?.removeItem(VOICE_URI_KEY);
-    if (voiceName) window.localStorage?.setItem(VOICE_NAME_KEY, voiceName);
-    else window.localStorage?.removeItem(VOICE_NAME_KEY);
-    if (voiceLang) window.localStorage?.setItem(VOICE_LANG_KEY, voiceLang);
-    else window.localStorage?.removeItem(VOICE_LANG_KEY);
+    writeStoredValue(VOICE_URI_KEYS, voiceUri);
+    writeStoredValue(VOICE_NAME_KEYS, voiceName);
+    writeStoredValue(VOICE_LANG_KEYS, voiceLang);
   } catch (_) {
     // ignore storage failures
   }

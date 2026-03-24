@@ -75,14 +75,17 @@ const AuthView = ({ noticeMessage = '' }) => {
   const googleProvider = new GoogleAuthProvider();
 
   // --- Logique Persistence & Redirect ---
-  const pendingKey = 'parkswap_oauth_pending';
-  const lastAuthNameKey = 'parkswap_last_auth_name';
+  const pendingKey = 'lolopark_oauth_pending';
+  const legacyPendingKey = 'parkswap_oauth_pending';
+  const lastAuthNameKey = 'lolopark_last_auth_name';
+  const legacyLastAuthNameKey = 'parkswap_last_auth_name';
   const setPendingAuth = (providerId) => {
     try {
       window.sessionStorage?.setItem(
         pendingKey,
         JSON.stringify({ providerId: String(providerId || ''), at: Date.now() }),
       );
+      window.sessionStorage?.removeItem(legacyPendingKey);
     } catch (_) {}
   };
   const setLastAuthName = (name) => {
@@ -90,13 +93,16 @@ const AuthView = ({ noticeMessage = '' }) => {
       const n = String(name || '').trim();
       if (!n) return;
       window.sessionStorage?.setItem(lastAuthNameKey, n);
+      window.sessionStorage?.removeItem(legacyLastAuthNameKey);
     } catch (_) {}
   };
   const consumePendingAuth = () => {
     try {
-      const raw = window.sessionStorage?.getItem(pendingKey);
+      const raw = window.sessionStorage?.getItem(pendingKey)
+        || window.sessionStorage?.getItem(legacyPendingKey);
       if (!raw) return null;
       window.sessionStorage?.removeItem(pendingKey);
+      window.sessionStorage?.removeItem(legacyPendingKey);
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return null;
       return parsed;
@@ -378,7 +384,7 @@ const AuthView = ({ noticeMessage = '' }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                </svg>
             </div>
-            <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>ParkSwap</h1>
+            <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-slate-50' : 'text-gray-900'}`}>LoloPark</h1>
             <p className={`text-sm font-medium ${isDark ? 'text-slate-300/80' : 'text-gray-500'}`}>
               {method === 'email' 
                 ? (mode === 'login' ? 'Content de vous revoir' : 'Créer votre espace')

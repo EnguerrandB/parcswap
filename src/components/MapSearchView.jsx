@@ -44,7 +44,8 @@ const PARKING_FETCH_MIN_INTERVAL_MS = 60_000;
 const PARKING_FETCH_MIN_DISTANCE_M = 250;
 const PARKING_FETCH_RADIUS_M = 2000;
 const PERSISTENT_MAP_KEY = 'map-search';
-const PARKING_CACHE_KEY_PREFIX = 'parkswap_parking_cache_';
+const PARKING_CACHE_KEY_PREFIX = 'lolopark_parking_cache_';
+const LEGACY_PARKING_CACHE_KEY_PREFIX = 'parkswap_parking_cache_';
 const PARKING_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const formatEuro = (value, currency = 'EUR') => {
@@ -57,6 +58,12 @@ const getParkingCacheKey = (lng, lat) => {
   const roundedLng = Math.round(lng * 100) / 100;
   const roundedLat = Math.round(lat * 100) / 100;
   return `${PARKING_CACHE_KEY_PREFIX}${roundedLng}_${roundedLat}`;
+};
+
+const getLegacyParkingCacheKey = (lng, lat) => {
+  const roundedLng = Math.round(lng * 100) / 100;
+  const roundedLat = Math.round(lat * 100) / 100;
+  return `${LEGACY_PARKING_CACHE_KEY_PREFIX}${roundedLng}_${roundedLat}`;
 };
 
 const saveParkingCache = (lng, lat, parkings) => {
@@ -75,7 +82,7 @@ const saveParkingCache = (lng, lat, parkings) => {
 const loadParkingCache = (lng, lat) => {
   try {
     const key = getParkingCacheKey(lng, lat);
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(key) || localStorage.getItem(getLegacyParkingCacheKey(lng, lat));
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || !Array.isArray(data.parkings) || !data.timestamp) return null;

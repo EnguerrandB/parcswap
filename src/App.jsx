@@ -254,7 +254,7 @@ const getRandomNearbyLocation = (center, minDistanceMeters = 200, maxDistanceMet
 
 const ConfettiOverlay = ({ seedKey }) => {
   const pieces = React.useMemo(() => {
-    const rand = mulberry32(hashSeed(seedKey || 'parkswap'));
+    const rand = mulberry32(hashSeed(seedKey || 'lolopark'));
     const colors = ['#f97316', '#fb923c', '#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#f472b6'];
     return Array.from({ length: 70 }).map(() => {
       const size = 6 + Math.floor(rand() * 8);
@@ -357,7 +357,7 @@ const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '', varia
                 </svg>
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold">{i18n.t('welcomeOnboardingTitle', 'Bienvenue sur ParkSwap')}</div>
+                <div className="text-sm font-semibold">{i18n.t('welcomeOnboardingTitle', 'Bienvenue sur LoloPark')}</div>
                 <div className={`mt-0.5 text-xs ${isDark ? 'text-slate-300/80' : 'text-slate-600'}`}>
                   {i18n.t('welcomeOnboardingSubtitle', 'Voici l’essentiel pour démarrer.')}
                 </div>
@@ -532,7 +532,7 @@ const VIEW_BREADCRUMB_STYLES = {
 const logViewBreadcrumb = ({ from = '—', to = '—', meta = '' }) => {
   if (typeof console === 'undefined') return;
   console.log(
-    '%cPARKSWAP VIEW%c %c%s%c → %c%s%c %s',
+    '%cLOLOPARK VIEW%c %c%s%c → %c%s%c %s',
     VIEW_BREADCRUMB_STYLES.badge,
     '',
     VIEW_BREADCRUMB_STYLES.from,
@@ -544,7 +544,7 @@ const logViewBreadcrumb = ({ from = '—', to = '—', meta = '' }) => {
   );
 };
 
-export default function ParkSwapApp() {
+export default function LoloParkApp() {
   const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
@@ -583,12 +583,19 @@ export default function ParkSwapApp() {
   const [highlightVehiclesRequestId, setHighlightVehiclesRequestId] = useState(0);
   const cancelledNoticeTimerRef = useRef(null);
 
-  const lastAuthNameKey = 'parkswap_last_auth_name';
+  const lastAuthNameKey = 'lolopark_last_auth_name';
+  const legacyLastAuthNameKey = 'parkswap_last_auth_name';
+  const celebrateSeenKey = 'lolopark_celebrate_seen';
+  const legacyCelebrateSeenKey = 'parkswap_celebrate_seen';
+  const cancelSeenKey = 'lolopark_cancel_seen';
+  const legacyCancelSeenKey = 'parkswap_cancel_seen';
   const consumeLastAuthName = () => {
         try {
-          const raw = window.sessionStorage?.getItem(lastAuthNameKey);
+          const raw = window.sessionStorage?.getItem(lastAuthNameKey)
+            || window.sessionStorage?.getItem(legacyLastAuthNameKey);
           if (!raw) return '';
           window.sessionStorage?.removeItem(lastAuthNameKey);
+          window.sessionStorage?.removeItem(legacyLastAuthNameKey);
           return String(raw || '').trim();
         } catch (_) {
           return '';
@@ -1356,7 +1363,8 @@ export default function ParkSwapApp() {
 	        }));
 	        if (typeof window !== 'undefined' && celebrationSeenRef.current.size === 0) {
 	          try {
-	            const raw = window.localStorage?.getItem('parkswap_celebrate_seen');
+              const raw = window.localStorage?.getItem(celebrateSeenKey)
+                || window.localStorage?.getItem(legacyCelebrateSeenKey);
 	            const list = raw ? JSON.parse(raw) : [];
 	            if (Array.isArray(list)) {
 	              celebrationSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
@@ -1367,7 +1375,8 @@ export default function ParkSwapApp() {
 	        }
 	        if (typeof window !== 'undefined' && cancelledNoticeSeenRef.current.size === 0) {
 	          try {
-	            const raw = window.localStorage?.getItem('parkswap_cancel_seen');
+              const raw = window.localStorage?.getItem(cancelSeenKey)
+                || window.localStorage?.getItem(legacyCancelSeenKey);
 	            const list = raw ? JSON.parse(raw) : [];
             if (Array.isArray(list)) {
               cancelledNoticeSeenRef.current = new Set(list.filter((v) => typeof v === 'string'));
@@ -1385,9 +1394,10 @@ export default function ParkSwapApp() {
           if (typeof window !== 'undefined') {
             try {
               window.localStorage?.setItem(
-                'parkswap_cancel_seen',
+	                cancelSeenKey,
                 JSON.stringify(Array.from(cancelledNoticeSeenRef.current)),
               );
+	              window.localStorage?.removeItem(legacyCancelSeenKey);
             } catch (_) {
               // ignore storage errors
             }
@@ -1425,9 +1435,10 @@ export default function ParkSwapApp() {
 	          if (typeof window !== 'undefined') {
 	            try {
 	              window.localStorage?.setItem(
-	                'parkswap_celebrate_seen',
+                  celebrateSeenKey,
 	                JSON.stringify(Array.from(celebrationSeenRef.current)),
 	              );
+                window.localStorage?.removeItem(legacyCelebrateSeenKey);
 	            } catch (_) {
 	              // ignore storage errors
 	            }
@@ -3009,8 +3020,8 @@ export default function ParkSwapApp() {
     if (navigator?.share) {
       try {
         await navigator.share({
-          title: 'Join me on ParkSwap',
-          text: 'Swap parking spots with me on ParkSwap!',
+          title: 'Join me on LoloPark',
+          text: 'Swap parking spots with me on LoloPark!',
           url: inviteLink,
         });
         setInviteMessage('Shared ✨');
@@ -3663,9 +3674,9 @@ export default function ParkSwapApp() {
               ×
             </button>
             <p className="text-xs uppercase tracking-[0.18em] text-orange-500 font-bold mb-2">Invite friends</p>
-            <h3 className="text-2xl font-bold text-slate-900 mb-3">Share ParkSwap</h3>
+            <h3 className="text-2xl font-bold text-slate-900 mb-3">Share LoloPark</h3>
             <p className="text-gray-600 text-sm mb-4">
-              Send your friends a link to join you on ParkSwap. Parking swaps are better together.
+              Send your friends a link to join you on LoloPark. Parking swaps are better together.
             </p>
             <div className="bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm text-gray-700 mb-4 flex items-center justify-between">
               <span className="truncate">{inviteLink}</span>

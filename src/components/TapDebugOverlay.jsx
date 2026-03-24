@@ -1,7 +1,8 @@
 // src/components/TapDebugOverlay.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const STORAGE_KEY = 'parkswap.debugTap';
+const STORAGE_KEY = 'lolopark.debugTap';
+const LEGACY_STORAGE_KEY = 'parkswap.debugTap';
 const MAX_STACK_ITEMS = 6;
 
 const readEnabledFromUrlOrStorage = () => {
@@ -10,13 +11,15 @@ const readEnabledFromUrlOrStorage = () => {
     const fromUrl = url.searchParams.get('debugTap');
     if (fromUrl === '1') {
       localStorage.setItem(STORAGE_KEY, '1');
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
       return true;
     }
     if (fromUrl === '0') {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
       return false;
     }
-    return localStorage.getItem(STORAGE_KEY) === '1';
+    return localStorage.getItem(STORAGE_KEY) === '1' || localStorage.getItem(LEGACY_STORAGE_KEY) === '1';
   } catch {
     return false;
   }

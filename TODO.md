@@ -1,4 +1,4 @@
-# ParkSwap Task: Fix Mapbox Errors & Logging
+# LoloPark Task: Fix Mapbox Errors & Logging
 
 ## Plan Steps
 

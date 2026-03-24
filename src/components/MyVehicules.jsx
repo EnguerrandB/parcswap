@@ -204,44 +204,6 @@ const MyVehicules = ({
             </div>
 
             <div className="space-y-3">
-              <div className="space-y-2">
-                <div className={`flex items-center justify-between ${isRtl ? 'flex-row-reverse' : ''}`}>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
-                    {t('vehiclePlateCountryLabel', 'Registration country')}
-                  </p>
-                  <p className="text-xs text-gray-400 font-mono">{selectedPlateCountry.template}</p>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {PLATE_COUNTRY_OPTIONS.map((option) => {
-                    const isSelected = option.code === form.plateCountry;
-                    return (
-                      <button
-                        key={option.code}
-                        type="button"
-                        onClick={() => {
-                          setForm((prev) => ({
-                            ...prev,
-                            plateCountry: option.code,
-                            plate: formatVehiclePlate(prev.plate, option.code),
-                          }));
-                        }}
-                        className={`rounded-xl border px-3 py-2 text-left transition ${
-                          isSelected
-                            ? 'border-orange-400 bg-orange-50 text-orange-700 shadow-sm'
-                            : 'border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:text-orange-600'
-                        } ${isRtl ? 'text-right' : 'text-left'}`}
-                      >
-                        <div className={`flex items-center gap-2 ${isRtl ? 'flex-row-reverse' : ''}`}>
-                          <span className="text-lg leading-none">{option.flag}</span>
-                          <span className="text-xs font-semibold leading-tight">
-                            {t(option.labelKey, option.fallbackLabel)}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -251,19 +213,46 @@ const MyVehicules = ({
                   onChange={(e) => setForm((prev) => ({ ...prev, model: e.target.value }))}
                 />
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder={selectedPlateCountry.placeholder}
-                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-center uppercase tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300"
-                  inputMode={selectedPlateCountry.inputMode}
-                  autoCapitalize="characters"
-                  value={form.plate}
-                  onChange={(e) => {
-                    const nextPlate = formatVehiclePlate(e.target.value, form.plateCountry);
-                    setForm((prev) => ({ ...prev, plate: nextPlate }));
-                  }}
-                />
+              <div className="space-y-2">
+                <div className={`flex items-center justify-between ${isRtl ? 'flex-row-reverse' : ''}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    {t('vehiclePlateCountryLabel', 'Registration country')}
+                  </p>
+                  <p className="text-xs text-gray-400 font-mono">{selectedPlateCountry.template}</p>
+                </div>
+                <div className="flex gap-2">
+                  <select
+                    aria-label={t('vehiclePlateCountryLabel', 'Registration country')}
+                    value={form.plateCountry}
+                    onChange={(e) => {
+                      const nextCountry = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        plateCountry: nextCountry,
+                        plate: formatVehiclePlate(prev.plate, nextCountry),
+                      }));
+                    }}
+                    className="w-20 shrink-0 border border-gray-200 rounded-xl px-3 py-2 text-center text-lg bg-white focus:outline-none focus:ring-2 focus:ring-orange-200"
+                  >
+                    {PLATE_COUNTRY_OPTIONS.map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.flag}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder={selectedPlateCountry.placeholder}
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-center uppercase tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300"
+                    inputMode={selectedPlateCountry.inputMode}
+                    autoCapitalize="characters"
+                    value={form.plate}
+                    onChange={(e) => {
+                      const nextPlate = formatVehiclePlate(e.target.value, form.plateCountry);
+                      setForm((prev) => ({ ...prev, plate: nextPlate }));
+                    }}
+                  />
+                </div>
               </div>
               <div className="flex gap-2 items-center">
                 <label className="w-full cursor-pointer">

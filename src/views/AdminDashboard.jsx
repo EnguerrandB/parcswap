@@ -509,33 +509,55 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   };
 
   const stats = useMemo(() => {
+    const now = Date.now();
     const totalUsers = mergedUsers.length;
     const onlineUsers = mergedUsers.filter((entry) => entry.online).length;
+    const offlineUsers = Math.max(0, totalUsers - onlineUsers);
+    const geolocatedUsers = mergedUsers.filter((entry) => entry.hasCoords).length;
+    const adminUsers = mergedUsers.filter((entry) => entry.isAdmin).length;
     const usersWithKycVerified = mergedUsers.filter((entry) => entry.kycStatus === 'verified' || entry.kycStatus === 'approved').length;
     const usersWithPendingKyc = mergedUsers.filter((entry) => entry.kycStatus === 'pending' || entry.kycStatus === 'processing').length;
     const usersWithFailedKyc = mergedUsers.filter((entry) => ['failed', 'rejected', 'canceled'].includes(entry.kycStatus)).length;
     const totalWalletAvailableCents = mergedUsers.reduce((sum, entry) => sum + entry.walletAvailableCents, 0);
     const totalWalletReservedCents = mergedUsers.reduce((sum, entry) => sum + entry.walletReservedCents, 0);
+    const totalPremiumParks = mergedUsers.reduce((sum, entry) => sum + entry.premiumParks, 0);
     const activeSpots = spots.filter((spot) => spot.status === 'available' || !spot.status).length;
     const bookedSpots = spots.filter((spot) => spot.status === 'booked' || spot.status === 'confirmed').length;
     const completedSpots = spots.filter((spot) => spot.status === 'completed' || spot.plateConfirmed === true).length;
-    const last24hUsers = mergedUsers.filter((entry) => entry.createdAtMs && Date.now() - entry.createdAtMs <= 86_400_000).length;
+    const last24hUsers = mergedUsers.filter((entry) => entry.createdAtMs && now - entry.createdAtMs <= 86_400_000).length;
+    const dormantUsers7d = mergedUsers.filter((entry) => !entry.online && entry.lastSeenMs && now - entry.lastSeenMs > 604_800_000).length;
+    const usersWithoutHeartbeat = mergedUsers.filter((entry) => !entry.lastSeenMs).length;
     const totalTransactions = transactions.length;
+    const transactionsLast24h = transactions.filter((tx) => {
+      const ts = getMillis(tx.updatedAt || tx.createdAt);
+      return ts > 0 && now - ts <= 86_400_000;
+    }).length;
     const concludedTransactions = transactions.filter((tx) => String(tx.status || '').toLowerCase() === 'concluded').length;
+    const geoCoverageRate = totalUsers > 0 ? Math.round((geolocatedUsers / totalUsers) * 100) : 0;
+    const concludedRate = totalTransactions > 0 ? Math.round((concludedTransactions / totalTransactions) * 100) : 0;
     return {
       totalUsers,
       onlineUsers,
+      offlineUsers,
+      geolocatedUsers,
+      adminUsers,
       usersWithKycVerified,
       usersWithPendingKyc,
       usersWithFailedKyc,
       totalWalletAvailableCents,
       totalWalletReservedCents,
+      totalPremiumParks,
       activeSpots,
       bookedSpots,
       completedSpots,
       last24hUsers,
+      dormantUsers7d,
+      usersWithoutHeartbeat,
       totalTransactions,
+      transactionsLast24h,
       concludedTransactions,
+      geoCoverageRate,
+      concludedRate,
     };
   }, [mergedUsers, spots, transactions]);
 
@@ -551,7 +573,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   }, [mergedUsers]);
 
   useEffect(() => {
-    if (!mapboxToken || !mapContainerRef.current || mapRef.current) return undefined;
+    if (activeTab !== 'overview' || !mapboxToken || !mapContainerRef.current || mapRef.current) return undefined;
     const markers = markersRef.current;
     try {
       mapboxgl.accessToken = mapboxToken;
@@ -566,7 +588,6 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
       map.on('load', () => {
         patchSizerankInStyle(map);
-        applyMapLabelLanguage(map, currentUser?.language || 'en');
         setMapReady(true);
       });
       map.on('error', (event) => {
@@ -578,15 +599,27 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
     }
 
     return () => {
-      markers.forEach((marker) => marker.remove());
+      markers.forEach((record) => record.marker.remove());
       markers.clear();
+      hasFittedBoundsRef.current = false;
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
       }
       setMapReady(false);
     };
-  }, [currentUser?.language, mapboxToken]);
+  }, [activeTab, mapboxToken]);
+
+  useEffect(() => {
+    if (activeTab !== 'overview' || !mapReady || !mapRef.current) return;
+    requestAnimationFrame(() => {
+      mapRef.current?.resize();
+    });
+  }, [activeTab, mapReady]);
+
+  useEffect(() => {
+    hasFittedBoundsRef.current = false;
+  }, [activeTab, showOnlyOnline]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -785,6 +818,37 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                 />
               </div>
 
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  icon={ShieldAlert}
+                  label="Admins"
+                  value={compactNumber(stats.adminUsers)}
+                  detail={`${stats.offlineUsers} hors ligne actuellement`}
+                  accentClass="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
+                />
+                <StatCard
+                  icon={MapPin}
+                  label="Couverture geoloc"
+                  value={`${stats.geoCoverageRate}%`}
+                  detail={`${stats.geolocatedUsers} profils localisables`}
+                  accentClass="bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-200"
+                />
+                <StatCard
+                  icon={Clock3}
+                  label="Activite 24h"
+                  value={compactNumber(stats.transactionsLast24h)}
+                  detail={`${stats.concludedRate}% de transactions conclues`}
+                  accentClass="bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-200"
+                />
+                <StatCard
+                  icon={CarFront}
+                  label="Premium parks"
+                  value={compactNumber(stats.totalPremiumParks)}
+                  detail={`${stats.dormantUsers7d} dormants sur 7 jours`}
+                  accentClass="bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-200"
+                />
+              </div>
+
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
                 <section className="rounded-[32px] border border-white/12 bg-white/70 p-4 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
                   <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -870,6 +934,29 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                           </div>
                         );
                       })}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Retention</div>
+                    <h3 className="mt-2 text-xl font-black tracking-tight">Sante de la base</h3>
+                    <div className="mt-5 grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Sans heartbeat</div>
+                        <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.usersWithoutHeartbeat}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Dormants 7j</div>
+                        <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.dormantUsers7d}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Nouveaux 24h</div>
+                        <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.last24hUsers}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Utilisateurs geo</div>
+                        <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.geolocatedUsers}</div>
+                      </div>
                     </div>
                   </section>
 

@@ -20,6 +20,7 @@ import {
   Clock3,
   Globe,
   MapPin,
+  Navigation,
   Plus,
   RefreshCw,
   Save,
@@ -213,6 +214,9 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
   const hasFittedBoundsRef = useRef(false);
+  const userMiniMapContainerRef = useRef(null);
+  const userMiniMapRef = useRef(null);
+  const userMiniMapMarkerRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
   const [users, setUsers] = useState([]);
@@ -588,6 +592,52 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
     if (!mapReady || !mapRef.current) return;
     applyMapLabelLanguage(mapRef.current, currentUser?.language || 'en');
   }, [currentUser?.language, mapReady]);
+
+  useEffect(() => {
+    if (activeTab !== 'users' || !selectedUser?.hasCoords || !mapboxToken || !userMiniMapContainerRef.current) {
+      if (userMiniMapMarkerRef.current) {
+        userMiniMapMarkerRef.current.remove();
+        userMiniMapMarkerRef.current = null;
+      }
+      if (userMiniMapRef.current) {
+        userMiniMapRef.current.remove();
+        userMiniMapRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (!userMiniMapRef.current) {
+      mapboxgl.accessToken = mapboxToken;
+      const miniMap = new mapboxgl.Map({
+        container: userMiniMapContainerRef.current,
+        style: MAP_STYLE,
+        center: [selectedUser.lng, selectedUser.lat],
+        zoom: 13.5,
+        attributionControl: false,
+        interactive: false,
+      });
+      userMiniMapRef.current = miniMap;
+      miniMap.on('load', () => {
+        patchSizerankInStyle(miniMap);
+        applyMapLabelLanguage(miniMap, currentUser?.language || 'en');
+      });
+    }
+
+    const map = userMiniMapRef.current;
+    map.jumpTo({ center: [selectedUser.lng, selectedUser.lat], zoom: 13.5 });
+
+    if (!userMiniMapMarkerRef.current) {
+      userMiniMapMarkerRef.current = new mapboxgl.Marker({ color: selectedUser.online ? '#10b981' : '#f97316' })
+        .setLngLat([selectedUser.lng, selectedUser.lat])
+        .addTo(map);
+    } else {
+      userMiniMapMarkerRef.current.setLngLat([selectedUser.lng, selectedUser.lat]);
+      const markerElement = userMiniMapMarkerRef.current.getElement?.();
+      if (markerElement) markerElement.style.color = selectedUser.online ? '#10b981' : '#f97316';
+    }
+
+    return undefined;
+  }, [activeTab, currentUser?.language, mapboxToken, selectedUser?.hasCoords, selectedUser?.lat, selectedUser?.lng, selectedUser?.online]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -1183,9 +1233,15 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Live summary</div>
                       <h4 className="mt-2 text-xl font-black tracking-tight">Etat instantane</h4>
                       <div className="mt-5 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className={`rounded-2xl p-4 ${selectedUser.online
+                          ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-500/12 dark:text-emerald-100'
+                          : 'bg-slate-100 text-slate-800 dark:bg-slate-500/12 dark:text-slate-100'}`}>
                           <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Presence</div>
-                          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{selectedUser.online ? 'Online' : 'Offline'}</div>
+                          <div className="mt-2 flex items-center gap-2 text-lg font-black">
+                            <span className={`h-3 w-3 rounded-full ${selectedUser.online ? 'bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.18)]' : 'bg-slate-400 shadow-[0_0_0_6px_rgba(148,163,184,0.14)]'}`} />
+                            {selectedUser.online ? 'Actif' : 'Inactif'}
+                          </div>
+                          <div className="mt-2 text-xs font-medium opacity-80">{selectedUser.lastSeenMs ? `Dernier signal ${getRelativeTimeLabel(selectedUser.lastSeenMs)}` : 'Aucun heartbeat recu'}</div>
                         </div>
                         <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
                           <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Wallet</div>
@@ -1201,10 +1257,28 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                         </div>
                       </div>
                       {selectedUser.hasCoords ? (
-                        <div className="mt-4 rounded-2xl border border-slate-200/70 px-4 py-3 text-sm text-slate-600 dark:border-white/10 dark:text-slate-300/80">
-                          Derniere position: {selectedUser.lat.toFixed(5)}, {selectedUser.lng.toFixed(5)}
+                        <div className="mt-4 overflow-hidden rounded-[24px] border border-slate-200/70 dark:border-white/10">
+                          <div className="flex items-center justify-between border-b border-slate-200/70 px-4 py-3 dark:border-white/10">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Position</div>
+                              <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">Derniere zone connue</div>
+                            </div>
+                            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${selectedUser.online
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'
+                              : 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200'}`}>
+                              <Navigation size={14} />
+                              {selectedUser.online ? 'Position live' : 'Derniere position'}
+                            </div>
+                          </div>
+                          <div className="relative h-[220px] w-full bg-slate-200/50 dark:bg-slate-900/70">
+                            <div ref={userMiniMapContainerRef} className="h-full w-full" />
+                          </div>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="mt-4 rounded-2xl border border-dashed border-slate-200/70 px-4 py-6 text-sm text-slate-500 dark:border-white/10 dark:text-slate-400">
+                          Aucune position exploitable pour cet utilisateur.
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-[28px] border border-white/10 bg-white/55 p-5 dark:bg-white/5">

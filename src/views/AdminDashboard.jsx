@@ -38,6 +38,7 @@ const ONLINE_WINDOW_MS = 90_000;
 const MAP_STYLE = 'mapbox://styles/louloupark/cmjb7kixg005z01qy4cztc9ce';
 const FALLBACK_CENTER = [2.3522, 48.8566];
 const SUPPORTED_CURRENCIES = ['EUR', 'GBP', 'ILS', 'AED', 'RUB', 'USD'];
+const SUPPORTED_LANGUAGES = ['en', 'fr', 'he', 'ar', 'ru'];
 const SUPPORTED_KYC_STATUSES = ['unverified', 'pending', 'processing', 'verified', 'approved', 'failed', 'rejected'];
 
 const getMillis = (value) => {
@@ -94,6 +95,18 @@ const compactNumber = (value) => new Intl.NumberFormat('en', { notation: 'compac
 
 const formatAdminMoney = (cents) => formatCurrencyAmount((Number(cents) || 0) / 100, 'EUR');
 
+const centsToInputAmount = (cents) => {
+  const amount = (Number(cents) || 0) / 100;
+  return amount.toFixed(2);
+};
+
+const parseAmountToCents = (value, fallback = 0) => {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return Math.round(parsed * 100);
+};
+
 const parseNonNegativeInt = (value, fallback = 0) => {
   const parsed = Number.parseInt(String(value ?? '').trim(), 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -135,6 +148,22 @@ const TextField = ({ label, value, onChange, isDark, type = 'text', placeholder 
       className={inputClassName(isDark)}
     />
   </label>
+);
+
+const AdminTabButton = ({ active, label, onClick, isDark }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${active
+      ? isDark
+        ? 'bg-orange-500 text-white shadow-[0_12px_30px_rgba(249,115,22,0.28)]'
+        : 'bg-slate-950 text-white shadow-[0_12px_30px_rgba(15,23,42,0.16)]'
+      : isDark
+        ? 'bg-white/6 text-slate-200 hover:bg-white/10'
+        : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+  >
+    {label}
+  </button>
 );
 
 const getUserPopupHtml = (entry) => {
@@ -191,6 +220,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const [spots, setSpots] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [showOnlyOnline, setShowOnlyOnline] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
   const [userSearch, setUserSearch] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedUserVehicles, setSelectedUserVehicles] = useState([]);
@@ -342,8 +372,8 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
         : 'EUR',
       kycStatus: selectedUser.kycStatus || 'unverified',
       premiumParks: String(selectedUser.premiumParks ?? 0),
-      walletAvailableCents: String(selectedUser.walletAvailableCents ?? 0),
-      walletReservedCents: String(selectedUser.walletReservedCents ?? 0),
+      walletAvailableCents: centsToInputAmount(selectedUser.walletAvailableCents),
+      walletReservedCents: centsToInputAmount(selectedUser.walletReservedCents),
       isAdmin: selectedUser.isAdmin === true,
     });
     setSaveState({ tone: 'idle', message: '' });
@@ -398,8 +428,8 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
         currency: String(selectedUserForm.currency || 'EUR').toUpperCase(),
         kycStatus: selectedUserForm.kycStatus || 'unverified',
         premiumParks: parseNonNegativeInt(selectedUserForm.premiumParks, 0),
-        walletAvailableCents: parseNonNegativeInt(selectedUserForm.walletAvailableCents, 0),
-        walletReservedCents: parseNonNegativeInt(selectedUserForm.walletReservedCents, 0),
+        walletAvailableCents: parseAmountToCents(selectedUserForm.walletAvailableCents, 0),
+        walletReservedCents: parseAmountToCents(selectedUserForm.walletReservedCents, 0),
         isAdmin: selectedUserForm.isAdmin === true,
         updatedAt: serverTimestamp(),
       };
@@ -652,175 +682,195 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              icon={Users}
+          <div className="flex flex-wrap items-center gap-3">
+            <AdminTabButton
+              active={activeTab === 'overview'}
+              label="Vue globale"
+              onClick={() => setActiveTab('overview')}
+              isDark={isDark}
+            />
+            <AdminTabButton
+              active={activeTab === 'users'}
               label="Utilisateurs"
-              value={compactNumber(stats.totalUsers)}
-              detail={`${stats.last24hUsers} nouveaux sur 24h`}
-              accentClass="bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200"
-            />
-            <StatCard
-              icon={Activity}
-              label="En ligne"
-              value={compactNumber(stats.onlineUsers)}
-              detail={`${mappedUsers.length} avec geoloc exploitable`}
-              accentClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
-            />
-            <StatCard
-              icon={Wallet}
-              label="Wallet disponible"
-              value={formatAdminMoney(stats.totalWalletAvailableCents)}
-              detail={`${formatAdminMoney(stats.totalWalletReservedCents)} reserves`}
-              accentClass="bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200"
-            />
-            <StatCard
-              icon={BadgeCheck}
-              label="Transactions"
-              value={compactNumber(stats.totalTransactions)}
-              detail={`${stats.concludedTransactions} conclues`}
-              accentClass="bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+              onClick={() => setActiveTab('users')}
+              isDark={isDark}
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
-            <section className="rounded-[32px] border border-white/12 bg-white/70 p-4 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
-              <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Presence map</div>
-                  <h2 className="mt-2 text-2xl font-black tracking-tight">Personnes connectees en temps reel</h2>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowOnlyOnline((value) => !value)}
-                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${showOnlyOnline
-                      ? isDark
-                        ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
-                        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : isDark
-                        ? 'border-white/10 bg-white/5 text-slate-200'
-                        : 'border-slate-200 bg-white text-slate-700'}`}
-                  >
-                    <Users size={16} />
-                    {showOnlyOnline ? 'Online only' : 'All tracked users'}
-                  </button>
-                  <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                    <span className={`h-3 w-3 rounded-full ${statusTone(true)}`} />
-                    online
-                    <span className={`ml-3 h-3 w-3 rounded-full ${statusTone(false)}`} />
-                    stale
-                  </div>
-                </div>
+          {activeTab === 'overview' ? (
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  icon={Users}
+                  label="Utilisateurs"
+                  value={compactNumber(stats.totalUsers)}
+                  detail={`${stats.last24hUsers} nouveaux sur 24h`}
+                  accentClass="bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200"
+                />
+                <StatCard
+                  icon={Activity}
+                  label="En ligne"
+                  value={compactNumber(stats.onlineUsers)}
+                  detail={`${mappedUsers.length} avec geoloc exploitable`}
+                  accentClass="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200"
+                />
+                <StatCard
+                  icon={Wallet}
+                  label="Wallet disponible"
+                  value={formatAdminMoney(stats.totalWalletAvailableCents)}
+                  detail={`${formatAdminMoney(stats.totalWalletReservedCents)} reserves`}
+                  accentClass="bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200"
+                />
+                <StatCard
+                  icon={BadgeCheck}
+                  label="Transactions"
+                  value={compactNumber(stats.totalTransactions)}
+                  detail={`${stats.concludedTransactions} conclues`}
+                  accentClass="bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+                />
               </div>
 
-              <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-200/40 dark:bg-slate-900/70" style={{ minHeight: '480px' }}>
-                {!mapboxToken ? (
-                  <div className="flex h-[480px] items-center justify-center px-6 text-center">
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
+                <section className="rounded-[32px] border border-white/12 bg-white/70 p-4 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
+                  <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-500">
-                        <MapPin size={24} />
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Presence map</div>
+                      <h2 className="mt-2 text-2xl font-black tracking-tight">Personnes connectees en temps reel</h2>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowOnlyOnline((value) => !value)}
+                        className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${showOnlyOnline
+                          ? isDark
+                            ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : isDark
+                            ? 'border-white/10 bg-white/5 text-slate-200'
+                            : 'border-slate-200 bg-white text-slate-700'}`}
+                      >
+                        <Users size={16} />
+                        {showOnlyOnline ? 'Online only' : 'All tracked users'}
+                      </button>
+                      <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                        <span className={`h-3 w-3 rounded-full ${statusTone(true)}`} />
+                        online
+                        <span className={`ml-3 h-3 w-3 rounded-full ${statusTone(false)}`} />
+                        stale
                       </div>
-                      <h3 className="mt-4 text-xl font-bold">Mapbox token missing</h3>
-                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">Ajoute VITE_MAPBOX_TOKEN pour afficher la carte live dans l interface admin.</p>
                     </div>
                   </div>
-                ) : (
-                  <div ref={mapContainerRef} className="h-[480px] w-full" />
-                )}
-                {mapError ? (
-                  <div className="absolute left-4 top-4 rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-                    {mapError}
+
+                  <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-200/40 dark:bg-slate-900/70" style={{ minHeight: '480px' }}>
+                    {!mapboxToken ? (
+                      <div className="flex h-[480px] items-center justify-center px-6 text-center">
+                        <div>
+                          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-500">
+                            <MapPin size={24} />
+                          </div>
+                          <h3 className="mt-4 text-xl font-bold">Mapbox token missing</h3>
+                          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">Ajoute VITE_MAPBOX_TOKEN pour afficher la carte live dans l interface admin.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div ref={mapContainerRef} className="h-[480px] w-full" />
+                    )}
+                    {mapError ? (
+                      <div className="absolute left-4 top-4 rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+                        {mapError}
+                      </div>
+                    ) : null}
+                    {mapboxToken && !mapReady ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-slate-950/45">
+                        <div className="inline-flex items-center gap-3 rounded-full border border-white/20 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-white">
+                          <RefreshCw size={16} className="animate-spin" />
+                          Initialisation de la carte admin
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-                {mapboxToken && !mapReady ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-slate-950/45">
-                    <div className="inline-flex items-center gap-3 rounded-full border border-white/20 bg-slate-950/80 px-4 py-2 text-sm font-semibold text-white">
-                      <RefreshCw size={16} className="animate-spin" />
-                      Initialisation de la carte admin
+                </section>
+
+                <aside className="grid grid-cols-1 gap-6">
+                  <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Usage</div>
+                    <h3 className="mt-2 text-xl font-black tracking-tight">Etat produit</h3>
+                    <div className="mt-5 space-y-4">
+                      {[
+                        { label: 'Spots disponibles', value: stats.activeSpots, color: 'bg-orange-500' },
+                        { label: 'Reservations en cours', value: stats.bookedSpots, color: 'bg-sky-500' },
+                        { label: 'Swaps finalises', value: stats.completedSpots, color: 'bg-emerald-500' },
+                      ].map((item) => {
+                        const total = Math.max(1, stats.activeSpots + stats.bookedSpots + stats.completedSpots);
+                        const width = `${Math.min(100, (item.value / total) * 100)}%`;
+                        return (
+                          <div key={item.label}>
+                            <div className="mb-2 flex items-center justify-between text-sm">
+                              <span className="font-semibold text-slate-700 dark:text-slate-200">{item.label}</span>
+                              <span className="text-slate-500 dark:text-slate-400">{item.value}</span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-slate-200/80 dark:bg-white/10">
+                              <div className={`h-2.5 rounded-full ${item.color}`} style={{ width }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                ) : null}
+                  </section>
+
+                  <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">KYC</div>
+                    <h3 className="mt-2 text-xl font-black tracking-tight">Verification utilisateurs</h3>
+                    <div className="mt-5 grid grid-cols-3 gap-3 text-center">
+                      <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-500/10">
+                        <div className="text-2xl font-black text-emerald-700 dark:text-emerald-200">{stats.usersWithKycVerified}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700/80 dark:text-emerald-200/80">Verified</div>
+                      </div>
+                      <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-500/10">
+                        <div className="text-2xl font-black text-amber-700 dark:text-amber-200">{stats.usersWithPendingKyc}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700/80 dark:text-amber-200/80">Pending</div>
+                      </div>
+                      <div className="rounded-2xl bg-rose-50 p-4 dark:bg-rose-500/10">
+                        <div className="text-2xl font-black text-rose-700 dark:text-rose-200">{stats.usersWithFailedKyc}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-rose-700/80 dark:text-rose-200/80">Failed</div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Locales</div>
+                        <h3 className="mt-2 text-xl font-black tracking-tight">Langues dominantes</h3>
+                      </div>
+                      <Globe size={18} className="text-slate-400" />
+                    </div>
+                    <div className="mt-5 space-y-3">
+                      {topLanguages.length === 0 ? (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">Aucune langue disponible.</div>
+                      ) : topLanguages.map(([language, count]) => {
+                        const width = `${Math.min(100, (count / Math.max(1, stats.totalUsers)) * 100)}%`;
+                        return (
+                          <div key={language}>
+                            <div className="mb-2 flex items-center justify-between text-sm">
+                              <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{language}</span>
+                              <span className="text-slate-500 dark:text-slate-400">{count}</span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-slate-200/80 dark:bg-white/10">
+                              <div className="h-2.5 rounded-full bg-slate-900 dark:bg-slate-100" style={{ width }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </aside>
               </div>
-            </section>
+            </>
+          ) : null}
 
-            <aside className="grid grid-cols-1 gap-6">
-              <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Usage</div>
-                <h3 className="mt-2 text-xl font-black tracking-tight">Etat produit</h3>
-                <div className="mt-5 space-y-4">
-                  {[
-                    { label: 'Spots disponibles', value: stats.activeSpots, color: 'bg-orange-500' },
-                    { label: 'Reservations en cours', value: stats.bookedSpots, color: 'bg-sky-500' },
-                    { label: 'Swaps finalises', value: stats.completedSpots, color: 'bg-emerald-500' },
-                  ].map((item) => {
-                    const total = Math.max(1, stats.activeSpots + stats.bookedSpots + stats.completedSpots);
-                    const width = `${Math.min(100, (item.value / total) * 100)}%`;
-                    return (
-                      <div key={item.label}>
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-semibold text-slate-700 dark:text-slate-200">{item.label}</span>
-                          <span className="text-slate-500 dark:text-slate-400">{item.value}</span>
-                        </div>
-                        <div className="h-2.5 rounded-full bg-slate-200/80 dark:bg-white/10">
-                          <div className={`h-2.5 rounded-full ${item.color}`} style={{ width }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">KYC</div>
-                <h3 className="mt-2 text-xl font-black tracking-tight">Verification utilisateurs</h3>
-                <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-                  <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-500/10">
-                    <div className="text-2xl font-black text-emerald-700 dark:text-emerald-200">{stats.usersWithKycVerified}</div>
-                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700/80 dark:text-emerald-200/80">Verified</div>
-                  </div>
-                  <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-500/10">
-                    <div className="text-2xl font-black text-amber-700 dark:text-amber-200">{stats.usersWithPendingKyc}</div>
-                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700/80 dark:text-amber-200/80">Pending</div>
-                  </div>
-                  <div className="rounded-2xl bg-rose-50 p-4 dark:bg-rose-500/10">
-                    <div className="text-2xl font-black text-rose-700 dark:text-rose-200">{stats.usersWithFailedKyc}</div>
-                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-rose-700/80 dark:text-rose-200/80">Failed</div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-[32px] border border-white/12 bg-white/70 p-5 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Locales</div>
-                    <h3 className="mt-2 text-xl font-black tracking-tight">Langues dominantes</h3>
-                  </div>
-                  <Globe size={18} className="text-slate-400" />
-                </div>
-                <div className="mt-5 space-y-3">
-                  {topLanguages.length === 0 ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Aucune langue disponible.</div>
-                  ) : topLanguages.map(([language, count]) => {
-                    const width = `${Math.min(100, (count / Math.max(1, stats.totalUsers)) * 100)}%`;
-                    return (
-                      <div key={language}>
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-semibold uppercase text-slate-700 dark:text-slate-200">{language}</span>
-                          <span className="text-slate-500 dark:text-slate-400">{count}</span>
-                        </div>
-                        <div className="h-2.5 rounded-full bg-slate-200/80 dark:bg-white/10">
-                          <div className="h-2.5 rounded-full bg-slate-900 dark:bg-slate-100" style={{ width }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            </aside>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
+          {activeTab === 'users' ? (
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
             <section className="overflow-hidden rounded-[32px] border border-white/12 bg-white/70 shadow-[0_30px_80px_rgba(15,23,42,0.1)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/55">
               <div className="border-b border-slate-200/70 px-5 py-5 dark:border-white/10">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">User directory</div>
@@ -946,12 +996,18 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                           onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, phone: event.target.value }))}
                           isDark={isDark}
                         />
-                        <TextField
-                          label="Langue"
-                          value={selectedUserForm.language}
-                          onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, language: event.target.value }))}
-                          isDark={isDark}
-                        />
+                        <label className="block">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Langue</div>
+                          <select
+                            value={selectedUserForm.language}
+                            onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, language: event.target.value }))}
+                            className={selectClassName(isDark)}
+                          >
+                            {SUPPORTED_LANGUAGES.map((language) => (
+                              <option key={language} value={language}>{language}</option>
+                            ))}
+                          </select>
+                        </label>
                         <label className="block">
                           <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Currency</div>
                           <select
@@ -977,13 +1033,13 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                           </select>
                         </label>
                         <TextField
-                          label="Wallet disponible (cents)"
+                          label="Wallet disponible"
                           value={selectedUserForm.walletAvailableCents}
                           onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, walletAvailableCents: event.target.value }))}
                           isDark={isDark}
                         />
                         <TextField
-                          label="Wallet reserve (cents)"
+                          label="Wallet reserve"
                           value={selectedUserForm.walletReservedCents}
                           onChange={(event) => setSelectedUserForm((prev) => ({ ...prev, walletReservedCents: event.target.value }))}
                           isDark={isDark}
@@ -1015,7 +1071,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                           className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
                         >
                           <Save size={16} />
-                          Enregistrer en temps reel
+                          Enregistrer
                         </button>
                         <div className="text-sm text-slate-500 dark:text-slate-400">
                           Transactions: <span className="font-semibold text-slate-900 dark:text-white">{selectedUser.transactions}</span>
@@ -1187,7 +1243,8 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                 </div>
               )}
             </section>
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Clock3,
   Globe,
+  Image as ImageIcon,
   MapPin,
   Navigation,
   Plus,
@@ -251,6 +252,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   const [selectedUserForm, setSelectedUserForm] = useState(null);
   const [vehicleForms, setVehicleForms] = useState({});
   const [newVehicleForm, setNewVehicleForm] = useState({ model: '', plate: '' });
+  const [previewVehicle, setPreviewVehicle] = useState(null);
   const [saveState, setSaveState] = useState({ tone: 'idle', message: '' });
 
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -437,6 +439,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
   useEffect(() => {
     if (!selectedUserId) {
       setSelectedUserVehicles([]);
+      setPreviewVehicle(null);
       return undefined;
     }
 
@@ -470,6 +473,12 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       }, {}),
     );
   }, [selectedUserVehicles]);
+
+  useEffect(() => {
+    if (!previewVehicle?.id) return;
+    const stillExists = selectedUserVehicles.find((vehicle) => vehicle.id === previewVehicle.id) || null;
+    setPreviewVehicle(stillExists);
+  }, [previewVehicle?.id, selectedUserVehicles]);
 
   const handleSaveUser = async () => {
     if (!selectedUserId || !selectedUserForm) return;
@@ -1363,9 +1372,28 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                           </div>
                         ) : selectedUserVehicles.map((vehicle) => {
                           const draft = vehicleForms[vehicle.id] || { model: '', plate: '', isDefault: false };
+                          const vehiclePhotoUrl = vehicle.photoUrl || vehicle.photo || null;
                           return (
                             <div key={vehicle.id} className="rounded-[24px] border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
-                              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_200px_auto]">
+                              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[96px_minmax(0,1fr)_200px_auto]">
+                                <button
+                                  type="button"
+                                  onClick={() => vehiclePhotoUrl && setPreviewVehicle(vehicle)}
+                                  disabled={!vehiclePhotoUrl}
+                                  className={`group flex h-24 w-24 items-center justify-center overflow-hidden rounded-[20px] border transition ${vehiclePhotoUrl
+                                    ? 'border-slate-200 bg-slate-100 hover:border-orange-300 hover:bg-orange-50 dark:border-white/10 dark:bg-white/5 dark:hover:border-orange-400/40 dark:hover:bg-orange-500/10'
+                                    : 'cursor-default border-dashed border-slate-200 bg-white text-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-600'}`}
+                                >
+                                  {vehiclePhotoUrl ? (
+                                    <img
+                                      src={vehiclePhotoUrl}
+                                      alt={`Photo de ${vehicle.model || 'vehicule'}`}
+                                      className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+                                    />
+                                  ) : (
+                                    <ImageIcon size={24} />
+                                  )}
+                                </button>
                                 <input
                                   type="text"
                                   value={draft.model}
@@ -1399,6 +1427,21 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                                 </div>
                               </div>
                               <div className="mt-3 flex flex-wrap items-center gap-3">
+                                {vehiclePhotoUrl ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewVehicle(vehicle)}
+                                    className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-orange-700 transition hover:bg-orange-100 dark:bg-orange-500/10 dark:text-orange-200 dark:hover:bg-orange-500/15"
+                                  >
+                                    <ImageIcon size={14} />
+                                    Voir la photo
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:bg-white/10 dark:text-slate-400">
+                                    <ImageIcon size={14} />
+                                    Pas de photo
+                                  </span>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleSetDefaultVehicle(vehicle.id)}
@@ -1515,6 +1558,39 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
           ) : null}
         </div>
       </div>
+
+      {previewVehicle ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm" onClick={() => setPreviewVehicle(null)}>
+          <div
+            className={`relative w-full max-w-3xl overflow-hidden rounded-[32px] border ${isDark ? 'border-white/10 bg-slate-950' : 'border-white/60 bg-white'} shadow-[0_32px_100px_rgba(15,23,42,0.45)]`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setPreviewVehicle(null)}
+              className={`absolute right-4 top-4 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full ${isDark ? 'bg-slate-950/80 text-white' : 'bg-white/90 text-slate-900'} shadow-lg transition hover:scale-105`}
+            >
+              <X size={18} />
+            </button>
+            {previewVehicle.photoUrl || previewVehicle.photo ? (
+              <img
+                src={previewVehicle.photoUrl || previewVehicle.photo}
+                alt={`Photo de ${previewVehicle.model || 'vehicule'}`}
+                className="max-h-[78vh] w-full bg-slate-100 object-contain dark:bg-slate-900"
+              />
+            ) : null}
+            <div className={`flex items-center justify-between gap-4 px-6 py-5 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-900'}`}>
+              <div>
+                <div className="text-lg font-black tracking-tight">{previewVehicle.model || 'Vehicule'}</div>
+                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">{previewVehicle.plate || 'Sans plaque'}</div>
+              </div>
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                {previewVehicle.ownerId || selectedUserId}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

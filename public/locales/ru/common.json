@@ -311,6 +311,7 @@
   "inviteShared": "Отправлено ✨",
   "inviteFailed": "Ошибка копирования",
   "firebaseUserIdLabel": "Firebase ID",
+  "firebaseUserIdHint": "Идентификатор аккаунта в Firebase",
   "firebaseUserIdCopy": "Копировать",
   "firebaseUserIdCopied": "Скопировано",
   "contactUs": "Связаться с нами",

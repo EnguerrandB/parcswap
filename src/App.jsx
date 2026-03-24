@@ -3087,7 +3087,7 @@ export default function ParkSwapApp() {
                 onClick={() => changeAdminMode(false)}
                 className={`rounded-full px-5 py-3 text-sm font-semibold transition ${theme === 'dark' ? 'bg-white/10 text-slate-100 hover:bg-white/15' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
               >
-                Retour a l'app
+                Retour à l'app
               </button>
             </div>
           </div>

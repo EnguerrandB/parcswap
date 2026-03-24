@@ -311,6 +311,7 @@
   "inviteShared": "تمت المشاركة ✨",
   "inviteFailed": "فشل النسخ",
   "firebaseUserIdLabel": "معرّف Firebase",
+  "firebaseUserIdHint": "معرّف الحساب على Firebase",
   "firebaseUserIdCopy": "نسخ",
   "firebaseUserIdCopied": "تم النسخ",
   "contactUs": "اتصل بنا",

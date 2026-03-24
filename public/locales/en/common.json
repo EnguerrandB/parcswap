@@ -312,6 +312,7 @@
   "inviteShared": "Shared ✨",
   "inviteFailed": "Copy failed",
   "firebaseUserIdLabel": "Firebase ID",
+  "firebaseUserIdHint": "Account identifier on Firebase",
   "firebaseUserIdCopy": "Copy",
   "firebaseUserIdCopied": "Copied",
   "contactUs": "Contact us",

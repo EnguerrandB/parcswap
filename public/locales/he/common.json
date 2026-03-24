@@ -312,6 +312,7 @@
   "inviteShared": "שותף ✨",
   "inviteFailed": "ההעתקה נכשלה",
   "firebaseUserIdLabel": "מזהה Firebase",
+  "firebaseUserIdHint": "מזהה החשבון ב-Firebase",
   "firebaseUserIdCopy": "העתקה",
   "firebaseUserIdCopied": "הועתק",
   "contactUs": "צור קשר",

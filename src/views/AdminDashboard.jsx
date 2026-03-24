@@ -350,6 +350,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
     const query = String(userSearch || '').trim().toLowerCase();
     const searchedUsers = mergedUsers.filter((entry) => (
       query === ''
+      || String(entry.id || '').toLowerCase().includes(query)
       || String(entry.displayName || '').toLowerCase().includes(query)
       || String(entry.email || '').toLowerCase().includes(query)
       || String(entry.phone || '').toLowerCase().includes(query)
@@ -1090,23 +1091,23 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                     type="text"
                     value={userSearch}
                     onChange={(event) => setUserSearch(event.target.value)}
-                    placeholder="Rechercher par nom, email, telephone, langue"
+                    placeholder="Rechercher par UID Firebase, nom, email, telephone, langue"
                     className={`${inputClassName(isDark)} pl-11`}
                   />
                 </div>
-                <div className="mt-4 rounded-[24px] border border-slate-200/70 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5">
+                <div className="mt-3 rounded-[20px] border border-slate-200/70 bg-white/70 p-3 dark:border-white/10 dark:bg-white/5">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                      <SlidersHorizontal size={14} />
+                    <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                      <SlidersHorizontal size={13} />
                       Tri rapide
                     </div>
-                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${isDark ? 'bg-white/8 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${isDark ? 'bg-white/8 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
                       {filteredUsers.length} resultat{filteredUsers.length > 1 ? 's' : ''}
                     </span>
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-1">
+                  <div className="mt-3 grid grid-cols-1 gap-2.5 md:grid-cols-1">
                     <label className="block">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Trier par</div>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Trier par</div>
                       <select
                         value={userSort}
                         onChange={(event) => setUserSort(event.target.value)}
@@ -1118,8 +1119,8 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                       </select>
                     </label>
                   </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-200">
                       {getUserSortLabel(userSort)}
                     </span>
                   </div>

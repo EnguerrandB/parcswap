@@ -26,12 +26,7 @@ import {
   sendEmailVerification,
 } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
-import {
-  deleteObject,
-  getDownloadURL,
-  ref as storageRef,
-  uploadBytes,
-} from 'firebase/storage';
+import { deleteObject, ref as storageRef } from 'firebase/storage';
 
 import { db, appId, auth, functions, storage } from './firebase';
 import BottomNav from './components/BottomNav';
@@ -167,16 +162,6 @@ const safeNumber = (value, fallback = 0) => {
 
 const safePrice = (value) => safeNumber(value, 0);
 const MAX_INLINE_VEHICLE_PHOTO_LENGTH = 700_000;
-
-const sanitizeStorageSegment = (value, fallback = 'file') => {
-  const normalized = String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  return normalized || fallback;
-};
 
 const fileToDataUrl = (file) =>
   new Promise((resolve, reject) => {
@@ -2693,20 +2678,7 @@ export default function ParkSwapApp() {
       let inlinePhoto = null;
 
       if (photo instanceof File) {
-        const safeName = sanitizeStorageSegment(photo.name, 'vehicle-photo');
-        photoStoragePath = `users/${user.uid}/vehicles/${vehicleRef.id}/${Date.now()}-${safeName}`;
-        const uploadedRef = storageRef(storage, photoStoragePath);
-        try {
-          const uploadSnapshot = await uploadBytes(uploadedRef, photo, {
-            contentType: photo.type || 'image/jpeg',
-            cacheControl: 'public,max-age=3600',
-          });
-          photoUrl = await getDownloadURL(uploadSnapshot.ref);
-        } catch (uploadError) {
-          console.error('Vehicle photo upload failed, falling back to inline Firestore storage:', uploadError);
-          inlinePhoto = await compressVehiclePhotoForFirestore(photo);
-          photoStoragePath = null;
-        }
+        inlinePhoto = await compressVehiclePhotoForFirestore(photo);
       }
 
       try {

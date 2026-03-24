@@ -36,13 +36,75 @@ import SearchView from './views/SearchView';
 import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
 import AuthView from './views/AuthView';
+import AdminDashboard from './views/AdminDashboard';
 import i18n from './i18n/i18n';
 import Map from './components/Map';
 import MapSearchView from './components/MapSearchView';
 import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
-import { MapPin, Settings } from 'lucide-react';
+import { MapPin, Settings, Shield } from 'lucide-react';
 import { newId } from './utils/ids';
 import { formatCurrencyAmount, getDefaultCurrencyForLanguage } from './utils/currency';
+
+const ADMIN_EMAILS = new Set(
+  String(import.meta.env.VITE_ADMIN_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+const resolveAdminAccess = (data, email = '') => {
+  const normalizedEmail = String(email || data?.email || '').trim().toLowerCase();
+  if (normalizedEmail && ADMIN_EMAILS.has(normalizedEmail)) return true;
+  if (data?.isAdmin === true || data?.admin === true) return true;
+
+  const directRole = String(data?.role || data?.userRole || '').trim().toLowerCase();
+  if (directRole === 'admin' || directRole === 'superadmin') return true;
+
+  const roles = Array.isArray(data?.roles)
+    ? data.roles
+    : Array.isArray(data?.claims?.roles)
+      ? data.claims.roles
+      : [];
+  return roles.some((role) => {
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    return normalizedRole === 'admin' || normalizedRole === 'superadmin';
+  });
+};
+
+const readAdminModeFromLocation = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const url = new URL(window.location.href);
+    const queryFlag = String(url.searchParams.get('admin') || '').trim().toLowerCase();
+    const hashFlag = String(url.hash || '').replace(/^#/, '').trim().toLowerCase();
+    const pathname = String(url.pathname || '').replace(/\/+$/, '').trim().toLowerCase();
+    return queryFlag === '1' || queryFlag === 'true' || hashFlag === 'admin' || pathname.endsWith('/admin');
+  } catch (_) {
+    return false;
+  }
+};
+
+const updateAdminLocation = (enabled) => {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  const pathname = String(url.pathname || '');
+
+  if (pathname && pathname.toLowerCase().endsWith('/admin')) {
+    const normalizedPath = pathname.replace(/\/admin\/?$/i, '') || '/';
+    url.pathname = normalizedPath;
+  }
+
+  if (enabled) {
+    url.searchParams.set('admin', '1');
+  } else {
+    url.searchParams.delete('admin');
+    if (String(url.hash || '').replace(/^#/, '').trim().toLowerCase() === 'admin') {
+      url.hash = '';
+    }
+  }
+
+  window.history.pushState({}, document.title, url.toString());
+};
 
 const hashSeed = (str) => {
   let h = 2166136261;
@@ -428,6 +490,7 @@ export default function ParkSwapApp() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
   const [activeTab, setActiveTab] = useState('search');
+  const [adminMode, setAdminMode] = useState(readAdminModeFromLocation);
   const proposeViewRef = useRef(null);
   const tabOrder = ['search', 'propose', 'profile'];
   const [slideDir, setSlideDir] = useState('left');
@@ -489,6 +552,22 @@ export default function ParkSwapApp() {
   useEffect(() => {
     userUidRef.current = user?.uid || null;
   }, [user?.uid]);
+
+  useEffect(() => {
+    const syncAdminMode = () => setAdminMode(readAdminModeFromLocation());
+    syncAdminMode();
+    window.addEventListener('popstate', syncAdminMode);
+    window.addEventListener('hashchange', syncAdminMode);
+    return () => {
+      window.removeEventListener('popstate', syncAdminMode);
+      window.removeEventListener('hashchange', syncAdminMode);
+    };
+  }, []);
+
+  const changeAdminMode = (nextEnabled) => {
+    updateAdminLocation(nextEnabled);
+    setAdminMode(Boolean(nextEnabled));
+  };
 
   // Try to lock orientation to portrait (best-effort) + block landscape UX-wise.
   useEffect(() => {
@@ -1082,6 +1161,7 @@ export default function ParkSwapApp() {
           let walletCents = 0;
           let walletReservedCents = 0;
           let kycStatus = 'unverified';
+              let isAdmin = resolveAdminAccess(null, fbUser.email || '');
 		      try {
 		        const snap = await getDoc(userRef);
 		        if (snap.exists()) {
@@ -1091,6 +1171,7 @@ export default function ParkSwapApp() {
               walletReservedCents = walletReservedCentsFromData(data);
               if (data?.kycStatus) kycStatus = data.kycStatus;
               else if (data?.kyc?.status) kycStatus = data.kyc.status;
+                  isAdmin = resolveAdminAccess(data, fbUser.email || '');
 		        }
 		      } catch (err) {
 		        console.error('Error loading user language:', err);
@@ -1107,6 +1188,7 @@ export default function ParkSwapApp() {
             walletReservedCents,
 		        language: language || 'en',
             kycStatus,
+            isAdmin,
 		      };
 		    };
 
@@ -1164,6 +1246,7 @@ export default function ParkSwapApp() {
       let walletCents = 0;
       let walletReservedCents = 0;
       let kycStatus = 'unverified';
+      let isAdmin = resolveAdminAccess(null, fbUser.email || '');
       try {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
@@ -1173,6 +1256,7 @@ export default function ParkSwapApp() {
           walletReservedCents = walletReservedCentsFromData(data);
           if (data?.kycStatus) kycStatus = data.kycStatus;
           else if (data?.kyc?.status) kycStatus = data.kyc.status;
+          isAdmin = resolveAdminAccess(data, fbUser.email || '');
         }
       } catch (err) {
         console.error('Error loading user language:', err);
@@ -1189,6 +1273,7 @@ export default function ParkSwapApp() {
         walletReservedCents,
         language: language || 'en',
         kycStatus,
+        isAdmin,
       };
       setUser((prev) => prev || nextUser);
       if (nextUser.language) i18n.changeLanguage(nextUser.language);
@@ -1569,6 +1654,7 @@ export default function ParkSwapApp() {
                 wallet: nextWallet,
                 walletCents,
                 walletReservedCents,
+                isAdmin: resolveAdminAccess(data, data.email || prev?.email || ''),
 		          };
 		        });
 	      },
@@ -2922,6 +3008,8 @@ export default function ParkSwapApp() {
   const getActiveViewName = () => {
     if (initializing) return 'Initializing';
     if (!user) return 'AuthView';
+    if (adminMode && user?.isAdmin) return 'AdminDashboard';
+    if (adminMode) return 'AdminAccessDenied';
     // Check for Map overlay (highest priority)
     if (selectedSearchSpot && !insufficientFundsModal && isSearchSelectionRenderable(selectedSearchSpot)) {
       return 'Map';
@@ -2973,6 +3061,56 @@ export default function ParkSwapApp() {
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
        <OrientationBlockedOverlay visible={orientationBlocked} />
        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
+      </div>
+    );
+  }
+
+  if (adminMode && !user?.isAdmin) {
+    return (
+      <div
+        className={`relative h-screen w-full overflow-hidden ${theme === 'dark' ? 'bg-[#050816] text-slate-50' : 'bg-[#f4efe7] text-slate-950'}`}
+      >
+        <OrientationBlockedOverlay visible={orientationBlocked} />
+        <div className="flex h-full items-center justify-center px-6">
+          <div className={`w-full max-w-xl rounded-[32px] border p-8 shadow-[0_30px_90px_rgba(15,23,42,0.16)] ${theme === 'dark' ? 'border-white/10 bg-slate-950/70' : 'border-white/70 bg-white/85'}`}>
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-500">
+              <Shield size={26} strokeWidth={2.4} />
+            </div>
+            <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-500">Admin Access</div>
+            <h1 className="mt-3 text-3xl font-black tracking-tight">Acces refuse</h1>
+            <p className={`mt-3 text-sm leading-6 ${theme === 'dark' ? 'text-slate-300/85' : 'text-slate-600'}`}>
+              Ce compte n'a pas de droit administrateur. Active un profil Firebase avec isAdmin, role=admin, roles=['admin'] ou configure VITE_ADMIN_EMAILS pour autoriser l'acces.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => changeAdminMode(false)}
+                className={`rounded-full px-5 py-3 text-sm font-semibold transition ${theme === 'dark' ? 'bg-white/10 text-slate-100 hover:bg-white/15' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+              >
+                Retour a l'app
+              </button>
+            </div>
+          </div>
+        </div>
+        <FirestoreDebugOverlay />
+        <TapDebugOverlay />
+        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
+      </div>
+    );
+  }
+
+  if (adminMode && user?.isAdmin) {
+    return (
+      <div className="relative h-screen w-full overflow-hidden">
+        <OrientationBlockedOverlay visible={orientationBlocked} />
+        <AdminDashboard
+          currentUser={user}
+          theme={theme}
+          onExit={() => changeAdminMode(false)}
+        />
+        <FirestoreDebugOverlay />
+        <TapDebugOverlay />
+        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
       </div>
     );
   }
@@ -3098,6 +3236,25 @@ export default function ParkSwapApp() {
                 topMenuOpen ? 'max-h-64 opacity-100 pt-3' : 'max-h-0 opacity-0 pointer-events-none pt-0'
               }`}
             >
+              {user?.isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    changeAdminMode(true);
+                    setTopMenuOpen(false);
+                  }}
+                  className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                    theme === 'dark'
+                      ? 'bg-slate-900/80 text-orange-200 border-orange-400/30 hover:bg-slate-800'
+                      : 'bg-white/70 text-orange-600 border-orange-200/70 hover:bg-white'
+                  }`}
+                  style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+                  aria-label="Admin"
+                  title="Admin"
+                >
+                  <Shield size={22} strokeWidth={2.5} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

@@ -400,7 +400,7 @@ const ProfileView = ({
             alt="Rang"
             className="w-10 h-10 rounded-full border border-orange-100 object-contain bg-white p-1"
           />
-          <div>
+          <div className="relative">
             <button
               type="button"
               onClick={() => user?.uid && setShowFirebaseUserId(true)}
@@ -409,6 +409,63 @@ const ProfileView = ({
               <h2 className="text-2xl font-bold text-gray-900">{user?.displayName || t('unknown', 'Unknown')}</h2>
             </button>
             <p className="text-xs font-semibold text-orange-600 mt-1">{rankLabel(userTransactionCount)}</p>
+
+            {showFirebaseUserId && user?.uid && (
+              <>
+                <button
+                  type="button"
+                  aria-label={t('close', { defaultValue: 'Close' })}
+                  className="fixed inset-0 z-40 cursor-default"
+                  onClick={() => closeWithAnim(setClosingFirebaseUserId, setShowFirebaseUserId)}
+                />
+                <div
+                  className={`absolute left-0 top-full z-50 mt-3 w-[18rem] rounded-2xl border p-4 shadow-2xl ${
+                    closingFirebaseUserId ? 'animate-[modalOut_0.2s_ease_forwards]' : 'animate-[modalIn_0.22s_ease]'
+                  } ${
+                    isDark ? 'bg-slate-900 border-white/10 text-slate-100' : 'bg-white border-gray-100 text-gray-900'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <div className="font-semibold text-sm leading-tight">
+                        {t('firebaseUserIdLabel', { defaultValue: 'ID Firebase' })}
+                      </div>
+                      <div className={`text-[11px] mt-1 ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                        {t('firebaseUserIdHint', { defaultValue: 'Identifiant du compte sur Firebase' })}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => closeWithAnim(setClosingFirebaseUserId, setShowFirebaseUserId)}
+                      aria-label={t('close', { defaultValue: 'Close' })}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition ${
+                        isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className={`rounded-xl border px-3 py-2.5 ${isDark ? 'border-slate-700 bg-slate-950/70' : 'border-orange-100 bg-orange-50/40'}`}>
+                    <p className={`text-xs font-mono break-all ${isDark ? 'text-slate-100' : 'text-gray-800'}`}>
+                      {user.uid}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyFirebaseUserId}
+                    className={`mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                      isDark ? 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {firebaseUserIdCopied
+                      ? t('firebaseUserIdCopied', { defaultValue: 'Copiee' })
+                      : t('firebaseUserIdCopy', { defaultValue: 'Copier' })}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
         <Leaderboard
@@ -826,63 +883,6 @@ const ProfileView = ({
                 {t('addFunds', { defaultValue: 'Ajouter' })}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showFirebaseUserId && user?.uid && (
-        <div
-          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4 ${
-            closingFirebaseUserId ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
-          }`}
-          onClick={() => closeWithAnim(setClosingFirebaseUserId, setShowFirebaseUserId)}
-        >
-          <div
-            className={`rounded-2xl shadow-2xl w-full max-w-[19rem] p-4 relative border ${
-              closingFirebaseUserId ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
-            } ${
-              isDark ? 'bg-slate-900 border-white/10 text-slate-100' : 'bg-white border-gray-100 text-gray-900'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <div className="font-semibold text-base leading-tight">
-                  {t('firebaseUserIdLabel', { defaultValue: 'ID Firebase' })}
-                </div>
-                <div className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
-                  {t('firebaseUserIdHint', { defaultValue: 'Identifiant du compte sur Firebase' })}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => closeWithAnim(setClosingFirebaseUserId, setShowFirebaseUserId)}
-                aria-label={t('close', { defaultValue: 'Close' })}
-                className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
-                  isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className={`rounded-xl border px-3 py-2.5 ${isDark ? 'border-slate-700 bg-slate-950/70' : 'border-orange-100 bg-orange-50/40'}`}>
-              <p className={`text-xs font-mono break-all ${isDark ? 'text-slate-100' : 'text-gray-800'}`}>
-                {user.uid}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCopyFirebaseUserId}
-              className={`mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-                isDark ? 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-              }`}
-            >
-              {firebaseUserIdCopied
-                ? t('firebaseUserIdCopied', { defaultValue: 'Copiee' })
-                : t('firebaseUserIdCopy', { defaultValue: 'Copier' })}
-            </button>
           </div>
         </div>
       )}

@@ -515,6 +515,9 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
     const offlineUsers = Math.max(0, totalUsers - onlineUsers);
     const geolocatedUsers = mergedUsers.filter((entry) => entry.hasCoords).length;
     const adminUsers = mergedUsers.filter((entry) => entry.isAdmin).length;
+    const normalUsers = Math.max(0, totalUsers - adminUsers);
+    const onlineAdmins = mergedUsers.filter((entry) => entry.isAdmin && entry.online).length;
+    const offlineAdmins = Math.max(0, adminUsers - onlineAdmins);
     const usersWithKycVerified = mergedUsers.filter((entry) => entry.kycStatus === 'verified' || entry.kycStatus === 'approved').length;
     const usersWithPendingKyc = mergedUsers.filter((entry) => entry.kycStatus === 'pending' || entry.kycStatus === 'processing').length;
     const usersWithFailedKyc = mergedUsers.filter((entry) => ['failed', 'rejected', 'canceled'].includes(entry.kycStatus)).length;
@@ -533,14 +536,23 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       return ts > 0 && now - ts <= 86_400_000;
     }).length;
     const concludedTransactions = transactions.filter((tx) => String(tx.status || '').toLowerCase() === 'concluded').length;
+    const concludedTransactionsLast24h = transactions.filter((tx) => {
+      const ts = getMillis(tx.updatedAt || tx.createdAt);
+      return ts > 0 && now - ts <= 86_400_000 && String(tx.status || '').toLowerCase() === 'concluded';
+    }).length;
     const geoCoverageRate = totalUsers > 0 ? Math.round((geolocatedUsers / totalUsers) * 100) : 0;
-    const concludedRate = totalTransactions > 0 ? Math.round((concludedTransactions / totalTransactions) * 100) : 0;
+    const concludedRate24h = transactionsLast24h > 0
+      ? Math.round((concludedTransactionsLast24h / transactionsLast24h) * 100)
+      : 0;
     return {
       totalUsers,
       onlineUsers,
       offlineUsers,
       geolocatedUsers,
       adminUsers,
+      normalUsers,
+      onlineAdmins,
+      offlineAdmins,
       usersWithKycVerified,
       usersWithPendingKyc,
       usersWithFailedKyc,
@@ -556,8 +568,9 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
       totalTransactions,
       transactionsLast24h,
       concludedTransactions,
+      concludedTransactionsLast24h,
       geoCoverageRate,
-      concludedRate,
+      concludedRate24h,
     };
   }, [mergedUsers, spots, transactions]);
 
@@ -823,7 +836,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                   icon={ShieldAlert}
                   label="Admins"
                   value={compactNumber(stats.adminUsers)}
-                  detail={`${stats.offlineUsers} hors ligne actuellement`}
+                  detail={`${stats.onlineAdmins} en ligne, ${stats.normalUsers} utilisateurs standard`}
                   accentClass="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200"
                 />
                 <StatCard
@@ -837,7 +850,7 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                   icon={Clock3}
                   label="Activite 24h"
                   value={compactNumber(stats.transactionsLast24h)}
-                  detail={`${stats.concludedRate}% de transactions conclues`}
+                  detail={`${stats.concludedTransactionsLast24h} conclues, ${stats.concludedRate24h}% du flux 24h`}
                   accentClass="bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-200"
                 />
                 <StatCard
@@ -948,6 +961,10 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                       <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
                         <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Dormants 7j</div>
                         <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.dormantUsers7d}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
+                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Admins hors ligne</div>
+                        <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{stats.offlineAdmins}</div>
                       </div>
                       <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">
                         <div className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Nouveaux 24h</div>

@@ -1238,20 +1238,18 @@ const AdminDashboard = ({ currentUser, theme = 'light', onExit }) => {
                       <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Live summary</div>
                       <h4 className="mt-2 text-xl font-black tracking-tight">Etat instantane</h4>
                       <div className="mt-5 grid grid-cols-2 gap-3">
-                        <div className={`rounded-2xl p-4 ${selectedUser.online
-                          ? 'bg-emerald-50 dark:bg-emerald-500/12'
-                          : 'bg-slate-100 dark:bg-slate-500/12'}`}>
+                        <div className={`rounded-2xl border p-4 ${selectedUser.online
+                          ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-400/20 dark:bg-emerald-500/8'
+                          : 'border-slate-200 bg-slate-100/80 dark:border-white/10 dark:bg-slate-500/8'}`}>
                           <div className={`text-xs uppercase tracking-[0.16em] ${selectedUser.online
-                            ? 'text-emerald-700 dark:text-emerald-200'
+                            ? 'text-emerald-700 dark:text-emerald-300'
                             : 'text-slate-500 dark:text-slate-400'}`}>Presence</div>
-                          <div className={`mt-2 flex items-center gap-2 text-lg font-black ${selectedUser.online
-                            ? 'text-emerald-950 dark:text-emerald-50'
-                            : 'text-slate-900 dark:text-white'}`}>
+                          <div className="mt-2 flex items-center gap-2 text-lg font-black text-slate-900 dark:text-white">
                             <span className={`h-3 w-3 rounded-full ${selectedUser.online ? 'bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,0.18)]' : 'bg-slate-400 shadow-[0_0_0_6px_rgba(148,163,184,0.14)]'}`} />
                             {selectedUser.online ? 'Actif' : 'Inactif'}
                           </div>
                           <div className={`mt-2 text-xs font-medium ${selectedUser.online
-                            ? 'text-emerald-800 dark:text-emerald-100/90'
+                            ? 'text-emerald-900 dark:text-emerald-200'
                             : 'text-slate-600 dark:text-slate-300/80'}`}>{selectedUser.lastSeenMs ? `Dernier signal ${getRelativeTimeLabel(selectedUser.lastSeenMs)}` : 'Aucun heartbeat recu'}</div>
                         </div>
                         <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-white/8">

@@ -109,6 +109,8 @@ const ProfileView = ({
   const [voices, setVoices] = useState([]);
   const [kycLoading, setKycLoading] = useState(false);
   const [currency, setCurrency] = useState(user?.currency || 'EUR');
+  const [showFirebaseUserId, setShowFirebaseUserId] = useState(false);
+  const [firebaseUserIdCopied, setFirebaseUserIdCopied] = useState(false);
 
   useEffect(() => {
     if (showRankInfo) setClosingRank(false);
@@ -117,6 +119,19 @@ const ProfileView = ({
   useEffect(() => {
     if (showWalletModal) setClosingWalletModal(false);
   }, [showWalletModal]);
+
+  useEffect(() => {
+    if (!firebaseUserIdCopied) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setFirebaseUserIdCopied(false);
+    }, 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [firebaseUserIdCopied]);
+
+  useEffect(() => {
+    setShowFirebaseUserId(false);
+    setFirebaseUserIdCopied(false);
+  }, [user?.uid]);
 
   useEffect(() => {
     setLanguage(user?.language || 'en');
@@ -220,6 +235,35 @@ const ProfileView = ({
     setWalletInput('');
   };
   const walletValue = Number(user?.wallet);
+
+  const handleCopyFirebaseUserId = async () => {
+    if (!user?.uid) return;
+    const valueToCopy = String(user.uid);
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(valueToCopy);
+        setFirebaseUserIdCopied(true);
+        return;
+      } catch (_) {
+        // Fallback below handles browsers that reject clipboard access.
+      }
+    }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = valueToCopy;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'absolute';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setFirebaseUserIdCopied(true);
+    } catch (_) {
+      setFirebaseUserIdCopied(false);
+    }
+  };
   const walletDisplay = Number.isFinite(walletValue) ? walletValue : 0;
   const kycBadge = useMemo(() => {
     const statusRaw = String(user?.kycStatus || user?.kyc?.status || 'unverified');
@@ -349,8 +393,35 @@ const ProfileView = ({
             className="w-10 h-10 rounded-full border border-orange-100 object-contain bg-white p-1"
           />
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{user?.displayName || t('unknown', 'Unknown')}</h2>
+            <button
+              type="button"
+              onClick={() => user?.uid && setShowFirebaseUserId((prev) => !prev)}
+              className="text-left"
+            >
+              <h2 className="text-2xl font-bold text-gray-900">{user?.displayName || t('unknown', 'Unknown')}</h2>
+            </button>
             <p className="text-xs font-semibold text-orange-600 mt-1">{rankLabel(userTransactionCount)}</p>
+            {showFirebaseUserId && user?.uid ? (
+              <div className={`mt-2 inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${isDark ? 'border-slate-700 bg-slate-900/70' : 'border-orange-100 bg-white/95'}`}>
+                <div>
+                  <p className={`text-[11px] font-semibold uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                    {t('firebaseUserIdLabel', { defaultValue: 'ID Firebase' })}
+                  </p>
+                  <p className={`text-xs font-mono break-all ${isDark ? 'text-slate-100' : 'text-gray-800'}`}>
+                    {user.uid}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyFirebaseUserId}
+                  className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${isDark ? 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                >
+                  {firebaseUserIdCopied
+                    ? t('firebaseUserIdCopied', { defaultValue: 'Copiee' })
+                    : t('firebaseUserIdCopy', { defaultValue: 'Copier' })}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <Leaderboard

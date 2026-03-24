@@ -326,6 +326,9 @@ const resolvePublicParkingCity = (coords) => {
   return bestCity;
 };
 
+const getPublicParkingCityById = (cityId) =>
+  PUBLIC_PARKING_CITIES.find((city) => city.id === cityId) || null;
+
 const withTimeout = async (promiseFactory, timeoutMs = 12000) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -611,6 +614,8 @@ exports.fetchPublicParkings = functions
   .https.onCall(async (data) => {
     const lng = Number(data?.lng);
     const lat = Number(data?.lat);
+    const forceCityId =
+      typeof data?.forceCityId === "string" ? data.forceCityId.trim().toLowerCase() : "";
     const limit = clamp(
       Math.round(Number(data?.limit) || PUBLIC_PARKING_DEFAULT_LIMIT),
       1,
@@ -629,7 +634,7 @@ exports.fetchPublicParkings = functions
       );
     }
 
-    const city = resolvePublicParkingCity({ lat, lng });
+    const city = getPublicParkingCityById(forceCityId) || resolvePublicParkingCity({ lat, lng });
     if (!city) {
       return { parkings: [], cityId: null };
     }

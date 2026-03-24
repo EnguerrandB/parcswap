@@ -26,8 +26,14 @@ import {
   sendEmailVerification,
 } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
+import {
+  deleteObject,
+  getDownloadURL,
+  ref as storageRef,
+  uploadBytes,
+} from 'firebase/storage';
 
-import { db, appId, auth, functions } from './firebase';
+import { db, appId, auth, functions, storage } from './firebase';
 import BottomNav from './components/BottomNav';
 import TapDebugOverlay from './components/TapDebugOverlay';
 import FirestoreDebugOverlay from './components/FirestoreDebugOverlay';
@@ -160,6 +166,16 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 const safePrice = (value) => safeNumber(value, 0);
+
+const sanitizeStorageSegment = (value, fallback = 'file') => {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return normalized || fallback;
+};
 
 const safeCoord = (value, fallback = 0) => {
   const n = Number(value);
@@ -2612,24 +2628,69 @@ export default function ParkSwapApp() {
   const handleAddVehicle = async ({ model, plate, plateCountry, photo }) => {
     if (!user || !model || !plate) return;
     try {
-      await addDoc(vehiclesCollectionForUser(user.uid), {
-        ownerId: user.uid,
-        model,
-        plate,
-        plateCountry: plateCountry || null,
-        photo: photo || null,
-        isDefault: vehicles.length === 0,
-        createdAt: serverTimestamp(),
-      });
+      const vehiclesRef = vehiclesCollectionForUser(user.uid);
+      const vehicleRef = doc(vehiclesRef);
+      let photoUrl = null;
+      let photoStoragePath = null;
+
+      if (photo instanceof File) {
+        const safeName = sanitizeStorageSegment(photo.name, 'vehicle-photo');
+        photoStoragePath = `users/${user.uid}/vehicles/${vehicleRef.id}/${Date.now()}-${safeName}`;
+        const uploadedRef = storageRef(storage, photoStoragePath);
+        try {
+          const uploadSnapshot = await uploadBytes(uploadedRef, photo, {
+            contentType: photo.type || 'image/jpeg',
+            cacheControl: 'public,max-age=3600',
+          });
+          photoUrl = await getDownloadURL(uploadSnapshot.ref);
+        } catch (uploadError) {
+          photoStoragePath = null;
+          throw uploadError;
+        }
+      }
+
+      try {
+        await setDoc(vehicleRef, {
+          ownerId: user.uid,
+          model,
+          plate,
+          plateCountry: plateCountry || null,
+          photoUrl,
+          photoStoragePath,
+          isDefault: vehicles.length === 0,
+          createdAt: serverTimestamp(),
+        });
+      } catch (writeError) {
+        if (photoStoragePath) {
+          try {
+            await deleteObject(storageRef(storage, photoStoragePath));
+          } catch {
+            // Ignore cleanup failures after a failed Firestore write.
+          }
+        }
+        throw writeError;
+      }
     } catch (err) {
       console.error('Error adding vehicle:', err);
     }
   };
 
   const handleDeleteVehicle = async (vehicleId) => {
-    if (!vehicleId) return;
+    if (!vehicleId || !user?.uid) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid, 'vehicles', vehicleId));
+      const vehicleRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid, 'vehicles', vehicleId);
+      const vehicleSnap = await getDoc(vehicleRef);
+      const photoStoragePath = vehicleSnap.exists() ? vehicleSnap.data()?.photoStoragePath : null;
+
+      if (photoStoragePath) {
+        try {
+          await deleteObject(storageRef(storage, photoStoragePath));
+        } catch (storageError) {
+          if (storageError?.code !== 'storage/object-not-found') throw storageError;
+        }
+      }
+
+      await deleteDoc(vehicleRef);
     } catch (err) {
       console.error('Error deleting vehicle:', err);
     }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Car } from 'lucide-react';
+import { ArrowRight, Car, Image as ImageIcon, X } from 'lucide-react';
 import {
   PLATE_COUNTRY_OPTIONS,
   formatStoredVehiclePlate,
@@ -30,8 +30,11 @@ const MyVehicules = ({
   );
   const [form, setForm] = useState({ model: '', plate: '', plateCountry: defaultPlateCountry });
   const [formImage, setFormImage] = useState(null);
+  const [formImageName, setFormImageName] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [closingModal, setClosingModal] = useState(false);
+  const [previewVehicle, setPreviewVehicle] = useState(null);
+  const [closingPreviewModal, setClosingPreviewModal] = useState(false);
   const vehiclesRowRef = useRef(null);
   const [highlightVehiclesRow, setHighlightVehiclesRow] = useState(false);
   const highlightVehiclesTimerRef = useRef(null);
@@ -42,6 +45,10 @@ const MyVehicules = ({
   useEffect(() => {
     if (showModal) setClosingModal(false);
   }, [showModal]);
+
+  useEffect(() => {
+    if (previewVehicle) setClosingPreviewModal(false);
+  }, [previewVehicle]);
 
   useEffect(() => {
     const id = Number(openAddVehicleRequestId) || 0;
@@ -86,6 +93,7 @@ const MyVehicules = ({
   const resetVehicleModal = () => {
     setForm({ model: '', plate: '', plateCountry: defaultPlateCountry });
     setFormImage(null);
+    setFormImageName('');
   };
 
   const selectedPlateCountry = useMemo(
@@ -108,6 +116,10 @@ const MyVehicules = ({
   const closeVehicleModal = () => {
     resetVehicleModal();
     closeWithAnim(setClosingModal, setShowModal);
+  };
+
+  const closePreviewModal = () => {
+    closeWithAnim(setClosingPreviewModal, setPreviewVehicle);
   };
 
   return (
@@ -168,23 +180,53 @@ const MyVehicules = ({
                 (() => {
                   const vehiclePlateCountry = v.plateCountry || inferPlateCountryFromPlate(v.plate) || defaultPlateCountry;
                   const vehicleCountryMeta = getPlateCountryMeta(vehiclePlateCountry);
+                  const vehiclePhotoUrl = v.photoUrl || v.photo || null;
                   return (
                 <div
                   key={v.id}
-                  className={`flex items-center justify-between border rounded-xl px-3 py-2 ${
+                  role={vehiclePhotoUrl ? 'button' : undefined}
+                  tabIndex={vehiclePhotoUrl ? 0 : -1}
+                  onClick={() => {
+                    if (!vehiclePhotoUrl) return;
+                    setPreviewVehicle(v);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!vehiclePhotoUrl) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setPreviewVehicle(v);
+                    }
+                  }}
+                  className={`flex items-center justify-between border rounded-xl px-3 py-2 transition ${
                     v.isDefault ? 'border-orange-200 bg-orange-50' : 'border-gray-100'
-                  }`}
+                  } ${vehiclePhotoUrl ? 'cursor-pointer hover:border-orange-200 hover:bg-orange-50/60' : ''}`}
                 >
-                  <div>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {vehiclePhotoUrl ? (
+                      <img
+                        src={vehiclePhotoUrl}
+                        alt={t('vehiclePhotoAlt', { defaultValue: 'Vehicle photo for {{model}}', model: v.model || t('myVehicles') })}
+                        className="w-12 h-12 rounded-xl object-cover border border-gray-200 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl border border-dashed border-gray-200 text-gray-300 flex items-center justify-center shrink-0">
+                        <ImageIcon size={18} />
+                      </div>
+                    )}
+                    <div className="min-w-0">
                     <p className="font-semibold text-gray-900">{v.model}</p>
                     <p className="text-xs text-gray-500 tracking-widest font-mono">
                       <span className="mr-1">{vehicleCountryMeta.flag}</span>
                       {formatStoredVehiclePlate(v.plate, vehiclePlateCountry)}
                     </p>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 shrink-0">
                     <button
-                      onClick={() => onSelectVehicle?.(v.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectVehicle?.(v.id);
+                      }}
                       className={`text-sm font-semibold px-3 py-1 rounded-lg ${
                         v.isDefault
                           ? 'bg-orange-600 text-white'
@@ -193,7 +235,13 @@ const MyVehicules = ({
                     >
                       {v.isDefault ? t('selected', 'Selected') : t('select', 'Select')}
                     </button>
-                    <button onClick={() => onDeleteVehicle?.(v.id)} className="text-sm text-rose-500 hover:text-rose-600 px-2">
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteVehicle?.(v.id);
+                      }}
+                      className="text-sm text-rose-500 hover:text-rose-600 px-2"
+                    >
                       {t('delete', 'Delete')}
                     </button>
                   </div>
@@ -256,7 +304,9 @@ const MyVehicules = ({
               <div className="flex gap-2 items-center">
                 <label className="w-full cursor-pointer">
                   <div className="border border-dashed border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-600 hover:border-orange-300 hover:text-orange-600 transition">
-                    {formImage ? t('imageSelected', 'Image selected') : t('uploadPhoto', 'Upload vehicle photo')}
+                    {formImage
+                      ? t('imageSelectedWithName', { defaultValue: 'Photo selected: {{name}}', name: formImageName || t('imageSelected', 'Image selected') })
+                      : t('uploadPhoto', 'Upload vehicle photo')}
                   </div>
                   <input
                     type="file"
@@ -266,11 +316,11 @@ const MyVehicules = ({
                       const file = e.target.files?.[0];
                       if (!file) {
                         setFormImage(null);
+                        setFormImageName('');
                         return;
                       }
-                      const reader = new FileReader();
-                      reader.onloadend = () => setFormImage(reader.result);
-                      reader.readAsDataURL(file);
+                      setFormImage(file);
+                      setFormImageName(file.name || '');
                     }}
                   />
                 </label>
@@ -301,6 +351,51 @@ const MyVehicules = ({
                   {t('addVehicle', 'Add vehicle')}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewVehicle && (
+        <div
+          className={`fixed inset-0 bg-black/55 backdrop-blur-sm z-[60] flex items-center justify-center px-4 ${
+            closingPreviewModal ? 'animate-[overlayFadeOut_0.2s_ease_forwards]' : 'animate-[overlayFade_0.2s_ease]'
+          }`}
+          onClick={closePreviewModal}
+        >
+          <div
+            className={`bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden relative ${
+              closingPreviewModal ? 'animate-[modalOut_0.24s_ease_forwards]' : 'animate-[modalIn_0.28s_ease]'
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={closePreviewModal}
+              className="absolute top-3 right-3 z-10 w-10 h-10 rounded-full bg-white/90 text-gray-700 shadow flex items-center justify-center hover:bg-white"
+              aria-label={t('close', 'Close')}
+            >
+              <X size={18} />
+            </button>
+            {(previewVehicle.photoUrl || previewVehicle.photo) ? (
+              <img
+                src={previewVehicle.photoUrl || previewVehicle.photo}
+                alt={t('vehiclePhotoAlt', {
+                  defaultValue: 'Vehicle photo for {{model}}',
+                  model: previewVehicle.model || t('myVehicles'),
+                })}
+                className="w-full max-h-[70vh] object-cover bg-gray-100"
+              />
+            ) : null}
+            <div className="p-5 space-y-1">
+              <p className="text-lg font-semibold text-gray-900">{previewVehicle.model}</p>
+              <p className="text-sm text-gray-500 tracking-widest font-mono">
+                <span className="mr-1">{getPlateCountryMeta(previewVehicle.plateCountry || inferPlateCountryFromPlate(previewVehicle.plate) || defaultPlateCountry).flag}</span>
+                {formatStoredVehiclePlate(
+                  previewVehicle.plate,
+                  previewVehicle.plateCountry || inferPlateCountryFromPlate(previewVehicle.plate) || defaultPlateCountry,
+                )}
+              </p>
             </div>
           </div>
         </div>

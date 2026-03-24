@@ -164,6 +164,10 @@ const PUBLIC_PARKING_DEFAULT_LIMIT = 20;
 const PUBLIC_PARKING_MAX_LIMIT = 40;
 const PUBLIC_PARKING_DEFAULT_RADIUS_M = 2000;
 const PUBLIC_PARKING_MAX_RADIUS_M = 4000;
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 
 const PUBLIC_PARKING_CITIES = [
   {
@@ -353,6 +357,25 @@ const fetchJson = async (url, options = {}, timeoutMs = 12000) =>
       throw new Error(`public_parking_fetch_${response.status}`);
     }
     return response.json();
+  }, timeoutMs);
+
+const fetchJsonText = async (url, options = {}, timeoutMs = 12000) =>
+  withTimeout(async (signal) => {
+    const response = await fetch(url, {
+      ...options,
+      signal,
+      headers: {
+        Accept: "application/json,text/plain;q=0.9,*/*;q=0.1",
+        ...(options.headers || {}),
+      },
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      text,
+      contentType: response.headers.get("content-type") || "",
+    };
   }, timeoutMs);
 
 const pickParisPoint = (record, origin) => {
@@ -550,21 +573,49 @@ const pickOverpassCoords = (element) => {
   return isValidCoord(center.lng, center.lat) ? center : null;
 };
 
-const fetchOverpassPublicParkings = async ({ city, lat, lng, radiusMeters, limit }) => {
+const fetchOverpassData = async ({ lat, lng, radiusMeters }) => {
   const body = new URLSearchParams({
     data: buildOverpassQuery({ lat, lng, radiusMeters }),
   }).toString();
-  const data = await fetchJson(
-    "https://overpass-api.de/api/interpreter",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-      body,
-    },
-    15000,
-  );
+  const errors = [];
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const response = await fetchJsonText(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body,
+        },
+        15000,
+      );
+      if (!response.ok) {
+        errors.push(`${endpoint} status ${response.status}`);
+        continue;
+      }
+
+      try {
+        return JSON.parse(response.text);
+      } catch (_) {
+        errors.push(
+          `${endpoint} invalid json ${response.contentType} ${response.text
+            .slice(0, 120)
+            .replace(/\s+/g, " ")}`,
+        );
+      }
+    } catch (err) {
+      errors.push(`${endpoint} ${err?.message || String(err)}`);
+    }
+  }
+
+  throw new Error(`overpass_unavailable: ${errors.join(" | ")}`);
+};
+
+const fetchOverpassPublicParkings = async ({ city, lat, lng, radiusMeters, limit }) => {
+  const data = await fetchOverpassData({ lat, lng, radiusMeters });
 
   const elements = Array.isArray(data?.elements) ? data.elements : [];
   const unique = new Map();

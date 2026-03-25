@@ -173,7 +173,7 @@ const SwipeCard = forwardRef(({
     // Permet au parent de récupérer la position (pour trackActionPosition)
     getBoundingClientRect: () => internalRef.current?.getBoundingClientRect(),
     
-    // La fonction magique pour l'arc de cercle
+    // Déclenche une sortie latérale courte pour les boutons d'action
     triggerSwipe: (direction) => {
       if (direction === 'right') {
         const allowed =
@@ -186,22 +186,19 @@ const SwipeCard = forwardRef(({
         }
       }
       const isRight = direction === 'right';
-      const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 400;
-      
-      // CONFIGURATION DE L'ARC :
-      // On l'envoie loin sur le côté (X)
-      // On le fait tomber légèrement (Y positif = gravité)
-      // La rotation se fera via le calcul de style plus bas
-      setOffset({ 
-        x: isRight ? screenWidth + 200 : -screenWidth - 200, 
-        y: 100 
+      const exitDistance = typeof window !== 'undefined'
+        ? Math.min(Math.max(window.innerWidth * 0.42, 240), 380)
+        : 280;
+
+      setOffset({
+        x: isRight ? exitDistance : -exitDistance,
+        y: 0,
       });
 
-      // On attend la fin de la transition CSS (0.35s) avant de valider
       setTimeout(() => {
         onSwipe(direction);
         if (onDrag) onDrag(0);
-      }, 300);
+      }, 220);
     }
   }));
 

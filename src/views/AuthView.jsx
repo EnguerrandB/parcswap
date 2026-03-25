@@ -57,9 +57,10 @@ const AuthView = ({ noticeMessage = '' }) => {
     (typeof document !== 'undefined' && document.body?.dataset?.theme === 'dark') ||
     (typeof window !== 'undefined' && window.localStorage?.getItem('theme') === 'dark');
   const authBgUrl = import.meta.env.VITE_AUTH_BG_URL || '/auth-bg.png';
+  const passwordInputBaseClass = 'w-full h-12 px-4 pr-20 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400';
 
   // --- État du formulaire ---
-  const [form, setForm] = useState({ email: '', password: '', name: '' });
+  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', name: '' });
   const [phoneForm, setPhoneForm] = useState({ phone: '', code: '' });
   const [phoneCountry, setPhoneCountry] = useState('FR');
 
@@ -71,8 +72,8 @@ const AuthView = ({ noticeMessage = '' }) => {
   const [info, setInfo] = useState(noticeMessage || '');
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
   const [resendingVerification, setResendingVerification] = useState(false);
-  const [emailVerificationCode, setEmailVerificationCode] = useState('');
-  const [verifyingEmailCode, setVerifyingEmailCode] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // --- État spécifique Téléphone ---
   const [confirmationResult, setConfirmationResult] = useState(null);
@@ -170,7 +171,6 @@ const AuthView = ({ noticeMessage = '' }) => {
     setError('');
     setInfo('');
     setPendingVerificationEmail('');
-    setEmailVerificationCode('');
     void user;
   };
 
@@ -226,25 +226,15 @@ const AuthView = ({ noticeMessage = '' }) => {
     } catch (_) {}
   };
 
-  const handleVerifyEmailCode = async (rawCode = emailVerificationCode, options = {}) => {
+  const handleVerifyEmailCode = async (rawCode, options = {}) => {
     const normalizedCode = normalizeEmailActionCodeInput(rawCode);
-    if (!normalizedCode) {
-      setError(
-        t(
-          'emailVerificationCodeRequired',
-          'Collez le code de verification recu par email, ou le lien complet Firebase.',
-        ),
-      );
-      return false;
-    }
+    if (!normalizedCode) return false;
 
     setError('');
     if (!options.fromUrl) setInfo('');
-    setVerifyingEmailCode(true);
     try {
       await checkActionCode(auth, normalizedCode);
       await applyActionCode(auth, normalizedCode);
-      setEmailVerificationCode('');
       clearVerificationParamsFromUrl();
       setInfo(
         t(
@@ -267,10 +257,30 @@ const AuthView = ({ noticeMessage = '' }) => {
       }
       setError(msg);
       return false;
-    } finally {
-      setVerifyingEmailCode(false);
     }
   };
+
+  const renderPasswordField = ({ value, onChange, placeholder, visible, onToggle }) => (
+    <div className="group relative">
+      <input
+        type={visible ? 'text' : 'password'}
+        className={passwordInputBaseClass}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        required
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold transition-colors ${
+          isDark ? 'text-slate-300 hover:text-slate-50' : 'text-gray-500 hover:text-gray-900'
+        }`}
+      >
+        {visible ? t('hidePassword', 'Masquer') : t('showPassword', 'Afficher')}
+      </button>
+    </div>
+  );
 
   const clearRecaptcha = () => {
     if (recaptchaVerifierRef.current) {
@@ -320,6 +330,16 @@ const AuthView = ({ noticeMessage = '' }) => {
           setLoading(false);
           return;
         }
+        if (!form.confirmPassword) {
+          setError(t('confirmPasswordRequired', 'Confirmez votre mot de passe.'));
+          setLoading(false);
+          return;
+        }
+        if (form.password !== form.confirmPassword) {
+          setError(t('passwordsDoNotMatch', 'Les mots de passe ne correspondent pas.'));
+          setLoading(false);
+          return;
+        }
         const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
         const displayName = String(form.name || '').trim();
         await updateProfile(cred.user, { displayName });
@@ -342,7 +362,7 @@ const AuthView = ({ noticeMessage = '' }) => {
         await sendEmailVerification(cred.user, buildEmailActionSettings());
         await signOut(auth);
         setPendingVerificationEmail(cred.user.email || form.email || '');
-        setEmailVerificationCode('');
+        setForm((prev) => ({ ...prev, password: '', confirmPassword: '' }));
         setMode('login');
         setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
       } else {
@@ -412,7 +432,6 @@ const AuthView = ({ noticeMessage = '' }) => {
       await sendEmailVerification(signedInUser, buildEmailActionSettings());
       await signOut(auth);
       setPendingVerificationEmail(signedInUser.email || email);
-      setEmailVerificationCode('');
       setInfo(
         t(
           'verificationEmailResent',
@@ -660,46 +679,10 @@ const AuthView = ({ noticeMessage = '' }) => {
                   'Pas de mail reçu ? Renvoyez le lien après avoir saisi votre mot de passe.',
                 )}
               </div>
-              <div className="mt-3 space-y-2">
-                <div className={`text-[11px] ${isDark ? 'text-slate-300/75' : 'text-gray-500'}`}>
-                  {t(
-                    'emailVerificationCodeHint',
-                    'Collez ici le code oobCode du lien Firebase, ou le lien complet recu par email.',
-                  )}
-                </div>
-                <input
-                  type="text"
-                  value={emailVerificationCode}
-                  onChange={(e) => setEmailVerificationCode(e.target.value)}
-                  placeholder={t('emailVerificationCodePlaceholder', 'Code ou lien de verification')}
-                  className={`w-full h-12 px-4 rounded-2xl text-sm outline-none transition-all ${
-                    isDark
-                      ? 'bg-white/5 border border-white/10 text-slate-50 placeholder:text-slate-400 focus:border-orange-400 focus:ring-4 focus:ring-orange-500/10'
-                      : 'bg-white border border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-orange-500 focus:ring-4 focus:ring-orange-50'
-                  }`}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleVerifyEmailCode()}
-                  disabled={loading || resendingVerification || verifyingEmailCode}
-                  className={`h-10 w-full rounded-2xl text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
-                    isDark
-                      ? 'bg-orange-500/85 text-white hover:bg-orange-500'
-                      : 'bg-orange-500 text-white hover:bg-orange-600'
-                  }`}
-                >
-                  {verifyingEmailCode
-                    ? t('verifying', 'Verification...')
-                    : t('verifyEmailCodeButton', 'Valider le code email')}
-                </button>
-              </div>
               <button
                 type="button"
                 onClick={handleResendVerificationEmail}
-                disabled={loading || resendingVerification || verifyingEmailCode}
+                disabled={loading || resendingVerification}
                 className={`mt-3 h-10 w-full rounded-2xl text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                   isDark
                     ? 'bg-white/10 text-slate-50 hover:bg-white/15 border border-white/10'
@@ -740,16 +723,22 @@ const AuthView = ({ noticeMessage = '' }) => {
                     required
                   />
                 </div>
-                <div className="group">
-                  <input
-                    type="password"
-                    className="w-full h-12 px-4 bg-gray-50 hover:bg-gray-100 focus:bg-white border-2 border-transparent focus:border-orange-100 focus:ring-4 focus:ring-orange-50/50 rounded-2xl text-sm font-medium outline-none transition-all placeholder:text-gray-400"
-                    placeholder="Mot de passe"
-                    value={form.password}
-                    onChange={(e) => setForm({...form, password: e.target.value})}
-                    required
-                  />
-                </div>
+                {renderPasswordField({
+                  value: form.password,
+                  onChange: (e) => setForm({ ...form, password: e.target.value }),
+                  placeholder: t('password', 'Mot de passe'),
+                  visible: showPassword,
+                  onToggle: () => setShowPassword((prev) => !prev),
+                })}
+                {mode === 'register'
+                  ? renderPasswordField({
+                      value: form.confirmPassword,
+                      onChange: (e) => setForm({ ...form, confirmPassword: e.target.value }),
+                      placeholder: t('confirmPassword', 'Confirmer le mot de passe'),
+                      visible: showConfirmPassword,
+                      onToggle: () => setShowConfirmPassword((prev) => !prev),
+                    })
+                  : null}
               </div>
             )}
 

@@ -565,6 +565,9 @@ const SearchView = ({
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const [shareToast, setShareToast] = useState('');
   const [dragX, setDragX] = useState(0);
+  const actionsRowRef = useRef(null);
+  const dismissButtonRef = useRef(null);
+  const acceptButtonRef = useRef(null);
   const radiusSliderRef = useRef(null);
   const priceSliderRef = useRef(null);
   const { isOnline, isPoorConnection } = useConnectionQuality();
@@ -960,6 +963,39 @@ const SearchView = ({
   const rightButtonLabel = isActivePublicParking
     ? t('goThere', { defaultValue: 'Y aller' })
     : t('book', 'Book');
+  const [actionButtonTravel, setActionButtonTravel] = useState({ left: 0, right: 0 });
+
+  useLayoutEffect(() => {
+    const rowEl = actionsRowRef.current;
+    const dismissEl = dismissButtonRef.current;
+    const acceptEl = acceptButtonRef.current;
+    if (!rowEl || !dismissEl || !acceptEl) return undefined;
+
+    const updateActionButtonTravel = () => {
+      const rowWidth = rowEl.getBoundingClientRect().width;
+      const dismissWidth = dismissEl.getBoundingClientRect().width;
+      const acceptWidth = acceptEl.getBoundingClientRect().width;
+
+      setActionButtonTravel({
+        left: Math.max(0, (rowWidth - dismissWidth) / 2),
+        right: Math.max(0, (rowWidth - acceptWidth) / 2),
+      });
+    };
+
+    updateActionButtonTravel();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateActionButtonTravel);
+      return () => window.removeEventListener('resize', updateActionButtonTravel);
+    }
+
+    const observer = new ResizeObserver(() => updateActionButtonTravel());
+    observer.observe(rowEl);
+    observer.observe(dismissEl);
+    observer.observe(acceptEl);
+
+    return () => observer.disconnect();
+  }, [rightButtonLabel, visibleSpots.length, isMapOpen]);
 
   useEffect(() => {
     if (!Number.isFinite(currentIndex)) return;
@@ -1607,6 +1643,7 @@ const SearchView = ({
         {/* --- BLOC BOUTONS CORRIGÉ --- */}
           {!isMapOpen && !noSpots && visibleSpots.length > 0 && (
             <div 
+              ref={actionsRowRef}
               className="flex justify-between items-center z-50 pointer-events-auto"
               // MODIFICATION : On utilise exactement la même largeur que la SwipeCard (ligne 257)
               // pour que les boutons s'alignent parfaitement aux bords gauche/droite de la carte.
@@ -1615,6 +1652,7 @@ const SearchView = ({
               
               {/* BOUTON GAUCHE (Refuser / X) */}
               <button
+                ref={dismissButtonRef}
                 onClick={handleDismissActiveCard}
                 className="search-dismiss-button"
                 style={{
@@ -1629,7 +1667,7 @@ const SearchView = ({
                   ['--dismiss-icon']: isDark ? 'rgb(253, 164, 175)' : 'rgb(225, 29, 72)',
                   // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
                   transform: `translateX(${
-                    dragX < 0 ? Math.min(Math.abs(dragX) * 0.7, 120) : 0
+                    dragX < 0 ? Math.min(Math.abs(dragX) / 140, 1) * actionButtonTravel.left : 0
                   }px)`,
                   opacity: dragX > 0 ? Math.max(1 - dragX / 100, 0) : 1,
                   transition: Math.abs(dragX) > 2
@@ -1659,6 +1697,7 @@ const SearchView = ({
 
               {/* BOUTON DROIT (Réserver / Book) */}
 	              <button
+                  ref={acceptButtonRef}
 	                disabled={blockActiveFreeBooking}
 	                onClick={() => {
 	                  if (blockActiveFreeBooking) {
@@ -1678,7 +1717,7 @@ const SearchView = ({
 	                  height: 'clamp(52px, 14vw, 72px)',
 	                  // LE BOUTON NE GÈRE QUE LA POSITION (TRANSLATE) ET L'OPACITÉ
 	                  transform: `translateX(${
-	                    dragX > 0 ? -Math.min(dragX * 0.7, 120) : 0
+                      dragX > 0 ? -Math.min(dragX / 140, 1) * actionButtonTravel.right : 0
                   }px)`,
                   opacity: dragX < 0 ? Math.max(1 - Math.abs(dragX) / 100, 0) : 1,
                   transition: Math.abs(dragX) > 2

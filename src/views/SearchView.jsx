@@ -552,6 +552,7 @@ const SearchView = ({
   const [distanceOverrides, setDistanceOverrides] = useState({});
   const [exitingCards, setExitingCards] = useState([]);
   const prevVisibleRef = useRef([]);
+  const suppressedExitIdsRef = useRef(new Set());
   const [enteringIds, setEnteringIds] = useState([]);
   const getSpotDistanceMeters = useCallback(
     (spot) => {
@@ -977,6 +978,10 @@ const SearchView = ({
       setExitingCards((prevExit) => {
         const next = [...prevExit];
         removed.forEach((item) => {
+          if (suppressedExitIdsRef.current.has(item.spot.id)) {
+            suppressedExitIdsRef.current.delete(item.spot.id);
+            return;
+          }
           const key = `${item.spot.id}-${item.index}`;
           if (!next.find((c) => c._exitKey === key)) {
             next.push({ ...item.spot, _exitKey: key, _exitIndex: item.index });
@@ -1188,6 +1193,13 @@ const SearchView = ({
     const msg = t('premiumParksEmpty', 'No Premium Parks left.');
     setShareToast(msg);
     setTimeout(() => setShareToast(''), 2200);
+  };
+
+  const handleDismissActiveCard = () => {
+    if (!activeSpot) return;
+    suppressedExitIdsRef.current.add(activeSpot.id);
+    setDragX(0);
+    handleSwipe('left', activeSpot);
   };
 
   const handleEnableNotifications = async () => {
@@ -1591,11 +1603,7 @@ const SearchView = ({
               
               {/* BOUTON GAUCHE (Refuser / X) */}
               <button
-                onClick={() => {
-                  if (activeCardRef.current) {
-                    activeCardRef.current.triggerSwipe('left');
-                  }
-                }}
+                onClick={handleDismissActiveCard}
                 className="search-dismiss-button"
                 style={{
                   width: 'clamp(52px, 14vw, 72px)',

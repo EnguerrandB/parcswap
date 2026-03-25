@@ -3102,7 +3102,7 @@ export default function LoloParkApp() {
   return (
     <div
       className={`relative h-screen w-full ${
-        theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'bg-white'
+        theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'text-slate-950 app-surface'
       }`}
     >
       <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
@@ -3117,7 +3117,7 @@ export default function LoloParkApp() {
         className={`relative h-screen w-full overflow-hidden flex items-center justify-center ${
           theme === 'dark'
             ? 'bg-[#0b1220] text-slate-100 app-surface'
-            : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+            : 'text-slate-950 app-surface'
         }`}
       >
        <AuthView />
@@ -3131,7 +3131,7 @@ export default function LoloParkApp() {
   if (adminMode && !user?.isAdmin) {
     return (
       <div
-        className={`relative h-screen w-full overflow-hidden ${theme === 'dark' ? 'bg-[#050816] text-slate-50' : 'bg-[#f4efe7] text-slate-950'}`}
+        className={`relative h-screen w-full overflow-hidden ${theme === 'dark' ? 'bg-[#050816] text-slate-50' : 'text-slate-950 app-surface'}`}
       >
         <div className="flex h-full items-center justify-center px-6">
           <div className={`w-full max-w-xl rounded-[32px] border p-8 shadow-[0_30px_90px_rgba(15,23,42,0.16)] ${theme === 'dark' ? 'border-white/10 bg-slate-950/70' : 'border-white/70 bg-white/85'}`}>
@@ -3215,7 +3215,7 @@ export default function LoloParkApp() {
 	      className={`relative h-screen w-full font-sans overflow-hidden ${
 	        theme === 'dark'
           ? 'bg-[#0b1220] text-slate-100 app-surface'
-          : 'bg-gradient-to-br from-orange-50 via-white to-amber-50'
+          : 'text-slate-950 app-surface'
       }`}
     >
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}

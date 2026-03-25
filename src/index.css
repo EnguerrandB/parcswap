@@ -742,6 +742,20 @@ body[data-theme="dark"] .border-white\/80 {
   border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
+.app-surface {
+  background-color: #f4f7fb;
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.16), transparent 32%),
+    radial-gradient(circle at 82% 10%, rgba(99, 102, 241, 0.12), transparent 26%),
+    radial-gradient(circle at 50% 112%, rgba(244, 114, 182, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 245, 249, 0.98) 100%);
+  background-repeat: no-repeat;
+  background-size: 150% 150%, 135% 135%, 145% 145%, 100% 100%;
+  background-position: 12% 18%, 82% 10%, 50% 112%, 0 0;
+  animation: appSurfaceDrift 18s ease-in-out infinite;
+  color: #0f172a;
+}
+
 body[data-theme="dark"] .app-surface {
   background-color: #0b1220;
   background-image:
@@ -975,7 +989,7 @@ body[data-theme="dark"] textarea::placeholder {
     animation: none !important;
   }
 
-  body[data-theme="dark"] .app-surface {
+  .app-surface {
     animation: none !important;
   }
 

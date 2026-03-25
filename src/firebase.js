@@ -1,6 +1,16 @@
 // src/firebase.js
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, connectAuthEmulator } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  browserSessionPersistence,
+  connectAuthEmulator,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  inMemoryPersistence,
+  setPersistence,
+} from "firebase/auth";
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
 import {
@@ -21,7 +31,21 @@ const firebaseConfig = {
 
 // Robust initialization to prevent hot-reload duplicate app errors
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
+let auth;
+
+try {
+  auth = initializeAuth(app, {
+    persistence: [
+      indexedDBLocalPersistence,
+      browserLocalPersistence,
+      browserSessionPersistence,
+    ],
+    popupRedirectResolver: browserPopupRedirectResolver,
+  });
+} catch {
+  auth = getAuth(app);
+}
+
 const functions = getFunctions(app);
 const storage = getStorage(app);
 
@@ -81,4 +105,12 @@ if (useEmulators) {
 
 const appId = "parkswap-36bb2";
 
-export { app, auth, db, appId, functions, storage };
+const authPersistenceReady =
+  typeof window === "undefined"
+    ? Promise.resolve()
+    : setPersistence(auth, browserLocalPersistence)
+        .catch(() => setPersistence(auth, browserSessionPersistence))
+        .catch(() => setPersistence(auth, inMemoryPersistence))
+        .catch(() => undefined);
+
+export { app, auth, authPersistenceReady, db, appId, functions, storage };

@@ -11,11 +11,9 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   sendEmailVerification,
-  setPersistence,
-  browserLocalPersistence,
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { appId, auth, db } from '../firebase';
+import { appId, auth, authPersistenceReady, db } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import { PHONE_COUNTRIES, formatPhoneInput, toE164Phone } from '../utils/phone';
 
@@ -112,13 +110,13 @@ const AuthView = ({ noticeMessage = '' }) => {
   };
 
   useEffect(() => {
-    setPersistence(auth, browserLocalPersistence).catch((e) => console.error(e));
     return () => clearRecaptcha();
   }, []);
 
   useEffect(() => {
     const handleRedirect = async () => {
       try {
+        await authPersistenceReady;
         const result = await getRedirectResult(auth);
         if (result?.user) {
           consumePendingAuth();
@@ -289,6 +287,7 @@ const AuthView = ({ noticeMessage = '' }) => {
     setError('');
     setLoading(true);
     try {
+      await authPersistenceReady;
       const providerId = provider?.providerId || '';
       setPendingAuth(providerId);
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);

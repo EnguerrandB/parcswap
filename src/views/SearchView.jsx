@@ -114,7 +114,7 @@ const formatHeight = (heightCm) => {
   if (!Number.isFinite(cm) || cm <= 0) return null;
   if (cm >= 100) {
     const meters = cm / 100;
-    const display = meters % 1 === 0 ? meters.toFixed(0) : meters.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    const display = meters.toFixed(1).replace(/\.0$/, '');
     return `${display} m`;
   }
   return `${Math.round(cm)} cm`;

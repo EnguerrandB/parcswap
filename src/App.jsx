@@ -418,55 +418,6 @@ const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '', varia
 
 const LogoutOverlay = ({ theme = 'light' }) => <AuthTransitionOverlay theme={theme} mode="out" />;
 
-const OrientationBlockedOverlay = ({ visible }) => {
-  if (!visible) return null;
-  return (
-    <div className="fixed inset-0 z-[20000] flex items-center justify-center p-6">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-xl" />
-      <div
-        className="relative w-[min(360px,88vw)] rounded-[28px] border border-white/10 bg-slate-950/55 px-6 py-6 text-slate-50 shadow-[0_26px_80px_rgba(0,0,0,0.65)]"
-        style={{ WebkitBackdropFilter: 'blur(22px) saturate(180%)', backdropFilter: 'blur(22px) saturate(180%)' }}
-        role="status"
-        aria-live="polite"
-      >
-        <div className="flex items-start gap-4">
-          <div className="mt-0.5 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/8">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
-                stroke="currentColor"
-                strokeWidth="2"
-                opacity="0.9"
-              />
-              <path
-                d="M16.5 7.5l3 3-3 3"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity="0.9"
-              />
-              <path
-                d="M19.5 10.5H10"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                opacity="0.9"
-              />
-            </svg>
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold tracking-tight">Mode portrait uniquement</div>
-            <div className="mt-1 text-xs leading-relaxed text-slate-200/80">
-              Tournez votre téléphone pour continuer.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const userSelectionRef = (uid) =>
   doc(db, 'artifacts', appId, 'public', 'data', 'userSelections', uid);
 
@@ -576,7 +527,6 @@ export default function LoloParkApp() {
 		  const userUidRef = useRef(null);
 		  const initializingRef = useRef(true);
 		  const loginOverlayTimerRef = useRef(null);
-		  const [orientationBlocked, setOrientationBlocked] = useState(false);
   const [menuNudgeActive, setMenuNudgeActive] = useState(false);
   const menuNudgeTimerRef = useRef(null);
   const pendingVehicleOnboardingRef = useRef(false);
@@ -635,50 +585,6 @@ export default function LoloParkApp() {
     setAdminMode(Boolean(nextEnabled));
   };
 
-  // Try to lock orientation to portrait (best-effort) + block landscape UX-wise.
-  useEffect(() => {
-    const isMobileLike = () => {
-      try {
-        const coarse = window.matchMedia?.('(pointer: coarse)')?.matches;
-        const small = Math.min(window.innerWidth || 0, window.innerHeight || 0) <= 900;
-        return Boolean(coarse || small);
-      } catch (_) {
-        return true;
-      }
-    };
-
-    const computeBlocked = () => {
-      const w = window.innerWidth || 0;
-      const h = window.innerHeight || 0;
-      if (!w || !h) return false;
-      return isMobileLike() && w > h;
-    };
-
-    const lockOrientation = async () => {
-      try {
-        if (screen?.orientation?.lock) {
-          await screen.orientation.lock('portrait');
-        }
-      } catch (_) {
-        // ignore failures (iOS Safari/PWA limitations)
-      }
-    };
-    lockOrientation();
-    const onOrientationChange = () => {
-      setOrientationBlocked(computeBlocked());
-      if (screen?.orientation?.type && !screen.orientation.type.includes('portrait')) {
-        lockOrientation();
-      }
-    };
-    const onResize = () => setOrientationBlocked(computeBlocked());
-    setOrientationBlocked(computeBlocked());
-    window.addEventListener('orientationchange', onOrientationChange);
-    window.addEventListener('resize', onResize);
-    return () => {
-      window.removeEventListener('orientationchange', onOrientationChange);
-      window.removeEventListener('resize', onResize);
-    };
-	  }, []);
 	  const upsertTransaction = async ({ spot, userId, status, role }) => {
 	    if (!spot || !userId) return;
 	    const txId = `${spot.id}-${userId}`;
@@ -3168,7 +3074,6 @@ export default function LoloParkApp() {
         theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'bg-white'
       }`}
     >
-      <OrientationBlockedOverlay visible={orientationBlocked} />
       <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
     </div>
   );
@@ -3187,7 +3092,6 @@ export default function LoloParkApp() {
        <AuthView />
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
-       <OrientationBlockedOverlay visible={orientationBlocked} />
        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
       </div>
     );
@@ -3198,7 +3102,6 @@ export default function LoloParkApp() {
       <div
         className={`relative h-screen w-full overflow-hidden ${theme === 'dark' ? 'bg-[#050816] text-slate-50' : 'bg-[#f4efe7] text-slate-950'}`}
       >
-        <OrientationBlockedOverlay visible={orientationBlocked} />
         <div className="flex h-full items-center justify-center px-6">
           <div className={`w-full max-w-xl rounded-[32px] border p-8 shadow-[0_30px_90px_rgba(15,23,42,0.16)] ${theme === 'dark' ? 'border-white/10 bg-slate-950/70' : 'border-white/70 bg-white/85'}`}>
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-500">
@@ -3230,7 +3133,6 @@ export default function LoloParkApp() {
   if (adminMode && user?.isAdmin) {
     return (
       <div className="relative h-screen w-full overflow-hidden">
-        <OrientationBlockedOverlay visible={orientationBlocked} />
         <AdminDashboard
           currentUser={user}
           theme={theme}
@@ -3287,7 +3189,6 @@ export default function LoloParkApp() {
     >
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
-      <OrientationBlockedOverlay visible={orientationBlocked} />
       {renewWave ? (
         <div className="fixed inset-0 z-[10050] pointer-events-none">
           <div

@@ -2891,6 +2891,7 @@ export default function LoloParkApp() {
 	    setBookedSpot(null);
 	    setVehicles([]);
 	    setSelectedVehicle(null);
+      setShowPublicParkings(true);
 	    setTransactions([]);
 	    setLeaderboard([]);
 	    setLoggingOut(false);
@@ -2918,6 +2919,22 @@ export default function LoloParkApp() {
     }
   };
 
+  const persistShowPublicParkingsPreference = async (visible) => {
+    if (!user?.uid) return;
+    try {
+      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', user.uid);
+      await setDoc(ref, { showPublicParkings: !!visible, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (err) {
+      console.error('Error persisting public parkings visibility:', err);
+    }
+  };
+
+  const togglePublicParkings = () => {
+    const next = !showPublicParkings;
+    setShowPublicParkings(next);
+    persistShowPublicParkingsPreference(next);
+  };
+
   const openSearchMap = () => {
     setSearchMapOpen(true);
     if (searchMapPrefRef.current !== 'map') {
@@ -2941,7 +2958,10 @@ export default function LoloParkApp() {
   };
 
   useEffect(() => {
-    if (!user?.uid) return undefined;
+    if (!user?.uid) {
+      setShowPublicParkings(true);
+      return undefined;
+    }
     let cancelled = false;
     const load = async () => {
       try {
@@ -2950,11 +2970,17 @@ export default function LoloParkApp() {
         if (cancelled) return;
         const data = snap.exists() ? snap.data() : null;
         const mode = data?.viewMode;
+        const publicParkingsVisible = data?.showPublicParkings;
         if (mode === 'map') setSearchMapOpen(true);
         if (mode === 'list') setSearchMapOpen(false);
         if (mode) searchMapPrefRef.current = mode;
+        if (typeof publicParkingsVisible === 'boolean') {
+          setShowPublicParkings(publicParkingsVisible);
+        } else {
+          setShowPublicParkings(true);
+        }
       } catch (err) {
-        console.error('Error loading search view mode:', err);
+        console.error('Error loading search preferences:', err);
       }
     };
     load();
@@ -3418,7 +3444,7 @@ export default function LoloParkApp() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowPublicParkings((prev) => !prev);
+                  togglePublicParkings();
                   setTopMenuOpen(false);
                 }}
                 className={`relative w-12 h-12 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${

@@ -495,6 +495,11 @@ const logViewBreadcrumb = ({ from = '—', to = '—', meta = '' }) => {
   );
 };
 
+const normalizeTheme = (value) => {
+  if (value === 'light' || value === 'dark') return value;
+  return null;
+};
+
 export default function LoloParkApp() {
   const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
@@ -1073,8 +1078,8 @@ export default function LoloParkApp() {
 
   const getInitialTheme = () => {
     if (typeof window === 'undefined') return 'light';
-    const stored = window.localStorage?.getItem('theme');
-    if (stored === 'light' || stored === 'dark') return stored;
+    const stored = normalizeTheme(window.localStorage?.getItem('theme'));
+    if (stored) return stored;
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   };
   const [theme, setTheme] = useState(getInitialTheme);
@@ -1130,6 +1135,7 @@ export default function LoloParkApp() {
 		      const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
 		      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
 		      let language = i18n.language || 'en';
+          let nextTheme = getInitialTheme();
           let walletCents = 0;
           let walletReservedCents = 0;
           let kycStatus = 'unverified';
@@ -1139,6 +1145,7 @@ export default function LoloParkApp() {
 		        if (snap.exists()) {
 		          const data = snap.data();
 		          if (data?.language) language = data.language;
+              nextTheme = normalizeTheme(data?.theme) || nextTheme;
               walletCents = walletCentsFromData(data);
               walletReservedCents = walletReservedCentsFromData(data);
               if (data?.kycStatus) kycStatus = data.kycStatus;
@@ -1159,6 +1166,7 @@ export default function LoloParkApp() {
             walletCents,
             walletReservedCents,
 		        language: language || 'en',
+            theme: nextTheme,
             kycStatus,
             isAdmin,
 		      };
@@ -1173,6 +1181,7 @@ export default function LoloParkApp() {
 		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
               const firstLogin = isLikelyFirstLogin(fbUser);
 		          if (nextUser?.language) i18n.changeLanguage(nextUser.language);
+              if (nextUser?.theme) setTheme(nextUser.theme);
 		          setUser(nextUser);
 		          if (wasLoggedOut) {
 		            if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
@@ -1215,6 +1224,7 @@ export default function LoloParkApp() {
       const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
       const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
       let language = i18n.language || 'en';
+      let nextTheme = getInitialTheme();
       let walletCents = 0;
       let walletReservedCents = 0;
       let kycStatus = 'unverified';
@@ -1224,6 +1234,7 @@ export default function LoloParkApp() {
         if (snap.exists()) {
           const data = snap.data();
           if (data?.language) language = data.language;
+          nextTheme = normalizeTheme(data?.theme) || nextTheme;
           walletCents = walletCentsFromData(data);
           walletReservedCents = walletReservedCentsFromData(data);
           if (data?.kycStatus) kycStatus = data.kycStatus;
@@ -1244,10 +1255,12 @@ export default function LoloParkApp() {
         walletCents,
         walletReservedCents,
         language: language || 'en',
+        theme: nextTheme,
         kycStatus,
         isAdmin,
       };
       setUser((prev) => prev || nextUser);
+      if (nextUser.theme) setTheme(nextUser.theme);
       if (nextUser.language) i18n.changeLanguage(nextUser.language);
     })();
   }, 300); // 300ms = perfect mobile delay
@@ -1593,6 +1606,7 @@ export default function LoloParkApp() {
 		        email: user.email,
 		        phone: user.phone,
 		        language: user.language || i18n.language || 'en',
+            theme: normalizeTheme(user.theme) || theme,
             currency: user.currency || getDefaultCurrencyForLanguage(user.language || i18n.language || 'en'),
 		        // increment(0) preserves existing transactions and initializes to 0 if missing
 		        transactions: increment(0),
@@ -1606,6 +1620,8 @@ export default function LoloParkApp() {
 	      (snap) => {
 	        if (!snap.exists()) return;
 	        const data = snap.data();
+          const nextTheme = normalizeTheme(data?.theme);
+          if (nextTheme) setTheme(nextTheme);
 		        setUser((prev) => {
 		          const premiumInitialized = data.premiumParksInitialized === true;
 		          const premiumValue = Number(data.premiumParks);
@@ -1624,6 +1640,7 @@ export default function LoloParkApp() {
 		            email: data.email || prev?.email,
 		            phone: data.phone ?? prev?.phone,
 		            language: data.language || prev?.language || 'en',
+                theme: nextTheme || prev?.theme || theme,
                 currency: data.currency || prev?.currency || getDefaultCurrencyForLanguage(data.language || prev?.language || 'en'),
 		            transactions: data.transactions ?? prev?.transactions ?? 0,
 		            premiumParks: nextPremium,
@@ -2825,6 +2842,20 @@ export default function LoloParkApp() {
     }
   };
 
+  const handleChangeTheme = async (nextThemeValue) => {
+    const nextTheme = normalizeTheme(nextThemeValue);
+    if (!nextTheme) return;
+    setTheme(nextTheme);
+    setUser((prev) => (prev ? { ...prev, theme: nextTheme } : prev));
+    if (!user?.uid) return;
+    try {
+      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+      await setDoc(userRef, { theme: nextTheme, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (err) {
+      console.error('Error persisting theme preference:', err);
+    }
+  };
+
   const persistShowPublicParkingsPreference = async (visible) => {
     if (!user?.uid) return;
     try {
@@ -3029,7 +3060,7 @@ export default function LoloParkApp() {
           transactions={transactions}
           onLogout={handleLogout}
           theme={theme}
-          onChangeTheme={setTheme}
+          onChangeTheme={handleChangeTheme}
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
           openAddVehicleRequestId={addVehicleRequestId}
@@ -3432,7 +3463,7 @@ export default function LoloParkApp() {
           transactions={transactions}
           onLogout={handleLogout}
           theme={theme}
-          onChangeTheme={setTheme}
+          onChangeTheme={handleChangeTheme}
           onInvite={handleInviteShare}
           inviteMessage={inviteMessage}
           openAddVehicleRequestId={addVehicleRequestId}

@@ -72,15 +72,6 @@ const AuthView = ({ noticeMessage = '' }) => {
 
   const googleProvider = new GoogleAuthProvider();
 
-  const isStandaloneDisplayMode = () => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator?.standalone === true;
-    } catch (_) {
-      return false;
-    }
-  };
-
   // --- Logique Persistence & Redirect ---
   const pendingKey = 'lolopark_oauth_pending';
   const legacyPendingKey = 'parkswap_oauth_pending';
@@ -299,15 +290,6 @@ const AuthView = ({ noticeMessage = '' }) => {
       await authPersistenceReady;
       const providerId = provider?.providerId || '';
       setPendingAuth(providerId);
-      if (providerId === 'google.com' && isStandaloneDisplayMode()) {
-        consumePendingAuth();
-        setError(t(
-          'googleAuthOpenBrowser',
-          'Google sign-in does not work from the installed app on this phone. Open LoloPark in Safari or Chrome and try again.',
-        ));
-        return;
-      }
-
       const result = await signInWithPopup(auth, provider);
       consumePendingAuth();
       onAuthSuccess(result.user);

@@ -20,9 +20,16 @@ import {
 } from "firebase/firestore";
 
 // --- FIREBASE SETUP ---
+const isBrowser = typeof window !== "undefined";
+const browserHost = isBrowser ? window.location.hostname : "";
+const isLocalhost = ["localhost", "127.0.0.1"].includes(browserHost);
+const resolvedAuthDomain =
+  import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
+  (isBrowser && !isLocalhost ? window.location.host : "parkswap-36bb2.firebaseapp.com");
+
 const firebaseConfig = {
   apiKey: "AIzaSyAHL4hpdTDymjXeJCCjCxrsLv-nk33MTEY",
-  authDomain: "parkswap-36bb2.firebaseapp.com",
+  authDomain: resolvedAuthDomain,
   projectId: "parkswap-36bb2",
   storageBucket: "parkswap-36bb2.firebasestorage.app",
   messagingSenderId: "931109766836",
@@ -48,10 +55,6 @@ try {
 
 const functions = getFunctions(app);
 const storage = getStorage(app);
-
-const isLocalhost =
-  typeof window !== "undefined" &&
-  ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
 const useEmulators =
   import.meta.env.DEV &&

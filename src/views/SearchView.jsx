@@ -327,7 +327,12 @@ const SwipeCard = forwardRef(({
   const baseTy = active ? offset.y : translateY;
   const baseRot = active ? rotation : baseRotation;
   const baseScale = scale;
-  const animation = exiting ? 'card-exit 0.4s ease forwards' : entering ? 'card-enter 0.35s ease-out' : undefined;
+  const enterDelayMs = Math.min(index * 60, 140);
+  const animation = exiting
+    ? 'card-exit 0.4s ease forwards'
+    : entering
+      ? `card-enter 0.56s cubic-bezier(0.22, 1, 0.36, 1) ${enterDelayMs}ms both`
+      : undefined;
 
   if (!spot) return null;
 
@@ -681,11 +686,18 @@ const SearchView = ({
       @keyframes card-enter {
         from {
           opacity: 0;
-          transform: translate(var(--card-tx), calc(var(--card-ty) + 24px)) rotate(var(--card-rot)) scale(calc(var(--card-scale) * 0.95));
+          transform: translate(calc(var(--card-tx) + 140px), calc(var(--card-ty) + 10px)) rotate(calc(var(--card-rot) + 8deg)) scale(calc(var(--card-scale) * 0.9));
+          filter: saturate(0.88) brightness(0.96);
         }
-        to {
+        68% {
+          opacity: 1;
+          transform: translate(calc(var(--card-tx) - 10px), calc(var(--card-ty) - 2px)) rotate(calc(var(--card-rot) - 1.5deg)) scale(calc(var(--card-scale) * 1.01));
+          filter: saturate(1.04) brightness(1.02);
+        }
+        100% {
           opacity: 1;
           transform: translate(var(--card-tx), var(--card-ty)) rotate(var(--card-rot)) scale(var(--card-scale));
+          filter: saturate(1) brightness(1);
         }
       }
       @keyframes card-exit {
@@ -713,6 +725,11 @@ const SearchView = ({
       }
       .haptic-active {
         animation: tremble 0.4s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .haptic-active {
+          animation: none !important;
+        }
       }
     `;
     if (existing) {

@@ -336,6 +336,10 @@ const SwipeCard = forwardRef(({
       ref={internalRef} // On attache la ref interne ici
       className={`absolute  rounded-[26px] select-none transition-transform duration-200 px-5 py-7 backdrop-blur-xl ${cursorClass}`}
       style={{
+        '--card-tx': `${baseTx}px`,
+        '--card-ty': `${baseTy}px`,
+        '--card-rot': `${baseRot}deg`,
+        '--card-scale': baseScale,
         zIndex: 50 - index,
         transform: `translate(${baseTx}px, ${baseTy}px) rotate(${baseRot}deg) scale(${baseScale})`,
         opacity,

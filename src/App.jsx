@@ -2962,12 +2962,10 @@ export default function LoloParkApp() {
       setShowPublicParkings(true);
       return undefined;
     }
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', user.uid);
-        const snap = await getDoc(ref);
-        if (cancelled) return;
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'userSearchPrefs', user.uid);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
         const data = snap.exists() ? snap.data() : null;
         const mode = data?.viewMode;
         const publicParkingsVisible = data?.showPublicParkings;
@@ -2979,14 +2977,12 @@ export default function LoloParkApp() {
         } else {
           setShowPublicParkings(true);
         }
-      } catch (err) {
+      },
+      (err) => {
         console.error('Error loading search preferences:', err);
-      }
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
+      },
+    );
+    return () => unsub();
   }, [user?.uid]);
 
   useEffect(() => {

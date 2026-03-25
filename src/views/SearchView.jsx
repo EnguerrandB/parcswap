@@ -155,6 +155,7 @@ const SwipeCard = forwardRef(({
   onDrag,
   canSwipeRight,
   onBlockedSwipe,
+  onSwipeWithoutExit,
   formatPrice,
   formatParkingPrice,
 }, ref) => { // 'ref' est maintenant reçu ici via forwardRef
@@ -250,8 +251,10 @@ const SwipeCard = forwardRef(({
       setOffset({ x: 500, y: offset.y });
       setTimeout(() => { onSwipe('right'); if (onDrag) onDrag(0); }, 200);
     } else if (offset.x < -threshold) {
-      setOffset({ x: -500, y: offset.y });
-      setTimeout(() => { onSwipe('left'); if (onDrag) onDrag(0); }, 200);
+      setOffset({ x: 0, y: 0 });
+      if (onDrag) onDrag(0);
+      if (typeof onSwipeWithoutExit === 'function') onSwipeWithoutExit('left');
+      else onSwipe('left');
     } else if (offset.y < -verticalThreshold && absY > absX * 1.2) {
       onVerticalSwipe?.('up');
       setOffset({ x: 0, y: 0 });
@@ -1198,8 +1201,19 @@ const SearchView = ({
   const handleDismissActiveCard = () => {
     if (!activeSpot) return;
     suppressedExitIdsRef.current.add(activeSpot.id);
+    if (activeCardRef.current) {
+      activeCardRef.current.triggerSwipe('left');
+      return;
+    }
     setDragX(0);
     handleSwipe('left', activeSpot);
+  };
+
+  const handleSwipeWithoutExit = (direction, spot) => {
+    if (!spot) return;
+    suppressedExitIdsRef.current.add(spot.id);
+    setDragX(0);
+    handleSwipe(direction, spot);
   };
 
   const handleEnableNotifications = async () => {
@@ -1571,6 +1585,7 @@ const SearchView = ({
                             formatParkingPrice={formatParkingPrice}
 	                        ref={(!exiting && index === 0) ? activeCardRef : null}
 	                        onSwipe={(dir) => handleSwipe(dir, spot)}
+                        onSwipeWithoutExit={(dir) => handleSwipeWithoutExit(dir, spot)}
                         onVerticalSwipe={spot.isPublicParking ? undefined : () => handleVerticalShare(spot)}
                         isDark={isDark}
                         userCoords={userCoords}

@@ -1,6 +1,8 @@
 // src/views/AuthView.jsx
 import React, { useEffect, useState, useRef } from 'react';
 import {
+  applyActionCode,
+  checkActionCode,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   updateProfile,
@@ -69,6 +71,8 @@ const AuthView = ({ noticeMessage = '' }) => {
   const [info, setInfo] = useState(noticeMessage || '');
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
   const [resendingVerification, setResendingVerification] = useState(false);
+  const [emailVerificationCode, setEmailVerificationCode] = useState('');
+  const [verifyingEmailCode, setVerifyingEmailCode] = useState(false);
 
   // --- État spécifique Téléphone ---
   const [confirmationResult, setConfirmationResult] = useState(null);
@@ -146,11 +150,27 @@ const AuthView = ({ noticeMessage = '' }) => {
     handleRedirect();
   }, []); // eslint-disable-line
 
+  useEffect(() => {
+    const maybeApplyCodeFromUrl = async () => {
+      if (typeof window === 'undefined') return;
+      const url = new URL(window.location.href);
+      const modeParam = String(url.searchParams.get('mode') || '').trim();
+      const oobCodeParam = String(url.searchParams.get('oobCode') || '').trim();
+      if (modeParam !== 'verifyEmail' || !oobCodeParam) return;
+
+      setPendingVerificationEmail(String(url.searchParams.get('email') || form.email || '').trim());
+      await handleVerifyEmailCode(oobCodeParam, { fromUrl: true });
+    };
+
+    void maybeApplyCodeFromUrl();
+  }, []); // eslint-disable-line
+
   // --- Helpers ---
   const onAuthSuccess = (user) => {
     setError('');
     setInfo('');
     setPendingVerificationEmail('');
+    setEmailVerificationCode('');
     void user;
   };
 
@@ -165,6 +185,91 @@ const AuthView = ({ noticeMessage = '' }) => {
       url: window.location.origin,
       handleCodeInApp: false,
     };
+  };
+
+  const normalizeEmailActionCodeInput = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const url = new URL(raw);
+        return String(url.searchParams.get('oobCode') || '').trim();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    const directMatch = raw.match(/[?&]oobCode=([^&]+)/i);
+    if (directMatch?.[1]) {
+      try {
+        return decodeURIComponent(directMatch[1]).trim();
+      } catch (_) {
+        return String(directMatch[1]).trim();
+      }
+    }
+
+    return raw;
+  };
+
+  const clearVerificationParamsFromUrl = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('mode');
+      url.searchParams.delete('oobCode');
+      url.searchParams.delete('apiKey');
+      url.searchParams.delete('lang');
+      url.searchParams.delete('continueUrl');
+      url.searchParams.delete('tenantId');
+      window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    } catch (_) {}
+  };
+
+  const handleVerifyEmailCode = async (rawCode = emailVerificationCode, options = {}) => {
+    const normalizedCode = normalizeEmailActionCodeInput(rawCode);
+    if (!normalizedCode) {
+      setError(
+        t(
+          'emailVerificationCodeRequired',
+          'Collez le code de verification recu par email, ou le lien complet Firebase.',
+        ),
+      );
+      return false;
+    }
+
+    setError('');
+    if (!options.fromUrl) setInfo('');
+    setVerifyingEmailCode(true);
+    try {
+      await checkActionCode(auth, normalizedCode);
+      await applyActionCode(auth, normalizedCode);
+      setEmailVerificationCode('');
+      clearVerificationParamsFromUrl();
+      setInfo(
+        t(
+          'emailVerificationCodeSuccess',
+          'Email verifie. Vous pouvez maintenant vous connecter avec votre mot de passe.',
+        ),
+      );
+      return true;
+    } catch (err) {
+      let msg = err?.message || t('invalidCode', 'Code invalide.');
+      if (
+        err?.code === 'auth/invalid-action-code'
+        || err?.code === 'auth/expired-action-code'
+        || err?.code === 'auth/user-disabled'
+      ) {
+        msg = t(
+          'emailVerificationCodeInvalid',
+          'Ce code email est invalide ou expire. Demandez un nouvel email de verification.',
+        );
+      }
+      setError(msg);
+      return false;
+    } finally {
+      setVerifyingEmailCode(false);
+    }
   };
 
   const clearRecaptcha = () => {
@@ -237,6 +342,7 @@ const AuthView = ({ noticeMessage = '' }) => {
         await sendEmailVerification(cred.user, buildEmailActionSettings());
         await signOut(auth);
         setPendingVerificationEmail(cred.user.email || form.email || '');
+        setEmailVerificationCode('');
         setMode('login');
         setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
       } else {
@@ -306,6 +412,7 @@ const AuthView = ({ noticeMessage = '' }) => {
       await sendEmailVerification(signedInUser, buildEmailActionSettings());
       await signOut(auth);
       setPendingVerificationEmail(signedInUser.email || email);
+      setEmailVerificationCode('');
       setInfo(
         t(
           'verificationEmailResent',
@@ -553,10 +660,46 @@ const AuthView = ({ noticeMessage = '' }) => {
                   'Pas de mail reçu ? Renvoyez le lien après avoir saisi votre mot de passe.',
                 )}
               </div>
+              <div className="mt-3 space-y-2">
+                <div className={`text-[11px] ${isDark ? 'text-slate-300/75' : 'text-gray-500'}`}>
+                  {t(
+                    'emailVerificationCodeHint',
+                    'Collez ici le code oobCode du lien Firebase, ou le lien complet recu par email.',
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={emailVerificationCode}
+                  onChange={(e) => setEmailVerificationCode(e.target.value)}
+                  placeholder={t('emailVerificationCodePlaceholder', 'Code ou lien de verification')}
+                  className={`w-full h-12 px-4 rounded-2xl text-sm outline-none transition-all ${
+                    isDark
+                      ? 'bg-white/5 border border-white/10 text-slate-50 placeholder:text-slate-400 focus:border-orange-400 focus:ring-4 focus:ring-orange-500/10'
+                      : 'bg-white border border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-orange-500 focus:ring-4 focus:ring-orange-50'
+                  }`}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleVerifyEmailCode()}
+                  disabled={loading || resendingVerification || verifyingEmailCode}
+                  className={`h-10 w-full rounded-2xl text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
+                    isDark
+                      ? 'bg-orange-500/85 text-white hover:bg-orange-500'
+                      : 'bg-orange-500 text-white hover:bg-orange-600'
+                  }`}
+                >
+                  {verifyingEmailCode
+                    ? t('verifying', 'Verification...')
+                    : t('verifyEmailCodeButton', 'Valider le code email')}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleResendVerificationEmail}
-                disabled={loading || resendingVerification}
+                disabled={loading || resendingVerification || verifyingEmailCode}
                 className={`mt-3 h-10 w-full rounded-2xl text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                   isDark
                     ? 'bg-white/10 text-slate-50 hover:bg-white/15 border border-white/10'

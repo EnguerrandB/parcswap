@@ -9,8 +9,10 @@ import {
   signInWithRedirect,
   getRedirectResult,
   RecaptchaVerifier,
+  reload,
   signInWithPhoneNumber,
   sendEmailVerification,
+  signOut,
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, auth, authPersistenceReady, db } from '../firebase';
@@ -65,6 +67,8 @@ const AuthView = ({ noticeMessage = '' }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(noticeMessage || '');
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+  const [resendingVerification, setResendingVerification] = useState(false);
 
   // --- État spécifique Téléphone ---
   const [confirmationResult, setConfirmationResult] = useState(null);
@@ -114,6 +118,10 @@ const AuthView = ({ noticeMessage = '' }) => {
   }, []);
 
   useEffect(() => {
+    setInfo(noticeMessage || '');
+  }, [noticeMessage]);
+
+  useEffect(() => {
     const handleRedirect = async () => {
       try {
         await authPersistenceReady;
@@ -142,7 +150,21 @@ const AuthView = ({ noticeMessage = '' }) => {
   const onAuthSuccess = (user) => {
     setError('');
     setInfo('');
+    setPendingVerificationEmail('');
     void user;
+  };
+
+  const isEmailPasswordUser = (user) => {
+    if (!Array.isArray(user?.providerData)) return false;
+    return user.providerData.some((provider) => provider?.providerId === 'password');
+  };
+
+  const buildEmailActionSettings = () => {
+    if (typeof window === 'undefined') return undefined;
+    return {
+      url: window.location.origin,
+      handleCodeInApp: false,
+    };
   };
 
   const clearRecaptcha = () => {
@@ -212,15 +234,27 @@ const AuthView = ({ noticeMessage = '' }) => {
         } catch (e) {
           console.error('Error saving profile name:', e);
         }
-        await sendEmailVerification(cred.user);
+        await sendEmailVerification(cred.user, buildEmailActionSettings());
+        await signOut(auth);
+        setPendingVerificationEmail(cred.user.email || form.email || '');
+        setMode('login');
         setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
-        onAuthSuccess(cred.user);
       } else {
         const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-        if (!cred.user.emailVerified) {
-          setInfo(t('verifyEmailWarning', 'Email non vérifié.'));
+        await reload(cred.user);
+        const signedInUser = auth.currentUser || cred.user;
+        if (isEmailPasswordUser(signedInUser) && !signedInUser.emailVerified) {
+          setPendingVerificationEmail(signedInUser.email || form.email || '');
+          await signOut(auth);
+          setInfo(
+            t(
+              'verifyEmailWarning',
+              'Email non vérifié. Vérifiez votre boîte mail avant de vous connecter.',
+            ),
+          );
+          return;
         }
-        onAuthSuccess(cred.user);
+        onAuthSuccess(signedInUser);
       }
     } catch (err) {
       let msg = err.message;
@@ -232,6 +266,62 @@ const AuthView = ({ noticeMessage = '' }) => {
       setError(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerificationEmail = async () => {
+    const email = String(form.email || pendingVerificationEmail || '').trim();
+    const password = String(form.password || '');
+
+    if (!email || !password) {
+      setError(
+        t(
+          'verificationResendNeedsPassword',
+          'Entrez votre email et votre mot de passe pour renvoyer le mail de vérification.',
+        ),
+      );
+      return;
+    }
+
+    setError('');
+    setInfo('');
+    setResendingVerification(true);
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      await reload(cred.user);
+      const signedInUser = auth.currentUser || cred.user;
+
+      if (!isEmailPasswordUser(signedInUser)) {
+        await signOut(auth);
+        setError(t('providerSignInFailed', 'Erreur de connexion.'));
+        return;
+      }
+
+      if (signedInUser.emailVerified) {
+        await signOut(auth);
+        setInfo(t('emailAlreadyVerified', 'Cet email est déjà vérifié. Vous pouvez vous connecter.'));
+        return;
+      }
+
+      await sendEmailVerification(signedInUser, buildEmailActionSettings());
+      await signOut(auth);
+      setPendingVerificationEmail(signedInUser.email || email);
+      setInfo(
+        t(
+          'verificationEmailResent',
+          'Un nouveau mail de vérification a été envoyé. Vérifiez aussi vos spams.',
+        ),
+      );
+    } catch (err) {
+      let msg = err?.message || t('providerSignInFailed', 'Erreur de connexion.');
+      if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(err?.code)) {
+        msg = t('invalidCreds', 'Identifiants incorrects.');
+      } else if (err?.code === 'auth/too-many-requests') {
+        msg = t('tooManyRequests', 'Trop de tentatives. Réessayez plus tard.');
+      }
+      setError(msg);
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -445,6 +535,37 @@ const AuthView = ({ noticeMessage = '' }) => {
                 }`}
               >
                 SMS
+              </button>
+            </div>
+          )}
+
+          {method === 'email' && mode === 'login' && (pendingVerificationEmail || form.email) && (
+            <div
+              className={`mb-6 rounded-2xl border px-4 py-3 text-xs ${
+                isDark
+                  ? 'border-white/10 bg-white/5 text-slate-200'
+                  : 'border-gray-200 bg-gray-50 text-gray-700'
+              }`}
+            >
+              <div>
+                {t(
+                  'verificationResendHint',
+                  'Pas de mail reçu ? Renvoyez le lien après avoir saisi votre mot de passe.',
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleResendVerificationEmail}
+                disabled={loading || resendingVerification}
+                className={`mt-3 h-10 w-full rounded-2xl text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
+                  isDark
+                    ? 'bg-white/10 text-slate-50 hover:bg-white/15 border border-white/10'
+                    : 'bg-white text-gray-900 border border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {resendingVerification
+                  ? t('sending', 'Envoi...')
+                  : t('resendVerificationEmail', 'Renvoyer le mail de vérification')}
               </button>
             </div>
           )}

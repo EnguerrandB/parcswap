@@ -500,6 +500,11 @@ const normalizeTheme = (value) => {
   return null;
 };
 
+const shouldRequireVerifiedEmail = (fbUser) => {
+  if (!Array.isArray(fbUser?.providerData)) return false;
+  return fbUser.providerData.some((provider) => provider?.providerId === 'password');
+};
+
 export default function LoloParkApp() {
   const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
@@ -1176,6 +1181,18 @@ export default function LoloParkApp() {
 		      (async () => {
 		        if (cancelled) return;
 		        if (fbUser) {
+              if (shouldRequireVerifiedEmail(fbUser) && !fbUser.emailVerified) {
+                setAuthNotice("Votre email n'est pas encore verifie. Confirmez-le avant de vous connecter.");
+                await signOut(auth);
+                if (cancelled) return;
+                setUser(null);
+
+                // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
+                setInitializing(false);
+                initializingRef.current = false;
+                return;
+              }
+              setAuthNotice('');
 		          const nextUser = await hydrateUser(fbUser);
 		          if (cancelled) return;
 		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
@@ -3120,7 +3137,7 @@ export default function LoloParkApp() {
             : 'text-slate-950 app-surface'
         }`}
       >
-       <AuthView />
+      <AuthView noticeMessage={authNotice} />
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />

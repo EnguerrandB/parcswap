@@ -25,7 +25,9 @@ const browserHost = isBrowser ? window.location.hostname : "";
 const isLocalhost = ["localhost", "127.0.0.1"].includes(browserHost);
 const resolvedAuthDomain =
   import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
-  (isBrowser && !isLocalhost ? window.location.host : "parkswap-36bb2.firebaseapp.com");
+  (isBrowser && !isLocalhost
+    ? window.location.host
+    : "parkswap-36bb2.firebaseapp.com");
 
 const firebaseConfig = {
   apiKey: "AIzaSyAHL4hpdTDymjXeJCCjCxrsLv-nk33MTEY",

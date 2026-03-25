@@ -190,7 +190,7 @@ const ProposeView = forwardRef(({
 
   return (
     <div
-      className="h-full flex flex-col bg-gray-50 px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto overflow-x-hidden relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
+      className="h-full flex flex-col px-6 pt-[calc(env(safe-area-inset-top)+16px)] overflow-y-auto overflow-x-hidden relative app-surface pb-[calc(env(safe-area-inset-bottom)+90px)]"
       style={{ touchAction: 'auto' }}
     >
       <h2

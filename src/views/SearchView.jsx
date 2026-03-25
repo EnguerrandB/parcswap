@@ -1207,14 +1207,10 @@ const SearchView = ({
   return (
     <div
       ref={viewRef}
-      className="h-full w-full flex flex-col relative overflow-hidden font-sans search-gradient-motion"
+      className="h-full w-full flex flex-col relative overflow-hidden font-sans app-surface"
       style={{
         touchAction: 'pan-x',
         paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
-        backgroundColor: isDark ? '#020617' : '#fff7ed',
-        backgroundImage: isDark
-          ? 'linear-gradient(135deg, #0f172a 0%, #020617 55%, #000000 100%)'
-          : 'linear-gradient(135deg, #fff1db 0%, #ffe2b8 32%, #fff7ed 68%, #ffffff 100%), radial-gradient(circle at 18% 18%, rgba(255, 149, 0, 0.18), transparent 55%), radial-gradient(circle at 82% 85%, rgba(255, 193, 7, 0.18), transparent 55%)',
       }}
     >
       {isOnline && isPoorConnection && (

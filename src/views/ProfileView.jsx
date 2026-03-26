@@ -23,6 +23,7 @@ import MyProfile from '../components/MyProfile';
 import { functions } from '../firebase';
 import { getVoicePreference, pickPreferredVoice, scoreVoice, setVoicePreference } from '../utils/voice';
 import { formatCurrencyAmount } from '../utils/currency';
+import { buildReturnUrl, copyText, openExternalUrl } from '../utils/mobile';
 
 const LANGUAGE_CURRENCY_MAP = {
   en: 'GBP',
@@ -247,27 +248,9 @@ const ProfileView = ({
   const handleCopyFirebaseUserId = async () => {
     if (!user?.uid) return;
     const valueToCopy = String(user.uid);
-    if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(valueToCopy);
-        setFirebaseUserIdCopied(true);
-        return;
-      } catch (_) {
-        // Fallback below handles browsers that reject clipboard access.
-      }
-    }
-
     try {
-      const textarea = document.createElement('textarea');
-      textarea.value = valueToCopy;
-      textarea.setAttribute('readonly', '');
-      textarea.style.position = 'absolute';
-      textarea.style.left = '-9999px';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setFirebaseUserIdCopied(true);
+      const copied = await copyText(valueToCopy);
+      setFirebaseUserIdCopied(copied);
     } catch (_) {
       setFirebaseUserIdCopied(false);
     }
@@ -371,11 +354,11 @@ const ProfileView = ({
     setKycLoading(true);
     try {
       const callable = httpsCallable(functions, 'createKycSession');
-      const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
+      const returnUrl = buildReturnUrl('/?native-return=kyc');
       const result = await callable({ returnUrl });
       const url = result?.data?.url;
-      if (url && typeof window !== 'undefined') {
-        window.location.assign(url);
+      if (url) {
+        await openExternalUrl(url);
       } else {
         console.error('[KYC] Missing redirect URL from Stripe session.');
       }

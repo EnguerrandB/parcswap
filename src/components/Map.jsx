@@ -18,6 +18,7 @@ import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStylePatch';
+import { getCurrentLocationCoordinates } from '../utils/mobile';
 import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
 import {
   formatStoredVehiclePlate,
@@ -531,17 +532,29 @@ useEffect(() => {
 
   // Initial Location
   useEffect(() => {
-    if (!navigator?.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (isValidCoord(pos.coords.longitude, pos.coords.latitude)) {
-           setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-           persistUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        }
-      },
-      (err) => setUserLoc(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
-    );
+    let cancelled = false;
+
+    const syncInitialLocation = async () => {
+      const coords = await getCurrentLocationCoordinates({
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0,
+      });
+
+      if (cancelled) return;
+      if (coords && isValidCoord(coords.lng, coords.lat)) {
+        setUserLoc(coords);
+        persistUserLocation(coords);
+        return;
+      }
+      setUserLoc(null);
+    };
+
+    void syncInitialLocation();
+
+    return () => {
+      cancelled = true;
+    };
   }, [spot?.id]);
 
   useEffect(() => {

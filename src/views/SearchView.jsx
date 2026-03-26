@@ -9,6 +9,7 @@ import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { newId } from '../utils/ids';
 import { fetchNearbyPublicParkings } from '../utils/publicParkingApi';
 import { formatCurrencyAmount, formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
+import { buildCurrentShareUrl, shareContent } from '../utils/mobile';
 import {
   CARD_COLOR_SALT,
   colorForSpot,
@@ -937,11 +938,14 @@ const SearchView = ({
     const cards = [...availableSpots, ...publicParkingCards];
     return cards;
   }, [availableSpots, publicParkingCards]);
-  const outOfCards = currentIndex >= availableCards.length;
-  const visibleSpots = outOfCards ? [] : availableCards.slice(currentIndex, currentIndex + 3); // show 3 at once
+  const normalizedCurrentIndex = Number.isFinite(currentIndex) ? Math.max(0, Math.trunc(currentIndex)) : 0;
+  const boundedCurrentIndex = Math.min(normalizedCurrentIndex, availableCards.length);
+  const outOfCards = boundedCurrentIndex >= availableCards.length;
+  const visibleSpots = outOfCards ? [] : availableCards.slice(boundedCurrentIndex, boundedCurrentIndex + 3); // show 3 at once
   const noSpots = availableCards.length === 0;
   const showOffline = !isOnline && !selectedSpot;
   const showEmpty = (noSpots || outOfCards) && !selectedSpot && isOnline;
+  const showDeckRecovery = !selectedSpot && !showOffline && !showEmpty && visibleSpots.length === 0;
   const isMapOpen = !!selectedSpot;
   const activeSpot = visibleSpots?.[0] || null;
   const relaxedRadiusCount =
@@ -998,11 +1002,10 @@ const SearchView = ({
   }, [rightButtonLabel, visibleSpots.length, isMapOpen]);
 
   useEffect(() => {
-    if (!Number.isFinite(currentIndex)) return;
-    const maxIndex = availableCards.length;
-    if (currentIndex < 0) setCurrentIndex(0);
-    else if (currentIndex > maxIndex) setCurrentIndex(maxIndex);
-  }, [availableCards.length, currentIndex, setCurrentIndex]);
+    if (currentIndex !== boundedCurrentIndex) {
+      setCurrentIndex(boundedCurrentIndex);
+    }
+  }, [boundedCurrentIndex, currentIndex, setCurrentIndex]);
 
   // Track cards leaving the visible stack to animate them out
   useEffect(() => {
@@ -1212,16 +1215,14 @@ const SearchView = ({
     );
     setShareToast(msg);
     setTimeout(() => setShareToast(''), 2200);
-    if (navigator?.share) {
-      try {
-        await navigator.share({
-          title: spot.address || 'Place de parking',
-          text: msg,
-          url: window?.location?.href || '',
-        });
-      } catch (_) {
-        // ignore share cancellation
-      }
+    try {
+      await shareContent({
+        title: spot.address || 'Place de parking',
+        text: msg,
+        url: buildCurrentShareUrl(),
+      });
+    } catch (_) {
+      // ignore share cancellation
     }
   };
 
@@ -1566,6 +1567,37 @@ const SearchView = ({
                       <MapPin size={20} strokeWidth={2.5} />
                     </div>
                   </div>
+                </button>
+              ) : null}
+            </div>
+          ) : showDeckRecovery ? (
+            <div className="text-center space-y-4 max-w-sm empty-state px-6">
+              <div
+                className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center border shadow-xl ${
+                  isDark ? 'bg-slate-900 border-white/10 shadow-black/40 animate-[pulseLocation_2.2s_ease-in-out_infinite]' : 'bg-white border-white animate-[pulseLocation_2.2s_ease-in-out_infinite]'
+                }`}
+              >
+                <MapPin size={42} className="text-orange-500" />
+              </div>
+              <div>
+                <h3 className={`text-2xl font-bold mb-1 ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                  {t('searchRecoveryTitle', { defaultValue: 'Refreshing nearby spots' })}
+                </h3>
+                <p className={`${isDark ? 'text-slate-400' : 'text-gray-500'} text-sm`}>
+                  {availableCards.length > 0
+                    ? t('searchRecoverySubtitle', { defaultValue: 'The list got out of sync. Reload the stack to continue.' })
+                    : t('searchLoadingSubtitle', { defaultValue: 'Looking for available spots around you.' })}
+                </p>
+              </div>
+              {availableCards.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setCurrentIndex(0)}
+                  className={`mx-auto inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold transition ${
+                    isDark ? 'bg-white/10 text-slate-100 hover:bg-white/15' : 'bg-slate-900 text-white hover:bg-slate-800'
+                  }`}
+                >
+                  {t('reloadSpots', { defaultValue: 'Reload spots' })}
                 </button>
               ) : null}
             </div>

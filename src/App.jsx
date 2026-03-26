@@ -45,6 +45,12 @@ import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
 import { MapPin, Settings, Shield } from 'lucide-react';
 import { newId } from './utils/ids';
 import { formatCurrencyAmount, getDefaultCurrencyForLanguage } from './utils/currency';
+import { buildCurrentShareUrl, copyText, getCurrentLocationCoordinates, shareContent } from './utils/mobile';
+import {
+  restoreNativeSessionToWeb,
+  shouldUseNativeFirebaseAuth,
+  signOutFromAllLayers,
+} from './utils/nativeFirebaseAuth';
 
 const ADMIN_EMAILS = new Set(
   String(import.meta.env.VITE_ADMIN_EMAILS || '')
@@ -458,6 +464,26 @@ const isActiveProposeSpot = (spot) => {
 };
 
 const PREMIUM_PARKS_MAX = 5;
+const AUTH_BOOT_HYDRATION_TIMEOUT_MS = 4_500;
+const AUTH_BOOT_FAILSAFE_TIMEOUT_MS = 6_500;
+
+const withTimeout = (promise, timeoutMs) =>
+  new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    Promise.resolve(promise)
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      });
+  });
+
 const isFreeSpot = (spot) => {
   const price = Number(spot?.price ?? 0);
   return Number.isFinite(price) && price <= 0;
@@ -478,6 +504,14 @@ const VIEW_BREADCRUMB_STYLES = {
   arrow: 'color: #f97316; font-weight: 900;',
   to: 'color: #22c55e; font-weight: 800;',
   info: 'color: #38bdf8; font-weight: 700;',
+};
+
+const IOS_DEBUG_BUILD = 'IOS_DEBUG_2026_03_25_15';
+const IOS_PATCH_LABEL = 'PATCH 15';
+
+const logIosAuthDebug = (step, payload = {}) => {
+  if (typeof console === 'undefined') return;
+  console.info(`[${IOS_DEBUG_BUILD}] App:${step}`, payload);
 };
 
 const logViewBreadcrumb = ({ from = '—', to = '—', meta = '' }) => {
@@ -536,6 +570,7 @@ export default function LoloParkApp() {
 		  const heartbeatInFlightRef = useRef(false);
 		  const userUidRef = useRef(null);
 		  const initializingRef = useRef(true);
+      const nativeAuthRestorePendingRef = useRef(shouldUseNativeFirebaseAuth());
 		  const loginOverlayTimerRef = useRef(null);
   const [menuNudgeActive, setMenuNudgeActive] = useState(false);
   const menuNudgeTimerRef = useRef(null);
@@ -722,24 +757,13 @@ export default function LoloParkApp() {
 	  };
 
   const logCurrentLocation = async (contextLabel = 'location') => {
-    if (!navigator?.geolocation) {
-      return null;
-    }
     const fallbackLocation = { lat: 48.8738, lng: 2.295 };
-    const attempt = (opts) =>
-      new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-            lastKnownLocationRef.current = coords;
-            resolve(coords);
-          },
-          (err) => {
-            resolve(null);
-          },
-          opts,
-        );
-      });
+    void contextLabel;
+    const attempt = async (opts) => {
+      const coords = await getCurrentLocationCoordinates(opts);
+      if (coords) lastKnownLocationRef.current = coords;
+      return coords;
+    };
 
     // Try high accuracy first, then fallback to a more lenient request to avoid timeouts
     const first = await attempt({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 10_000 });
@@ -1087,6 +1111,30 @@ export default function LoloParkApp() {
     if (stored) return stored;
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   };
+  const finishInitializing = () => {
+    if (!initializingRef.current) return;
+    initializingRef.current = false;
+    setInitializing(false);
+  };
+  const buildUserFromAuth = (fbUser, overrides = {}) => {
+    const { displayName: overrideDisplayName, ...restOverrides } = overrides;
+    return {
+      uid: fbUser.uid,
+      displayName: fbUser.displayName || overrideDisplayName || 'User',
+      email: fbUser.email || '',
+      phone: fbUser.phoneNumber || '',
+      transactions: 0,
+      premiumParks: PREMIUM_PARKS_MAX,
+      wallet: 0,
+      walletCents: 0,
+      walletReservedCents: 0,
+      language: overrides.language || i18n.language || 'en',
+      theme: overrides.theme || getInitialTheme(),
+      kycStatus: overrides.kycStatus || 'unverified',
+      isAdmin: overrides.isAdmin ?? resolveAdminAccess(null, fbUser.email || ''),
+      ...restOverrides,
+    };
+  };
   const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
@@ -1094,6 +1142,54 @@ export default function LoloParkApp() {
     document.body.dataset.theme = theme;
     window.localStorage?.setItem('theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!initializing) return undefined;
+    const timer = window.setTimeout(() => {
+      console.warn('[App] Auth bootstrap timed out; falling back to interactive shell.');
+      finishInitializing();
+    }, AUTH_BOOT_FAILSAFE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [initializing]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!shouldUseNativeFirebaseAuth()) {
+      nativeAuthRestorePendingRef.current = false;
+      return undefined;
+    }
+
+    (async () => {
+      try {
+        logIosAuthDebug('nativeRestore:start', {
+          currentWebUid: auth.currentUser?.uid || null,
+        });
+        const restoredUser = await restoreNativeSessionToWeb({ auth, functions });
+        if (cancelled) return;
+        logIosAuthDebug('nativeRestore:complete', {
+          restoredUid: restoredUser?.uid || null,
+          currentWebUid: auth.currentUser?.uid || null,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Error restoring native Firebase auth session:', error);
+        logIosAuthDebug('nativeRestore:error', {
+          message: error?.message || String(error),
+        });
+      } finally {
+        if (cancelled) return;
+        nativeAuthRestorePendingRef.current = false;
+        if (!auth.currentUser && !userUidRef.current) {
+          finishInitializing();
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep a CSS variable in sync with the real bottom nav height so views can avoid overlap.
   useEffect(() => {
@@ -1145,8 +1241,8 @@ export default function LoloParkApp() {
           let walletReservedCents = 0;
           let kycStatus = 'unverified';
               let isAdmin = resolveAdminAccess(null, fbUser.email || '');
-		      try {
-		        const snap = await getDoc(userRef);
+          try {
+                const snap = await withTimeout(getDoc(userRef), AUTH_BOOT_HYDRATION_TIMEOUT_MS);
 		        if (snap.exists()) {
 		          const data = snap.data();
 		          if (data?.language) language = data.language;
@@ -1160,39 +1256,60 @@ export default function LoloParkApp() {
 		      } catch (err) {
 		        console.error('Error loading user language:', err);
 		      }
-		      return {
-		        uid: fbUser.uid,
-		        displayName: fbUser.displayName || fallbackName || 'User',
-		        email: fbUser.email || '',
-		        phone: fbUser.phoneNumber || '',
-		        transactions: 0,
-		        premiumParks: PREMIUM_PARKS_MAX,
+          return buildUserFromAuth(fbUser, {
+            displayName: fallbackName || '',
             wallet: walletCentsToEuros(walletCents),
             walletCents,
             walletReservedCents,
-		        language: language || 'en',
+            language: language || 'en',
             theme: nextTheme,
             kycStatus,
             isAdmin,
-		      };
+          });
 		    };
 
 		    const unsub = onAuthStateChanged(auth, (fbUser) => {
 		      (async () => {
+		        logIosAuthDebug('onAuthStateChanged', {
+		          uid: fbUser?.uid || null,
+		          email: fbUser?.email || null,
+		          emailVerified: fbUser?.emailVerified ?? null,
+		          initializing: initializingRef.current,
+		          currentUserUid: auth.currentUser?.uid || null,
+		        });
 		        if (cancelled) return;
+		        if (!fbUser && nativeAuthRestorePendingRef.current) {
+		          logIosAuthDebug('onAuthStateChanged:waitingForNativeRestore', {});
+		          return;
+		        }
 		        if (fbUser) {
               if (shouldRequireVerifiedEmail(fbUser) && !fbUser.emailVerified) {
+                logIosAuthDebug('onAuthStateChanged:unverified', {
+                  uid: fbUser?.uid || null,
+                  initializing: initializingRef.current,
+                });
                 setAuthNotice("Votre email n'est pas encore verifie. Confirmez-le avant de vous connecter.");
-                await signOut(auth);
-                if (cancelled) return;
                 setUser(null);
+                if (initializingRef.current) {
+                  logIosAuthDebug('onAuthStateChanged:signOutUnverifiedDuringBoot', { uid: fbUser?.uid || null });
+                  await signOutFromAllLayers({ auth, reason: 'boot-unverified-email' });
+                  if (cancelled) return;
+                }
 
-                // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
-                setInitializing(false);
-                initializingRef.current = false;
+                finishInitializing();
                 return;
               }
               setAuthNotice('');
+		          const fallbackName = fbUser.displayName ? '' : consumeLastAuthName();
+		          const provisionalUser = buildUserFromAuth(fbUser, {
+		            displayName: fallbackName || '',
+		          });
+		          setUser((prev) => (prev?.uid === provisionalUser.uid ? { ...provisionalUser, ...prev } : provisionalUser));
+              logIosAuthDebug('onAuthStateChanged:setProvisionalUser', {
+                uid: provisionalUser?.uid || null,
+                emailVerified: provisionalUser?.email ? fbUser?.emailVerified ?? null : null,
+              });
+		          finishInitializing();
 		          const nextUser = await hydrateUser(fbUser);
 		          if (cancelled) return;
 		          const wasLoggedOut = !userUidRef.current && !initializingRef.current;
@@ -1200,6 +1317,10 @@ export default function LoloParkApp() {
 		          if (nextUser?.language) i18n.changeLanguage(nextUser.language);
               if (nextUser?.theme) setTheme(nextUser.theme);
 		          setUser(nextUser);
+              logIosAuthDebug('onAuthStateChanged:setHydratedUser', {
+                uid: nextUser?.uid || null,
+                emailVerified: fbUser?.emailVerified ?? null,
+              });
 		          if (wasLoggedOut) {
 		            if (loginOverlayTimerRef.current) window.clearTimeout(loginOverlayTimerRef.current);
                 setLoginOverlayVariant(firstLogin ? 'onboarding' : 'welcome');
@@ -1212,12 +1333,11 @@ export default function LoloParkApp() {
                 }, firstLogin ? 2600 : 1200);
 		          }
 		        } else if (!loggingOut) {
+              logIosAuthDebug('onAuthStateChanged:clearUser', { loggingOut });
 		          setUser(null);
 		        }
 
-		        // ❗ IMPORTANT : on laisse Firebase finir l'init AVANT de montrer AuthView
-		        setInitializing(false);
-		        initializingRef.current = false;
+            finishInitializing();
 		      })();
 		    });
 
@@ -1234,6 +1354,12 @@ export default function LoloParkApp() {
     const fbUser = auth.currentUser;
     if (!fbUser) return;
 
+    if (shouldRequireVerifiedEmail(fbUser) && !fbUser.emailVerified) {
+      setAuthNotice("Votre email n'est pas encore verifie. Confirmez-le avant de vous connecter.");
+      finishInitializing();
+      return;
+    }
+
     // If auth subscription already hydrated, skip.
     if (userUidRef.current) return;
 
@@ -1247,7 +1373,7 @@ export default function LoloParkApp() {
       let kycStatus = 'unverified';
       let isAdmin = resolveAdminAccess(null, fbUser.email || '');
       try {
-        const snap = await getDoc(userRef);
+        const snap = await withTimeout(getDoc(userRef), AUTH_BOOT_HYDRATION_TIMEOUT_MS);
         if (snap.exists()) {
           const data = snap.data();
           if (data?.language) language = data.language;
@@ -1261,13 +1387,8 @@ export default function LoloParkApp() {
       } catch (err) {
         console.error('Error loading user language:', err);
       }
-      const nextUser = {
-        uid: fbUser.uid,
-        displayName: fbUser.displayName || fallbackName || 'User',
-        email: fbUser.email || '',
-        phone: fbUser.phoneNumber || '',
-        transactions: 0,
-        premiumParks: PREMIUM_PARKS_MAX,
+      const nextUser = buildUserFromAuth(fbUser, {
+        displayName: fallbackName || '',
         wallet: walletCentsToEuros(walletCents),
         walletCents,
         walletReservedCents,
@@ -1275,10 +1396,11 @@ export default function LoloParkApp() {
         theme: nextTheme,
         kycStatus,
         isAdmin,
-      };
+      });
       setUser((prev) => prev || nextUser);
       if (nextUser.theme) setTheme(nextUser.theme);
       if (nextUser.language) i18n.changeLanguage(nextUser.language);
+      finishInitializing();
     })();
   }, 300); // 300ms = perfect mobile delay
 
@@ -1619,9 +1741,9 @@ export default function LoloParkApp() {
 		    setDoc(
 		      userRef,
 		      {
-		        displayName: user.displayName,
-		        email: user.email,
-		        phone: user.phone,
+		        displayName: user.displayName || 'User',
+		        email: user.email || '',
+		        phone: user.phone || '',
 		        language: user.language || i18n.language || 'en',
             theme: normalizeTheme(user.theme) || theme,
             currency: user.currency || getDefaultCurrencyForLanguage(user.language || i18n.language || 'en'),
@@ -2704,7 +2826,7 @@ export default function LoloParkApp() {
     let reauthRequired = false;
     try {
       const updates = {
-        displayName: displayName || null,
+        displayName: displayName || user.displayName || 'User',
         email: email || null,
         phone: phone || null,
         language: language || i18n.language || 'en',
@@ -2721,7 +2843,7 @@ export default function LoloParkApp() {
           updates.pendingEmail = email;
           updates.emailVerified = false;
           await setDoc(userRef, updates, { merge: true });
-          await signOut(auth);
+          await signOutFromAllLayers({ auth, reason: 'profile-email-change-needs-verification' });
           return { needsEmailVerify: true, reauthRequired: false };
         } catch (err) {
           if (err?.code === 'auth/requires-recent-login') {
@@ -2813,7 +2935,7 @@ export default function LoloParkApp() {
 	    const startMs = Date.now();
 	    setLoggingOut(true);
 	    try {
-	      await signOut(auth);
+        await signOutFromAllLayers({ auth, reason: 'manual-logout' });
 	    } catch (err) {
 	      console.error('Error signing out:', err);
 	    }
@@ -2993,27 +3115,22 @@ export default function LoloParkApp() {
   const inviteLink = typeof window !== 'undefined' ? window.location.origin : 'https://parkswap.app';
   const handleInviteShare = async () => {
     setInviteMessage('');
-    if (navigator?.share) {
-      try {
-        await navigator.share({
-          title: 'Join me on LoloPark',
-          text: 'Swap parking spots with me on LoloPark!',
-          url: inviteLink,
-        });
-        setInviteMessage('Shared ✨');
-        return;
-      } catch (_) {
-        // ignore and fallback to copy
-      }
-    }
-    if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(inviteLink);
-        setInviteMessage('Link copied');
-        return;
-      } catch (_) {
-        setInviteMessage('');
-      }
+    const shareUrl = buildCurrentShareUrl() || inviteLink;
+    try {
+      await shareContent({
+        title: 'Join me on LoloPark',
+        text: 'Swap parking spots with me on LoloPark!',
+        url: shareUrl,
+      });
+      setInviteMessage('Shared ✨');
+      return;
+    } catch (_) {}
+
+    try {
+      const copied = await copyText(shareUrl);
+      setInviteMessage(copied ? 'Link copied' : '');
+    } catch (_) {
+      setInviteMessage('');
     }
   };
 
@@ -3122,6 +3239,26 @@ export default function LoloParkApp() {
         theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'text-slate-950 app-surface'
       }`}
     >
+      <div className="absolute inset-0 flex items-center justify-center px-6">
+        <div
+          className={`w-full max-w-sm rounded-[28px] border px-6 py-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.16)] ${
+            theme === 'dark' ? 'border-white/10 bg-slate-950/70' : 'border-white/70 bg-white/85'
+          }`}
+          style={{ backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
+        >
+          <div className="mx-auto mb-4 h-11 w-11 rounded-full border-2 border-orange-400/30 border-t-orange-500 animate-spin" />
+          <div className={`text-[11px] font-semibold uppercase tracking-[0.24em] ${theme === 'dark' ? 'text-orange-300' : 'text-orange-600'}`}>
+            ParkSwap
+          </div>
+          <h1 className="mt-3 text-2xl font-black tracking-tight">Opening the app</h1>
+          <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-slate-300/85' : 'text-slate-600'}`}>
+            Checking your session and preparing nearby spots.
+          </p>
+          <div className={`mt-4 inline-flex rounded-full px-3 py-1 text-[10px] font-black tracking-[0.2em] ${theme === 'dark' ? 'border border-white/10 bg-white/5 text-orange-200' : 'border border-orange-100 bg-orange-50 text-orange-700'}`}>
+            {IOS_PATCH_LABEL}
+          </div>
+        </div>
+      </div>
       <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
     </div>
   );

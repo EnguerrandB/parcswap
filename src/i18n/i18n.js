@@ -43,7 +43,7 @@ if (!i18n.isInitialized) {
         caches: ["localStorage"],
       },
       react: {
-        useSuspense: true,
+        useSuspense: false,
       },
       load: "languageOnly",
       debug: false,

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowRight, FileText, ShieldCheck, X } from 'lucide-react';
 import { PRIVACY_POLICY_TEXT } from '../legal/privacyPolicyText';
 import { TERMS_AND_CONDITIONS_TEXT } from '../legal/termsAndConditionsText';
+import { openExternalUrl } from '../utils/mobile';
 
 const LegalContact = ({ isDark = false, iconStyle }) => {
   const { t, i18n } = useTranslation('common');
@@ -102,9 +103,9 @@ const LegalContact = ({ isDark = false, iconStyle }) => {
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   collapseLegal();
-                  window.location.assign('mailto:enguerrand.boitel@gmail.com');
+                  await openExternalUrl('mailto:enguerrand.boitel@gmail.com');
                 }}
                 className={`px-4 font-semibold py-2 rounded-xl border transition ${
                   isDark

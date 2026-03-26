@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 const Stripe = require("stripe");
 
 admin.initializeApp();
@@ -41,6 +42,111 @@ const stripe = stripeSecret
     })
   : null;
 
+let secureTokenCertCache = {
+  expiresAt: 0,
+  certs: null,
+};
+
+const decodeBase64UrlJson = (value) => {
+  const normalized = String(value || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const padded =
+    normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+  return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+};
+
+const decodeBase64UrlBuffer = (value) => {
+  const normalized = String(value || "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const padded =
+    normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+  return Buffer.from(padded, "base64");
+};
+
+const getSecureTokenCerts = async () => {
+  if (
+    secureTokenCertCache.certs &&
+    Date.now() < secureTokenCertCache.expiresAt
+  ) {
+    return secureTokenCertCache.certs;
+  }
+
+  const response = await fetch(
+    "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com",
+  );
+  if (!response.ok) {
+    throw new Error(`Unable to fetch secure token certs: ${response.status}`);
+  }
+
+  const certs = await response.json();
+  const cacheControl = String(response.headers.get("cache-control") || "");
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+  const maxAgeSeconds = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
+
+  secureTokenCertCache = {
+    certs,
+    expiresAt: Date.now() + Math.max(60, maxAgeSeconds) * 1000,
+  };
+
+  return certs;
+};
+
+const verifySecureTokenJwt = async (idToken) => {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3) {
+    throw new Error("Malformed Firebase ID token.");
+  }
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const header = decodeBase64UrlJson(encodedHeader);
+  const payload = decodeBase64UrlJson(encodedPayload);
+  const signature = decodeBase64UrlBuffer(encodedSignature);
+
+  if (header.alg !== "RS256") {
+    throw new Error(`Unexpected token algorithm: ${header.alg || "unknown"}`);
+  }
+
+  const certs = await getSecureTokenCerts();
+  const cert = certs?.[header.kid];
+  if (!cert) {
+    throw new Error(`Unknown token key id: ${header.kid || "missing"}`);
+  }
+
+  const verifier = crypto.createVerify("RSA-SHA256");
+  verifier.update(`${encodedHeader}.${encodedPayload}`);
+  verifier.end();
+
+  const validSignature = verifier.verify(cert, signature);
+  if (!validSignature) {
+    throw new Error("Invalid Firebase ID token signature.");
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expectedIssuer = `https://securetoken.google.com/${projectId}`;
+  if (payload.iss !== expectedIssuer) {
+    throw new Error(`Unexpected issuer: ${payload.iss || "missing"}`);
+  }
+  if (payload.aud !== projectId) {
+    throw new Error(`Unexpected audience: ${payload.aud || "missing"}`);
+  }
+  if (!payload.sub || typeof payload.sub !== "string") {
+    throw new Error("Missing token subject.");
+  }
+  if (typeof payload.exp !== "number" || payload.exp <= nowSeconds) {
+    throw new Error("Firebase ID token has expired.");
+  }
+  if (typeof payload.iat !== "number" || payload.iat > nowSeconds + 300) {
+    throw new Error("Firebase ID token issued-at time is invalid.");
+  }
+
+  return {
+    uid: payload.user_id || payload.sub,
+    payload,
+  };
+};
+
 const WALLET_VERSION = 1;
 const WALLET_AVAILABLE_FIELD = "walletAvailableCents";
 const WALLET_RESERVED_FIELD = "walletReservedCents";
@@ -49,6 +155,87 @@ const PREMIUM_PARKS_MAX = 5;
 
 const getUserRef = (uid) =>
   admin.firestore().doc(`artifacts/${projectId}/public/data/users/${uid}`);
+
+exports.createWebCustomToken = functions.https.onCall(async (data) => {
+  const idToken = typeof data?.idToken === "string" ? data.idToken.trim() : "";
+  if (!idToken) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "A Firebase ID token is required.",
+    );
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(idToken);
+  } catch (error) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "The Firebase ID token is invalid.",
+    );
+  }
+
+  const customToken = await admin.auth().createCustomToken(decodedToken.uid);
+  return {
+    customToken,
+    uid: decodedToken.uid,
+  };
+});
+
+exports.createWebCustomTokenHttp = functions.https.onRequest(
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed." });
+      return;
+    }
+
+    const idToken =
+      typeof req.body?.idToken === "string" ? req.body.idToken.trim() : "";
+    if (!idToken) {
+      res.status(400).json({ error: "A Firebase ID token is required." });
+      return;
+    }
+
+    try {
+      let decodedToken;
+
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (verifyError) {
+        try {
+          decodedToken = await verifySecureTokenJwt(idToken);
+        } catch (jwtError) {
+          res.status(401).json({
+            error: `The Firebase ID token is invalid. verifyIdToken=${verifyError?.message || String(verifyError)} manualVerify=${jwtError?.message || String(jwtError)}`,
+          });
+          return;
+        }
+      }
+
+      const customToken = await admin
+        .auth()
+        .createCustomToken(decodedToken.uid);
+      res.status(200).json({
+        customToken,
+        uid: decodedToken.uid,
+      });
+    } catch (error) {
+      res.status(401).json({
+        error: "The Firebase ID token is invalid.",
+        message: error?.message || String(error),
+      });
+    }
+  },
+);
 
 const buildWalletLedgerRef = (id) =>
   admin

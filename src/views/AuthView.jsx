@@ -10,16 +10,22 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
-  RecaptchaVerifier,
   reload,
-  signInWithPhoneNumber,
   sendEmailVerification,
-  signOut,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
 } from 'firebase/auth';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { appId, auth, authPersistenceReady, db } from '../firebase';
+import { appId, auth, authPersistenceReady, db, functions } from '../firebase';
 import { useTranslation } from 'react-i18next';
 import { PHONE_COUNTRIES, formatPhoneInput, toE164Phone } from '../utils/phone';
+import { getPublicWebBaseUrl, isNativeApp } from '../utils/mobile';
+import {
+  createUserWithNativeEmailAndPassword,
+  shouldUseNativeFirebaseAuth,
+  signInWithNativeEmailAndPassword,
+  signOutFromAllLayers,
+} from '../utils/nativeFirebaseAuth';
 
 // --- CSS IN-JS pour l'animation de fond subtile (Mesh Gradient) ---
 const styles = `
@@ -50,6 +56,33 @@ const styles = `
     display: none;
   }
 `;
+
+const AUTH_ACTION_TIMEOUT_MS = 18_000;
+const IOS_DEBUG_BUILD = 'IOS_DEBUG_2026_03_25_10';
+const IOS_PATCH_LABEL = 'PATCH 10';
+
+const logAuthDebug = (step, payload = {}) => {
+  if (typeof console === 'undefined') return;
+  console.info(`[${IOS_DEBUG_BUILD}] AuthView:${step}`, payload);
+};
+
+const withTimeout = async (promise, timeoutMs, code = 'auth/timeout') => {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          const error = new Error('Authentication request timed out.');
+          error.code = code;
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+};
 
 const AuthView = ({ noticeMessage = '' }) => {
   const { t } = useTranslation('common');
@@ -117,8 +150,21 @@ const AuthView = ({ noticeMessage = '' }) => {
       return null;
     }
   };
+  const readPendingAuth = () => {
+    try {
+      const raw = window.sessionStorage?.getItem(pendingKey)
+        || window.sessionStorage?.getItem(legacyPendingKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  };
 
   useEffect(() => {
+    logAuthDebug('mount', { native: isNativeApp(), noticeMessage: noticeMessage || '' });
     return () => clearRecaptcha();
   }, []);
 
@@ -129,14 +175,18 @@ const AuthView = ({ noticeMessage = '' }) => {
   useEffect(() => {
     const handleRedirect = async () => {
       try {
+        const pending = readPendingAuth();
+        logAuthDebug('handleRedirect:start', { pending });
+        if (!pending) return;
         await authPersistenceReady;
         const result = await getRedirectResult(auth);
+        logAuthDebug('handleRedirect:result', { hasUser: Boolean(result?.user), providerId: pending?.providerId || '' });
         if (result?.user) {
           consumePendingAuth();
           onAuthSuccess(result.user);
           return;
         }
-        const pending = consumePendingAuth();
+        consumePendingAuth();
         const pendingProvider = pending?.providerId;
         const pendingAt = Number(pending?.at);
         const stillRecent = Number.isFinite(pendingAt) && Date.now() - pendingAt < 2 * 60_000;
@@ -145,6 +195,7 @@ const AuthView = ({ noticeMessage = '' }) => {
         }
       } catch (err) {
         console.error(err);
+        logAuthDebug('handleRedirect:error', { code: err?.code || '', message: err?.message || '' });
         setError(t('providerSignInFailed', 'Authentication failed.'));
       }
     };
@@ -180,9 +231,8 @@ const AuthView = ({ noticeMessage = '' }) => {
   };
 
   const buildEmailActionSettings = () => {
-    if (typeof window === 'undefined') return undefined;
     return {
-      url: window.location.origin,
+      url: getPublicWebBaseUrl(),
       handleCodeInApp: false,
     };
   };
@@ -318,6 +368,12 @@ const AuthView = ({ noticeMessage = '' }) => {
   };
 
   const handleEmailAuth = async () => {
+    logAuthDebug('handleEmailAuth:start', {
+      mode,
+      method,
+      email: String(form.email || '').trim(),
+      passwordLength: String(form.password || '').length,
+    });
     if (!form.email || !form.password) {
       setError(t('authFillEmailPassword', 'Remplissez email et mot de passe'));
       return;
@@ -340,18 +396,34 @@ const AuthView = ({ noticeMessage = '' }) => {
           setLoading(false);
           return;
         }
-        const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        const createdUser = shouldUseNativeFirebaseAuth()
+          ? await withTimeout(
+              createUserWithNativeEmailAndPassword({
+                auth,
+                functions,
+                email: form.email,
+                password: form.password,
+              }),
+              AUTH_ACTION_TIMEOUT_MS,
+              'auth/signin-timeout',
+            )
+          : (
+              await withTimeout(
+                createUserWithEmailAndPassword(auth, form.email, form.password),
+                AUTH_ACTION_TIMEOUT_MS,
+              )
+            ).user;
         const displayName = String(form.name || '').trim();
-        await updateProfile(cred.user, { displayName });
+        await updateProfile(createdUser, { displayName });
         setLastAuthName(displayName);
         try {
-          const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', cred.user.uid);
+          const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', createdUser.uid);
           await setDoc(
             userRef,
             {
               displayName,
               username: displayName,
-              email: cred.user.email || form.email || '',
+              email: createdUser.email || form.email || '',
               createdAt: serverTimestamp(),
             },
             { merge: true },
@@ -359,19 +431,55 @@ const AuthView = ({ noticeMessage = '' }) => {
         } catch (e) {
           console.error('Error saving profile name:', e);
         }
-        await sendEmailVerification(cred.user, buildEmailActionSettings());
-        await signOut(auth);
-        setPendingVerificationEmail(cred.user.email || form.email || '');
+        await sendEmailVerification(createdUser, buildEmailActionSettings());
+        await signOutFromAllLayers({ auth, reason: 'post-register-email-verification' });
+        setPendingVerificationEmail(createdUser.email || form.email || '');
         setForm((prev) => ({ ...prev, password: '', confirmPassword: '' }));
         setMode('login');
         setInfo(t('verificationEmailSent', 'Vérifiez votre email pour valider le compte.'));
       } else {
-        const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-        await reload(cred.user);
-        const signedInUser = auth.currentUser || cred.user;
+        logAuthDebug('handleEmailAuth:beforeSignIn', { email: String(form.email || '').trim() });
+        const signedInUser = shouldUseNativeFirebaseAuth()
+          ? await withTimeout(
+              signInWithNativeEmailAndPassword({
+                auth,
+                functions,
+                email: form.email,
+                password: form.password,
+              }),
+              AUTH_ACTION_TIMEOUT_MS,
+              'auth/signin-timeout',
+            )
+          : (() => {
+              return withTimeout(
+                signInWithEmailAndPassword(auth, form.email, form.password),
+                AUTH_ACTION_TIMEOUT_MS,
+                'auth/signin-timeout',
+              ).then((cred) => auth.currentUser || cred.user);
+            })();
+        logAuthDebug('handleEmailAuth:afterSignIn', {
+          uid: signedInUser?.uid || '',
+          emailVerified: Boolean(signedInUser?.emailVerified),
+          hasCurrentUser: Boolean(auth.currentUser),
+        });
         if (isEmailPasswordUser(signedInUser) && !signedInUser.emailVerified) {
+          try {
+            logAuthDebug('handleEmailAuth:beforeReloadUnverified', { uid: signedInUser?.uid || '' });
+            await withTimeout(reload(signedInUser), 2_500, 'auth/reload-timeout');
+            logAuthDebug('handleEmailAuth:afterReloadUnverified', {
+              uid: signedInUser?.uid || '',
+              emailVerified: Boolean((auth.currentUser || signedInUser)?.emailVerified),
+            });
+          } catch (_) {}
+          const refreshedUser = auth.currentUser || signedInUser;
+          if (refreshedUser?.emailVerified) {
+            logAuthDebug('handleEmailAuth:verifiedAfterReload', { uid: refreshedUser?.uid || '' });
+            onAuthSuccess(refreshedUser);
+            return;
+          }
+          logAuthDebug('handleEmailAuth:signOutUnverified', { uid: signedInUser?.uid || '' });
           setPendingVerificationEmail(signedInUser.email || form.email || '');
-          await signOut(auth);
+          await signOutFromAllLayers({ auth, reason: 'unverified-email-login' });
           setInfo(
             t(
               'verifyEmailWarning',
@@ -380,17 +488,32 @@ const AuthView = ({ noticeMessage = '' }) => {
           );
           return;
         }
+        logAuthDebug('handleEmailAuth:success', {
+          uid: signedInUser?.uid || '',
+          emailVerified: Boolean(signedInUser?.emailVerified),
+        });
         onAuthSuccess(signedInUser);
       }
     } catch (err) {
+      logAuthDebug('handleEmailAuth:error', { code: err?.code || '', message: err?.message || '' });
       let msg = err.message;
       if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(err.code)) {
         msg = t('invalidCreds', 'Identifiants incorrects.');
       } else if (err.code === 'auth/email-already-in-use') {
         msg = t('emailInUse', 'Email déjà utilisé.');
+      } else if (err.code === 'auth/signin-timeout') {
+        msg = t('authSignInTimeout', 'La connexion bloque pendant la verification des identifiants.');
+      } else if (err.code === 'auth/reload-timeout') {
+        msg = t('authReloadTimeout', 'La connexion bloque pendant la verification du compte.');
+      } else if (['auth/timeout', 'auth/persistence-timeout'].includes(err.code)) {
+        msg = t('authTimeout', 'La connexion prend trop de temps. Réessayez.');
       }
       setError(msg);
     } finally {
+      logAuthDebug('handleEmailAuth:finally', {
+        authCurrentUserUid: auth.currentUser?.uid || null,
+        authCurrentUserVerified: auth.currentUser?.emailVerified ?? null,
+      });
       setLoading(false);
     }
   };
@@ -413,24 +536,43 @@ const AuthView = ({ noticeMessage = '' }) => {
     setInfo('');
     setResendingVerification(true);
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
-      await reload(cred.user);
-      const signedInUser = auth.currentUser || cred.user;
+      const signedInUser = shouldUseNativeFirebaseAuth()
+        ? await withTimeout(
+            signInWithNativeEmailAndPassword({
+              auth,
+              functions,
+              email,
+              password,
+            }),
+            AUTH_ACTION_TIMEOUT_MS,
+            'auth/signin-timeout',
+          )
+        : (
+            await withTimeout(
+              signInWithEmailAndPassword(auth, email, password),
+              AUTH_ACTION_TIMEOUT_MS,
+              'auth/signin-timeout',
+            )
+          ).user;
+
+      try {
+        await withTimeout(reload(signedInUser), 2_500, 'auth/reload-timeout');
+      } catch (_) {}
 
       if (!isEmailPasswordUser(signedInUser)) {
-        await signOut(auth);
+        await signOutFromAllLayers({ auth, reason: 'resend-verification-invalid-provider' });
         setError(t('providerSignInFailed', 'Erreur de connexion.'));
         return;
       }
 
       if (signedInUser.emailVerified) {
-        await signOut(auth);
+        await signOutFromAllLayers({ auth, reason: 'resend-verification-already-verified' });
         setInfo(t('emailAlreadyVerified', 'Cet email est déjà vérifié. Vous pouvez vous connecter.'));
         return;
       }
 
       await sendEmailVerification(signedInUser, buildEmailActionSettings());
-      await signOut(auth);
+      await signOutFromAllLayers({ auth, reason: 'resend-verification-sent' });
       setPendingVerificationEmail(signedInUser.email || email);
       setInfo(
         t(
@@ -444,6 +586,12 @@ const AuthView = ({ noticeMessage = '' }) => {
         msg = t('invalidCreds', 'Identifiants incorrects.');
       } else if (err?.code === 'auth/too-many-requests') {
         msg = t('tooManyRequests', 'Trop de tentatives. Réessayez plus tard.');
+      } else if (err?.code === 'auth/signin-timeout') {
+        msg = t('authSignInTimeout', 'La connexion bloque pendant la verification des identifiants.');
+      } else if (err?.code === 'auth/reload-timeout') {
+        msg = t('authReloadTimeout', 'La connexion bloque pendant la verification du compte.');
+      } else if (['auth/timeout', 'auth/persistence-timeout'].includes(err?.code)) {
+        msg = t('authTimeout', 'La connexion prend trop de temps. Réessayez.');
       }
       setError(msg);
     } finally {
@@ -506,6 +654,10 @@ const AuthView = ({ noticeMessage = '' }) => {
       await authPersistenceReady;
       const providerId = provider?.providerId || '';
       setPendingAuth(providerId);
+      if (isNativeApp()) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
       const result = await signInWithPopup(auth, provider);
       consumePendingAuth();
       onAuthSuccess(result.user);
@@ -608,6 +760,9 @@ const AuthView = ({ noticeMessage = '' }) => {
                 ? (mode === 'login' ? 'Content de vous revoir' : 'Créer votre espace')
                 : 'Connexion rapide'}
             </p>
+            <div className={`mt-1 rounded-full px-3 py-1 text-[10px] font-black tracking-[0.2em] ${isDark ? 'bg-white/10 text-orange-200 border border-white/10' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
+              {IOS_PATCH_LABEL}
+            </div>
           </div>
 
           {/* Alertes (Discrètes) */}

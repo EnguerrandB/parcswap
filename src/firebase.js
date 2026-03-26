@@ -1,5 +1,6 @@
 // src/firebase.js
 import { initializeApp, getApps, getApp } from "firebase/app";
+import { Capacitor } from "@capacitor/core";
 import {
   browserLocalPersistence,
   browserPopupRedirectResolver,
@@ -9,6 +10,8 @@ import {
   indexedDBLocalPersistence,
   initializeAuth,
   inMemoryPersistence,
+  onAuthStateChanged,
+  onIdTokenChanged,
   setPersistence,
 } from "firebase/auth";
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
@@ -20,9 +23,28 @@ import {
 } from "firebase/firestore";
 
 // --- FIREBASE SETUP ---
+const IOS_DEBUG_BUILD = "IOS_DEBUG_2026_03_25_10";
+const IOS_PATCH_LABEL = "PATCH 14";
 const isBrowser = typeof window !== "undefined";
 const browserHost = isBrowser ? window.location.hostname : "";
 const isLocalhost = ["localhost", "127.0.0.1"].includes(browserHost);
+const isNativeApp = (() => {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+})();
+
+// Capacitor sets window.cordova for backwards-compat with Cordova plugins, but
+// Firebase Auth's internal _isCordova() check sees it and tries Cordova redirect
+// flows that hang in WKWebView.  Remove the shim before Auth initializes.
+if (isNativeApp && typeof window !== "undefined") {
+  delete window.cordova;
+  delete window.phonegap;
+  delete window.PhoneGap;
+}
+
 const resolvedAuthDomain =
   import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ||
   (isBrowser && !isLocalhost
@@ -41,19 +63,199 @@ const firebaseConfig = {
 // Robust initialization to prevent hot-reload duplicate app errors
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 let auth;
-
-try {
-  auth = initializeAuth(app, {
-    persistence: [
+let authInitPath = "uninitialized";
+let authInitError = null;
+let authDebugMeta = null;
+const authPersistenceOrder = isNativeApp
+  ? [inMemoryPersistence]
+  : [
       indexedDBLocalPersistence,
       browserLocalPersistence,
       browserSessionPersistence,
-    ],
-    popupRedirectResolver: browserPopupRedirectResolver,
+    ];
+
+const withTimeout = (promise, timeoutMs) => {
+  let timeoutId;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeoutId = window.setTimeout(
+        () => reject(new Error("auth persistence timeout")),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => {
+    if (timeoutId) window.clearTimeout(timeoutId);
   });
-} catch {
+};
+
+const getAuthDebugSnapshot = (authInstance) => {
+  let persistenceType = null;
+  try {
+    persistenceType = authInstance?._getPersistence?.()?.type || null;
+  } catch {
+    persistenceType = null;
+  }
+
+  const ownProps = authInstance
+    ? Object.getOwnPropertyNames(authInstance)
+        .filter((name) =>
+          /init|current|redirect|persist|popup|config|tenant/i.test(name),
+        )
+        .slice(0, 20)
+    : [];
+
+  return {
+    appName: authInstance?.app?.name || null,
+    authDomain: authInstance?.app?.options?.authDomain || null,
+    currentUserUid: authInstance?.currentUser?.uid || null,
+    currentUserVerified: authInstance?.currentUser?.emailVerified ?? null,
+    hasAuthStateReady: typeof authInstance?.authStateReady === "function",
+    hasInitializationPromise: Boolean(
+      authInstance?._initializationPromise?.then,
+    ),
+    isInitialized: authInstance?._isInitialized ?? null,
+    tenantId: authInstance?.tenantId || null,
+    persistenceType,
+    windowCordovaPresent:
+      typeof window !== "undefined" &&
+      Boolean(window.cordova || window.phonegap || window.PhoneGap),
+    documentReadyState:
+      typeof document !== "undefined" ? document.readyState : null,
+    ownProps,
+  };
+};
+
+const installNativeAuthDebugObservers = (authInstance) => {
+  if (!isNativeApp || typeof window === "undefined") return;
+  if (window.__parkswapFirebaseAuthDebugInstalled) return;
+  window.__parkswapFirebaseAuthDebugInstalled = true;
+
+  const logSnapshot = (step) => {
+    console.info(
+      `[${IOS_DEBUG_BUILD}] Firebase auth debug:${step}`,
+      JSON.stringify(getAuthDebugSnapshot(authInstance)),
+    );
+  };
+
+  logSnapshot("install");
+
+  try {
+    authInstance?._initializationPromise
+      ?.then(() => {
+        logSnapshot("initializationPromise:resolved");
+      })
+      ?.catch((error) => {
+        console.info(
+          `[${IOS_DEBUG_BUILD}] Firebase auth debug:initializationPromise:rejected`,
+          JSON.stringify({
+            message: error?.message || String(error),
+            code: error?.code || null,
+          }),
+        );
+      });
+  } catch {
+    // Ignore internal promise inspection failures.
+  }
+
+  onAuthStateChanged(authInstance, (user) => {
+    console.info(
+      `[${IOS_DEBUG_BUILD}] Firebase auth debug:onAuthStateChanged`,
+      JSON.stringify({
+        uid: user?.uid || null,
+        emailVerified: user?.emailVerified ?? null,
+        snapshot: getAuthDebugSnapshot(authInstance),
+      }),
+    );
+  });
+
+  onIdTokenChanged(authInstance, async (user) => {
+    let tokenPreview = "";
+    try {
+      tokenPreview = user
+        ? String(await user.getIdToken(false)).slice(0, 18)
+        : "";
+    } catch {
+      tokenPreview = "";
+    }
+
+    console.info(
+      `[${IOS_DEBUG_BUILD}] Firebase auth debug:onIdTokenChanged`,
+      JSON.stringify({
+        uid: user?.uid || null,
+        tokenPreview,
+        snapshot: getAuthDebugSnapshot(authInstance),
+      }),
+    );
+  });
+
+  [250, 1000, 3000, 8000].forEach((delayMs) => {
+    window.setTimeout(() => {
+      logSnapshot(`timer:${delayMs}ms`);
+    }, delayMs);
+  });
+};
+
+try {
+  authInitPath = "initializeAuth:start";
+  auth = initializeAuth(app, {
+    persistence: authPersistenceOrder,
+    ...(isNativeApp
+      ? {}
+      : { popupRedirectResolver: browserPopupRedirectResolver }),
+  });
+  authInitPath = "initializeAuth:returned";
+} catch (error) {
+  authInitPath = "initializeAuth:threw";
+  authInitError = {
+    message: error?.message || String(error),
+    code: error?.code || null,
+    name: error?.name || null,
+  };
   auth = getAuth(app);
+  authInitPath = "getAuth:fallback";
 }
+
+authDebugMeta = {
+  authInitPath,
+  authInitError,
+  isNativeAppAtInit: isNativeApp,
+  browserHost,
+  resolvedAuthDomain,
+  authPersistenceOrder: authPersistenceOrder.map(
+    (entry) => entry?.type || "unknown",
+  ),
+  windowCapacitorPlatform:
+    typeof Capacitor?.getPlatform === "function"
+      ? Capacitor.getPlatform()
+      : null,
+  windowCordovaPresent:
+    typeof window !== "undefined" &&
+    Boolean(window.cordova || window.phonegap || window.PhoneGap),
+};
+
+if (typeof console !== "undefined") {
+  console.info(
+    `[${IOS_DEBUG_BUILD}] Firebase init`,
+    JSON.stringify({
+      patch: IOS_PATCH_LABEL,
+      isNativeApp,
+      isBrowser,
+      browserHost,
+      resolvedAuthDomain,
+      authInitPath,
+      authInitError,
+      popupRedirectResolverEnabled: !isNativeApp,
+      authPersistenceOrder: authPersistenceOrder.map(
+        (entry) => entry.type || "unknown",
+      ),
+      authDebugMeta,
+      authSnapshot: getAuthDebugSnapshot(auth),
+    }),
+  );
+}
+
+installNativeAuthDebugObservers(auth);
 
 const functions = getFunctions(app);
 const storage = getStorage(app);
@@ -110,12 +312,44 @@ if (useEmulators) {
 
 const appId = "parkswap-36bb2";
 
+const resolveAuthPersistence = async () => {
+  if (typeof window === "undefined" || isNativeApp) return;
+
+  const attempts = [
+    browserLocalPersistence,
+    browserSessionPersistence,
+    inMemoryPersistence,
+  ];
+
+  for (const persistence of attempts) {
+    try {
+      await withTimeout(
+        setPersistence(auth, persistence),
+        isNativeApp ? 2_500 : 4_500,
+      );
+      return;
+    } catch {
+      // Try the next persistence backend.
+    }
+  }
+};
+
 const authPersistenceReady =
   typeof window === "undefined"
     ? Promise.resolve()
-    : setPersistence(auth, browserLocalPersistence)
-        .catch(() => setPersistence(auth, browserSessionPersistence))
-        .catch(() => setPersistence(auth, inMemoryPersistence))
-        .catch(() => undefined);
+    : isNativeApp
+      ? Promise.resolve()
+      : resolveAuthPersistence().catch(() => undefined);
 
-export { app, auth, authPersistenceReady, db, appId, functions, storage };
+const getFirebaseAuthDebugMeta = () => authDebugMeta;
+
+export {
+  app,
+  auth,
+  authPersistenceReady,
+  db,
+  appId,
+  functions,
+  getFirebaseAuthDebugMeta,
+  storage,
+};

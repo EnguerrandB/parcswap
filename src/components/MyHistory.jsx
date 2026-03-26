@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownLeft, ArrowRight, ArrowUpRight, Clock, History, Share, X } from 'lucide-react';
 import { formatCurrencyAmount } from '../utils/currency';
+import { copyText, shareContent } from '../utils/mobile';
 
 const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onCollapse }) => {
   const { t, i18n } = useTranslation('common');
@@ -152,13 +153,14 @@ const MyHistory = ({ transactions = [], user, isDark = false, iconStyle, onColla
                         )}
 
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
                             const body = `LoloPark: ${displayTitle} - ${formatCurrencyAmount(tx.amount, currency)}`;
-                            if (navigator.share) {
-                              navigator.share({ title: 'LoloPark', text: body }).catch(() => {});
-                            } else {
-                              navigator.clipboard.writeText(body);
+                            try {
+                              const shared = await shareContent({ title: 'LoloPark', text: body });
+                              if (!shared) await copyText(body);
+                            } catch (_) {
+                              await copyText(body).catch(() => {});
                             }
                           }}
                           className="text-gray-300 hover:text-orange-600 transition-colors p-1"

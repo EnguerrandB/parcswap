@@ -25,6 +25,7 @@ import {
 // --- FIREBASE SETUP ---
 const IOS_DEBUG_BUILD = "IOS_DEBUG_2026_03_25_10";
 const IOS_PATCH_LABEL = "PATCH 14";
+const ENABLE_NATIVE_AUTH_DEBUG_TIMERS = false;
 const isBrowser = typeof window !== "undefined";
 const browserHost = isBrowser ? window.location.hostname : "";
 const isLocalhost = ["localhost", "127.0.0.1"].includes(browserHost);
@@ -189,11 +190,13 @@ const installNativeAuthDebugObservers = (authInstance) => {
     );
   });
 
-  [250, 1000, 3000, 8000].forEach((delayMs) => {
-    window.setTimeout(() => {
-      logSnapshot(`timer:${delayMs}ms`);
-    }, delayMs);
-  });
+  if (ENABLE_NATIVE_AUTH_DEBUG_TIMERS) {
+    [250, 1000, 3000, 8000].forEach((delayMs) => {
+      window.setTimeout(() => {
+        logSnapshot(`timer:${delayMs}ms`);
+      }, delayMs);
+    });
+  }
 };
 
 try {

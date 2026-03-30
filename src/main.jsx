@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { I18nextProvider } from 'react-i18next';
 import './index.css';
 import App from './App.jsx';
+import AppLoadingScreen from './components/AppLoadingScreen';
 import i18n from './i18n/i18n';
 import { installAppUrlOpenHandler } from './utils/mobile';
 
@@ -42,14 +43,7 @@ createRoot(document.getElementById('root')).render(
     <AppErrorBoundary>
     <Suspense
       fallback={(
-        <div className="h-screen w-full app-surface flex items-center justify-center px-6 text-slate-950">
-          <div className="w-full max-w-sm rounded-[28px] border border-white/70 bg-white/85 px-6 py-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.16)]">
-            <div className="mx-auto mb-4 h-11 w-11 rounded-full border-2 border-orange-400/30 border-t-orange-500 animate-spin" />
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-orange-600">ParkSwap</div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight">Loading translations</h1>
-            <p className="mt-2 text-sm text-slate-600">Preparing the interface for your language.</p>
-          </div>
-        </div>
+        <AppLoadingScreen statusLabel="Loading" />
       )}
     >
       <I18nextProvider i18n={i18n}>

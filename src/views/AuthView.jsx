@@ -23,6 +23,7 @@ import { getPublicWebBaseUrl, isNativeApp } from '../utils/mobile';
 import {
   createUserWithNativeEmailAndPassword,
   shouldUseNativeFirebaseAuth,
+  signInWithNativeGoogle,
   signInWithNativeEmailAndPassword,
   signOutFromAllLayers,
 } from '../utils/nativeFirebaseAuth';
@@ -59,7 +60,6 @@ const styles = `
 
 const AUTH_ACTION_TIMEOUT_MS = 18_000;
 const IOS_DEBUG_BUILD = 'IOS_DEBUG_2026_03_25_10';
-const IOS_PATCH_LABEL = 'PATCH 10';
 
 const logAuthDebug = (step, payload = {}) => {
   if (typeof console === 'undefined') return;
@@ -650,9 +650,14 @@ const AuthView = ({ noticeMessage = '' }) => {
   const handlePopupSignIn = async (provider) => {
     setError('');
     setLoading(true);
+    const providerId = provider?.providerId || '';
     try {
       await authPersistenceReady;
-      const providerId = provider?.providerId || '';
+      if (isNativeApp() && providerId === 'google.com' && shouldUseNativeFirebaseAuth()) {
+        const user = await signInWithNativeGoogle({ auth, functions });
+        onAuthSuccess(user);
+        return;
+      }
       setPendingAuth(providerId);
       if (isNativeApp()) {
         await signInWithRedirect(auth, provider);
@@ -662,6 +667,14 @@ const AuthView = ({ noticeMessage = '' }) => {
       consumePendingAuth();
       onAuthSuccess(result.user);
     } catch (err) {
+      logAuthDebug('handlePopupSignIn:error', {
+        providerId,
+        code: err?.code || '',
+        message: err?.message || '',
+        currentUserUid: auth.currentUser?.uid || '',
+      });
+      console.error('Provider sign-in failed', err);
+      consumePendingAuth();
       if (
         err.code === 'auth/popup-blocked'
         || err.code === 'auth/popup-closed-by-user'
@@ -674,7 +687,27 @@ const AuthView = ({ noticeMessage = '' }) => {
           setError(redirErr.message);
         }
       } else {
-        setError(t('providerSignInFailed', 'Erreur de connexion.'));
+        let msg = t('providerSignInFailed', 'Erreur de connexion.');
+        if (err?.code === 'auth/web-bridge-timeout') {
+          msg = t(
+            'nativeBridgeTimeout',
+            'La connexion Google native a reussi, mais l application a expire avant de finaliser la session.',
+          );
+        } else if (
+          err?.code === 'auth/web-bridge-http-error'
+          || /createWebCustomTokenHttp|Firebase ID token is invalid/i.test(String(err?.message || ''))
+        ) {
+          msg = t(
+            'nativeBridgeHttpError',
+            'La connexion Google native a reussi, mais Firebase n a pas pu finaliser la session dans l application.',
+          );
+        } else if (err?.code === 'auth/native-id-token-empty') {
+          msg = t(
+            'nativeIdTokenPending',
+            'La connexion Google est revenue, mais le token natif n etait pas encore pret. Reessayez tout de suite.',
+          );
+        }
+        setError(msg);
       }
     } finally {
       setLoading(false);
@@ -760,9 +793,6 @@ const AuthView = ({ noticeMessage = '' }) => {
                 ? (mode === 'login' ? 'Content de vous revoir' : 'Créer votre espace')
                 : 'Connexion rapide'}
             </p>
-            <div className={`mt-1 rounded-full px-3 py-1 text-[10px] font-black tracking-[0.2em] ${isDark ? 'bg-white/10 text-orange-200 border border-white/10' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
-              {IOS_PATCH_LABEL}
-            </div>
           </div>
 
           {/* Alertes (Discrètes) */}

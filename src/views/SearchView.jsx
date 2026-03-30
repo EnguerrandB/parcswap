@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { X, MapPin, Bell, WifiOff, Wifi, Euro } from 'lucide-react';
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { appId, db } from '../firebase';
+import SafeView from '../components/SafeView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 import useFiltersAnimation from '../hooks/useFiltersAnimation';
 import { newId } from '../utils/ids';
@@ -1286,16 +1287,20 @@ const SearchView = ({
     setSelectedSpot(spotWithSession);
   };
   return (
-    <div
+    <SafeView
       ref={viewRef}
       className="h-full w-full flex flex-col relative overflow-hidden font-sans app-surface"
+      withBottomInset={false}
       style={{
         touchAction: 'pan-x',
         paddingBottom: 'calc(env(safe-area-inset-bottom) + 90px)',
       }}
     >
       {isOnline && isPoorConnection && (
-        <div className="absolute top-3 left-4 right-4 z-50 pointer-events-none">
+        <div
+          className="absolute left-4 right-4 z-50 pointer-events-none"
+          style={{ top: '12px' }}
+        >
           <div className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
             <Wifi size={16} className="text-amber-700" />
             {t('poorConnectionWarning', { defaultValue: 'Slow connection. Some actions may take longer.' })}
@@ -1303,7 +1308,10 @@ const SearchView = ({
         </div>
       )}
       {!isOnline && selectedSpot && (
-        <div className="absolute top-3 left-4 right-4 z-50 pointer-events-none">
+        <div
+          className="absolute left-4 right-4 z-50 pointer-events-none"
+          style={{ top: '12px' }}
+        >
           <div className="flex items-center justify-center px-3 py-2 rounded-xl border border-amber-200/70 bg-amber-50/90 text-amber-800 text-sm shadow-md backdrop-blur">
             {t('offlineWarning', 'Limited connection. Enable cellular data or Wi‑Fi.')}
           </div>
@@ -1325,7 +1333,7 @@ const SearchView = ({
 	                ? 'opacity-100 scale-100 pointer-events-auto'
 	                : 'opacity-0 scale-90 pointer-events-none'
 	            }`}
-	            style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
+              style={{ top: filtersPanelTopPx == null ? '114px' : `${filtersPanelTopPx}px` }}
 	          >
             <div className="flex flex-col space-y-4">
               <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
@@ -1786,7 +1794,7 @@ willChange: 'transform, opacity',
           </div>
         ) : null}
     </div>
-    </div>
+    </SafeView>
   );
 };
 

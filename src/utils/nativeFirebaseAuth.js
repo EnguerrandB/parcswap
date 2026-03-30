@@ -11,6 +11,8 @@ import { isNativeApp } from "./mobile";
 const NATIVE_AUTH_DEBUG_BUILD = "IOS_NATIVE_AUTH_2026_03_25_08";
 const CREATE_WEB_CUSTOM_TOKEN_HTTP_FUNCTION = "createWebCustomTokenHttp";
 const WEB_BRIDGE_TIMEOUT_MS = 15_000;
+const NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS = 25_000;
+const NATIVE_ID_TOKEN_RETRY_DELAYS_MS = [0, 250, 750, 1_500, 2_500];
 
 const logNativeAuth = (step, payload = {}) => {
   if (typeof console === "undefined") return;
@@ -87,6 +89,11 @@ const withTimeout = async (promise, timeoutMs, label) => {
   }
 };
 
+const sleep = (delayMs) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+
 const resolveProjectId = ({ auth, functions }) => {
   const projectId =
     auth?.app?.options?.projectId ||
@@ -150,17 +157,85 @@ const fetchWebCustomToken = async ({ auth, functions, idToken }) => {
   return customToken;
 };
 
-const getNativeUserAndIdToken = async ({ forceRefresh = false } = {}) => {
-  const currentUserResult = await FirebaseAuthentication.getCurrentUser();
-  const nativeUser = currentUserResult?.user || null;
-  if (!nativeUser?.uid) {
-    return { nativeUser: null, idToken: "" };
+const getNativeUserAndIdToken = async ({
+  forceRefresh = false,
+  reason = "unspecified",
+} = {}) => {
+  let lastError = null;
+  let lastNativeUser = null;
+
+  for (
+    let attempt = 0;
+    attempt < NATIVE_ID_TOKEN_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    const delayMs = NATIVE_ID_TOKEN_RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+
+    try {
+      const currentUserResult = await FirebaseAuthentication.getCurrentUser();
+      const nativeUser = currentUserResult?.user || null;
+      lastNativeUser = nativeUser;
+
+      if (!nativeUser?.uid) {
+        logNativeAuth("bridge:nativeUserPending", {
+          reason,
+          attempt: attempt + 1,
+          delayMs,
+        });
+        continue;
+      }
+
+      const tokenResult = await FirebaseAuthentication.getIdToken({
+        forceRefresh,
+      });
+      const idToken = String(tokenResult?.token || "").trim();
+
+      if (idToken) {
+        if (attempt > 0) {
+          logNativeAuth("bridge:nativeTokenRecovered", {
+            reason,
+            attempt: attempt + 1,
+            delayMs,
+            nativeUid: nativeUser.uid,
+          });
+        }
+        return {
+          nativeUser,
+          idToken,
+        };
+      }
+
+      lastError = new Error("Native Firebase ID token is empty.");
+      lastError.code = "auth/native-id-token-empty";
+      logNativeAuth("bridge:nativeTokenPending", {
+        reason,
+        attempt: attempt + 1,
+        delayMs,
+        nativeUid: nativeUser.uid,
+      });
+    } catch (error) {
+      lastError = error;
+      logNativeAuth("bridge:nativeTokenRetry", {
+        reason,
+        attempt: attempt + 1,
+        delayMs,
+        nativeUid: lastNativeUser?.uid || null,
+        message: error?.message || String(error),
+        code: error?.code || null,
+      });
+    }
   }
 
-  const tokenResult = await FirebaseAuthentication.getIdToken({ forceRefresh });
+  if (lastNativeUser?.uid && lastError) {
+    throw lastError;
+  }
+
   return {
-    nativeUser,
-    idToken: String(tokenResult?.token || "").trim(),
+    nativeUser: lastNativeUser,
+    idToken: "",
   };
 };
 
@@ -263,6 +338,7 @@ export const bridgeNativeSessionToWeb = async ({
 
   const { nativeUser, idToken } = await getNativeUserAndIdToken({
     forceRefresh,
+    reason,
   });
   logNativeAuth("bridge:start", {
     reason,
@@ -323,6 +399,33 @@ export const signInWithNativeEmailAndPassword = async ({
     functions,
     forceRefresh: true,
     reason: "email-sign-in",
+  });
+};
+
+export const signInWithNativeGoogle = async ({ auth, functions }) => {
+  if (!shouldUseNativeFirebaseAuth()) {
+    throw new Error("Native Firebase auth is not available on this platform.");
+  }
+
+  logNativeAuth("googleSignIn:start");
+  try {
+    await withTimeout(
+      FirebaseAuthentication.signInWithGoogle(),
+      NATIVE_GOOGLE_SIGN_IN_TIMEOUT_MS,
+      "nativeSignInWithGoogle",
+    );
+  } catch (error) {
+    logNativeAuth("googleSignIn:error", {
+      message: error?.message || String(error),
+      code: error?.code || null,
+    });
+    throw error;
+  }
+  return bridgeNativeSessionToWeb({
+    auth,
+    functions,
+    forceRefresh: true,
+    reason: "google-sign-in",
   });
 };
 

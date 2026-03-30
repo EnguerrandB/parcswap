@@ -24,7 +24,7 @@ import {
   uniqueSpotsByHost,
 } from '../utils/spotColors';
 import { appId, db } from '../firebase';
-import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 import { fetchNearbyPublicParkings } from '../utils/publicParkingApi';
 
@@ -47,6 +47,22 @@ const PERSISTENT_MAP_KEY = 'map-search';
 const PARKING_CACHE_KEY_PREFIX = 'lolopark_parking_cache_';
 const LEGACY_PARKING_CACHE_KEY_PREFIX = 'parkswap_parking_cache_';
 const PARKING_CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SEARCH_PRESENCE_COLLECTION = 'mapSearchPresence';
+const SEARCH_PRESENCE_STALE_MS = 3 * 60 * 1000;
+const SEARCH_PRESENCE_HEARTBEAT_MS = 45 * 1000;
+const SEARCH_DEMAND_GRID_DEGREES = 0.0045;
+const SEARCH_DEMAND_SOURCE_ID = 'search-demand-zones';
+const SEARCH_DEMAND_GLOW_LAYER_ID = 'search-demand-zones-glow';
+const SEARCH_DEMAND_CORE_LAYER_ID = 'search-demand-zones-core';
+const SEARCH_DEMAND_MAX_VISIBLE_ZONES = 12;
+const SEARCH_DEMAND_SPOT_RADIUS_M = 450;
+const SEARCH_DEMAND_CLUSTER_RADIUS_M = 160;
+const SEARCH_DEMAND_MARKER_TRANSLATE_Y = -18;
+const SEARCH_DEMAND_TEST_VEHICLES_ENABLED = true;
+const SEARCH_DEMAND_TEST_VEHICLES_MIN = 1;
+const SEARCH_DEMAND_TEST_VEHICLES_MAX = 20;
+const SEARCH_DEMAND_TEST_VEHICLES_RADIUS_M = 110;
+const SEARCH_DEMAND_TEST_VEHICLES_STEP_INTERVAL_MS = 3_000;
 
 const formatEuro = (value, currency = 'EUR') => {
   const n = Number(value);
@@ -97,6 +113,169 @@ const normalizeFiniteNumberOrNull = (value) => {
   if (value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const roundToStep = (value, step) => Math.round(value / step) * step;
+
+const hashString = (value) => {
+  const text = String(value || '');
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+};
+
+const seededUnit = (seed, offset = 0) => {
+  const raw = Math.sin(seed * 12.9898 + offset * 78.233) * 43758.5453;
+  return raw - Math.floor(raw);
+};
+
+const getDemandZone = (lng, lat) => {
+  const zoneLng = Number(roundToStep(lng, SEARCH_DEMAND_GRID_DEGREES).toFixed(4));
+  const zoneLat = Number(roundToStep(lat, SEARCH_DEMAND_GRID_DEGREES).toFixed(4));
+  return {
+    key: `${zoneLng.toFixed(4)}:${zoneLat.toFixed(4)}`,
+    lng: zoneLng,
+    lat: zoneLat,
+  };
+};
+
+const projectMeters = (lng, lat, originLng, originLat) => {
+  const latRad = (originLat * Math.PI) / 180;
+  return {
+    x: (lng - originLng) * 111111 * Math.cos(latRad),
+    y: (lat - originLat) * 111111,
+  };
+};
+
+const unprojectMeters = (x, y, originLng, originLat) => {
+  const latRad = (originLat * Math.PI) / 180;
+  const metersPerDegLng = Math.max(1, 111111 * Math.cos(latRad));
+  return {
+    lng: originLng + x / metersPerDegLng,
+    lat: originLat + y / 111111,
+  };
+};
+
+const buildCirclePolygon = (lng, lat, radiusMeters, steps = 36) => {
+  const ring = [];
+  for (let index = 0; index < steps; index += 1) {
+    const angle = (Math.PI * 2 * index) / steps;
+    const point = unprojectMeters(
+      Math.cos(angle) * radiusMeters,
+      Math.sin(angle) * radiusMeters,
+      lng,
+      lat,
+    );
+    ring.push([point.lng, point.lat]);
+  }
+  ring.push(ring[0]);
+  return ring;
+};
+
+const buildFreeformPolygon = (points, paddingMeters) => {
+  if (points.length === 1) {
+    return buildCirclePolygon(points[0].lng, points[0].lat, paddingMeters);
+  }
+
+  const centroid = points.reduce(
+    (acc, point) => ({ lng: acc.lng + point.lng, lat: acc.lat + point.lat }),
+    { lng: 0, lat: 0 },
+  );
+  centroid.lng /= points.length;
+  centroid.lat /= points.length;
+
+  const projected = points.map((point) => {
+    const projectedPoint = projectMeters(point.lng, point.lat, centroid.lng, centroid.lat);
+    return {
+      ...projectedPoint,
+      distance: Math.hypot(projectedPoint.x, projectedPoint.y),
+    };
+  });
+  const orderedDistances = projected.map((point) => point.distance).sort((a, b) => a - b);
+  const percentileIndex = Math.max(0, Math.floor((orderedDistances.length - 1) * 0.78));
+  const distanceLimit = orderedDistances[percentileIndex] + paddingMeters * 0.55;
+  const keptProjected = projected.filter((point) => point.distance <= distanceLimit);
+  const blobPoints = keptProjected.length >= 2 ? keptProjected : projected;
+
+  if (blobPoints.length < 2) {
+    const fallbackRadius = Math.max(26, orderedDistances[orderedDistances.length - 1] + paddingMeters * 0.55);
+    return buildCirclePolygon(centroid.lng, centroid.lat, fallbackRadius);
+  }
+
+  const sampleCount = 56;
+  const baseRadius = Math.max(24, orderedDistances[Math.floor((orderedDistances.length - 1) * 0.35)] + paddingMeters * 0.25);
+  const maxRadius = Math.max(baseRadius + 10, orderedDistances[orderedDistances.length - 1] + paddingMeters * 0.72);
+  let radii = Array.from({ length: sampleCount }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / sampleCount;
+    const unitX = Math.cos(angle);
+    const unitY = Math.sin(angle);
+    let radius = baseRadius;
+
+    blobPoints.forEach((point) => {
+      const along = point.x * unitX + point.y * unitY;
+      const lateral = Math.abs(-unitY * point.x + unitX * point.y);
+      const influence = along + paddingMeters * 0.62 - lateral * 0.52;
+      if (influence > radius) radius = influence;
+    });
+
+    return clamp(radius, baseRadius, maxRadius);
+  });
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    radii = radii.map((radius, index) => {
+      const prev = radii[(index - 1 + sampleCount) % sampleCount];
+      const next = radii[(index + 1) % sampleCount];
+      const prevFar = radii[(index - 2 + sampleCount) % sampleCount];
+      const nextFar = radii[(index + 2) % sampleCount];
+      const smoothed = prevFar * 0.08 + prev * 0.24 + radius * 0.36 + next * 0.24 + nextFar * 0.08;
+      return clamp(smoothed, baseRadius, maxRadius);
+    });
+  }
+
+  const coordinates = radii.map((radius, index) => {
+    const angle = (Math.PI * 2 * index) / sampleCount;
+    const point = unprojectMeters(Math.cos(angle) * radius, Math.sin(angle) * radius, centroid.lng, centroid.lat);
+    return [point.lng, point.lat];
+  });
+  coordinates.push(coordinates[0]);
+  return coordinates;
+};
+
+const clusterDemandZones = (zones, maxDistanceMeters) => {
+  const remaining = [...zones];
+  const clusters = [];
+
+  while (remaining.length) {
+    const seed = remaining.shift();
+    const cluster = [seed];
+    let expanded = true;
+
+    while (expanded) {
+      expanded = false;
+      for (let index = remaining.length - 1; index >= 0; index -= 1) {
+        const candidate = remaining[index];
+        const touchesCluster = cluster.some(
+          (member) =>
+            getDistanceMetersBetween(
+              { lng: member.lng, lat: member.lat },
+              { lng: candidate.lng, lat: candidate.lat },
+            ) <= maxDistanceMeters,
+        );
+        if (!touchesCluster) continue;
+        cluster.push(candidate);
+        remaining.splice(index, 1);
+        expanded = true;
+      }
+    }
+
+    clusters.push(cluster);
+  }
+
+  return clusters;
 };
 
 const getSpotMarkerId = (spot, idx) => spot?.id || `spot-${idx}`;
@@ -198,6 +377,7 @@ const MapSearchView = ({
   userCoords = null,
   currentUserId = null,
   showPublicParkings = true,
+  testModeEnabled = false,
   onBookSpot,
   onSelectionStep,
   setSelectedSpot,
@@ -229,11 +409,15 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const colorSaltRef = useRef(CARD_COLOR_SALT);
   const parkingFetchInFlightRef = useRef(false);
   const parkingFetchQueuedRef = useRef(null);
+  const searchPresenceWriteInFlightRef = useRef(false);
+  const searchPresenceWriteQueuedRef = useRef(null);
+  const lastSearchPresenceSignatureRef = useRef('');
   const isMountedRef = useRef(true);
   const lastParkingFetchRef = useRef({ at: 0, lat: null, lng: null });
   const lastParkingZoomRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [syntheticVehicleCount, setSyntheticVehicleCount] = useState(SEARCH_DEMAND_TEST_VEHICLES_MIN);
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [priceMax, setPriceMax] = useState(null);
   const {
@@ -252,6 +436,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   const [actionToast, setActionToast] = useState('');
   const [parkingLoading, setParkingLoading] = useState(false);
   const [publicParkings, setPublicParkings] = useState([]);
+  const [searchDemandZones, setSearchDemandZones] = useState([]);
   const [isDark, setIsDark] = useState(() => {
     if (typeof document !== 'undefined') {
       const domTheme = document.body?.dataset?.theme;
@@ -274,6 +459,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
 
   const premiumParksCount = Number.isFinite(Number(premiumParks)) ? Number(premiumParks) : 0;
   const canAcceptFreeSpot = premiumParksCount > 0;
+  const syntheticDemandEnabled = testModeEnabled && SEARCH_DEMAND_TEST_VEHICLES_ENABLED;
   const showPublicParkingsRef = useRef(showPublicParkings);
   const maxSpotPrice = useMemo(() => {
     const values = (spots || []).map((s) => Number(s?.price)).filter((n) => Number.isFinite(n) && n >= 0);
@@ -500,7 +686,121 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     });
     return map;
   }, [availableSpots, availableColors]);
-  const spreadPositions = useMemo(() => spreadSpotPositions(filteredSpots), [filteredSpots]);
+  useEffect(() => {
+    if (!syntheticDemandEnabled) return undefined;
+
+    const updateSyntheticVehicleCount = () => {
+      const nextCount =
+        SEARCH_DEMAND_TEST_VEHICLES_MIN +
+        Math.floor(Math.random() * (SEARCH_DEMAND_TEST_VEHICLES_MAX - SEARCH_DEMAND_TEST_VEHICLES_MIN + 1));
+      setSyntheticVehicleCount(nextCount);
+    };
+
+    updateSyntheticVehicleCount();
+    const timer = window.setInterval(updateSyntheticVehicleCount, SEARCH_DEMAND_TEST_VEHICLES_STEP_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [syntheticDemandEnabled]);
+  const syntheticDemandZones = useMemo(() => {
+    if (!syntheticDemandEnabled || !availableSpots.length) return [];
+
+    const anchorSpot = availableSpots[0];
+    const anchorLng = Number(anchorSpot?.lng);
+    const anchorLat = Number(anchorSpot?.lat);
+    if (!isValidCoord(anchorLng, anchorLat)) return [];
+
+    const seed = hashString(anchorSpot.id || `${anchorLng}:${anchorLat}`);
+  const count = syntheticVehicleCount;
+  const maxCount = Math.max(SEARCH_DEMAND_TEST_VEHICLES_MAX, 1);
+  const baseLevel = count >= Math.max(4, Math.round(maxCount * 0.55)) ? 'red' : 'orange';
+
+    return Array.from({ length: count }, (_, index) => {
+      const angle = seededUnit(seed, index + 11) * Math.PI * 2;
+      const distance = 28 + seededUnit(seed, index + 23) * SEARCH_DEMAND_TEST_VEHICLES_RADIUS_M;
+      const point = unprojectMeters(
+        Math.cos(angle) * distance,
+        Math.sin(angle) * distance,
+        anchorLng,
+        anchorLat,
+      );
+
+      return {
+        key: `synthetic-${anchorSpot.id || 'spot'}-${index}`,
+        lng: point.lng,
+        lat: point.lat,
+        count: 1,
+        growthPct: Math.round((count / maxCount) * 100),
+        intensity: Number(clamp(0.38 + (count / maxCount) * 0.62, 0.35, 1).toFixed(3)),
+        level: baseLevel,
+      };
+    });
+  }, [availableSpots, syntheticDemandEnabled, syntheticVehicleCount]);
+  const syntheticDisplaySpots = useMemo(() => {
+    if (!syntheticDemandEnabled || !availableSpots.length) return [];
+
+    const anchorSpot = availableSpots[0];
+    const anchorLng = Number(anchorSpot?.lng);
+    const anchorLat = Number(anchorSpot?.lat);
+    if (!isValidCoord(anchorLng, anchorLat)) return [];
+
+    return syntheticDemandZones.map((zone, index) => ({
+      ...anchorSpot,
+      id: `synthetic-preview-${anchorSpot.id || 'spot'}-${index}`,
+      lng: zone.lng,
+      lat: zone.lat,
+      hostId: `${anchorSpot.hostId || 'host'}-synthetic-${index}`,
+      hostName: anchorSpot.hostName || t('otherUser', 'Other user'),
+      syntheticPreview: true,
+    }));
+  }, [availableSpots, syntheticDemandEnabled, syntheticDemandZones, t]);
+  const displaySpots = useMemo(() => [...filteredSpots, ...syntheticDisplaySpots], [filteredSpots, syntheticDisplaySpots]);
+  const spreadPositions = useMemo(() => spreadSpotPositions(displaySpots), [displaySpots]);
+  const searchDemandGeoJson = useMemo(
+    () => {
+      if (!availableSpots.length) {
+        return {
+          type: 'FeatureCollection',
+          features: [],
+        };
+      }
+
+      return {
+        type: 'FeatureCollection',
+        features: clusterDemandZones([...searchDemandZones, ...syntheticDemandZones], SEARCH_DEMAND_CLUSTER_RADIUS_M)
+          .map((cluster, clusterIndex) => {
+            const level = cluster.some((zone) => zone.level === 'red') ? 'red' : 'orange';
+            const intensity = Number(
+              clamp(Math.max(...cluster.map((zone) => zone.intensity || 0.35)), 0.35, 1).toFixed(3),
+            );
+            const count = cluster.reduce((total, zone) => total + (zone.count || 0), 0);
+            if (count <= 1) return null;
+            const growthPct = Math.max(...cluster.map((zone) => zone.growthPct || 0));
+            const paddingMeters = 20 + intensity * 20;
+            const ring = buildFreeformPolygon(
+              cluster.map((zone) => ({ lng: zone.lng, lat: zone.lat })),
+              paddingMeters,
+            );
+
+            return {
+              type: 'Feature',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [ring],
+              },
+              properties: {
+                id: cluster.map((zone) => zone.key).join(':') || `cluster-${clusterIndex}`,
+                level,
+                count,
+                growthPct,
+                intensity,
+              },
+            };
+          })
+          .filter(Boolean),
+      };
+    },
+    [availableSpots.length, searchDemandZones, syntheticDemandZones],
+  );
 
   const buildSpotPopup = (spot, accentColor, mode) =>
     mode === 'action'
@@ -518,6 +818,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
       onAction = handleReserveSpot,
       modeRef = popupModeRef,
       onModeChange,
+      allowAction = true,
     } = options;
     const el = popup?.getElement?.();
     if (!el) {
@@ -580,6 +881,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         if (rootMode === 'info') {
           event.preventDefault();
           event.stopPropagation();
+          if (!allowAction) return;
           if (state.modeRef.current.get(state.spotId) === 'action') return;
           state.modeRef.current.set(state.spotId, 'action');
           state.onModeChange?.('action');
@@ -725,6 +1027,271 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     [],
   );
 
+  const persistSearchPresence = useCallback(
+    (center, { force = false } = {}) => {
+      if (!currentUserId) return;
+      const safeLng = Number(center?.lng);
+      const safeLat = Number(center?.lat);
+      if (!isValidCoord(safeLng, safeLat)) return;
+
+      const zone = getDemandZone(safeLng, safeLat);
+      const payload = {
+        centerLng: safeLng,
+        centerLat: safeLat,
+        zoneId: zone.key,
+        zoneLng: zone.lng,
+        zoneLat: zone.lat,
+        radiusKm: radius == null ? null : Number(radius),
+        updatedAt: serverTimestamp(),
+        updatedAtMs: Date.now(),
+      };
+      const signature = JSON.stringify([
+        zone.key,
+        Math.round(safeLng * 1000),
+        Math.round(safeLat * 1000),
+        radius == null ? 'any' : Number(radius).toFixed(1),
+      ]);
+
+      if (!force && lastSearchPresenceSignatureRef.current === signature) return;
+
+      searchPresenceWriteQueuedRef.current = { payload, signature };
+
+      const flush = async () => {
+        if (searchPresenceWriteInFlightRef.current) return;
+        searchPresenceWriteInFlightRef.current = true;
+        try {
+          while (searchPresenceWriteQueuedRef.current) {
+            const next = searchPresenceWriteQueuedRef.current;
+            searchPresenceWriteQueuedRef.current = null;
+            try {
+              const ref = doc(db, 'artifacts', appId, 'public', 'data', SEARCH_PRESENCE_COLLECTION, currentUserId);
+              await setDoc(ref, next.payload, { merge: true });
+              lastSearchPresenceSignatureRef.current = next.signature;
+            } catch (err) {
+              console.error('Error persisting search presence:', err);
+              if (!searchPresenceWriteQueuedRef.current) searchPresenceWriteQueuedRef.current = next;
+              break;
+            }
+          }
+        } finally {
+          searchPresenceWriteInFlightRef.current = false;
+        }
+      };
+
+      void flush();
+    },
+    [currentUserId, radius],
+  );
+
+  const syncSearchDemandLayers = useCallback((map, data) => {
+    if (!map) return;
+
+    const demandColorExpression = [
+      'interpolate',
+      ['linear'],
+      ['get', 'count'],
+      1,
+      '#ffd60a',
+      5,
+      '#ffb000',
+      10,
+      '#ff7a1a',
+      15,
+      '#ff5a36',
+      20,
+      '#ff3b30',
+    ];
+    const demandOpacityExpression = [
+      'interpolate',
+      ['linear'],
+      ['get', 'count'],
+      1,
+      0.16,
+      8,
+      0.2,
+      14,
+      0.24,
+      20,
+      0.28,
+    ];
+
+    const existingSource = map.getSource(SEARCH_DEMAND_SOURCE_ID);
+    if (!existingSource) {
+      map.addSource(SEARCH_DEMAND_SOURCE_ID, {
+        type: 'geojson',
+        data,
+      });
+    } else {
+      existingSource.setData(data);
+    }
+
+    if (!map.getLayer(SEARCH_DEMAND_GLOW_LAYER_ID)) {
+      map.addLayer({
+        id: SEARCH_DEMAND_GLOW_LAYER_ID,
+        type: 'fill',
+        source: SEARCH_DEMAND_SOURCE_ID,
+        paint: {
+          'fill-color': demandColorExpression,
+          'fill-opacity': demandOpacityExpression,
+          'fill-translate': [0, SEARCH_DEMAND_MARKER_TRANSLATE_Y],
+          'fill-translate-anchor': 'viewport',
+          'fill-emissive-strength': 1,
+        },
+      });
+    }
+    map.setPaintProperty(SEARCH_DEMAND_GLOW_LAYER_ID, 'fill-color', demandColorExpression);
+    map.setPaintProperty(SEARCH_DEMAND_GLOW_LAYER_ID, 'fill-opacity', demandOpacityExpression);
+
+    if (!map.getLayer(SEARCH_DEMAND_CORE_LAYER_ID)) {
+      map.addLayer({
+        id: SEARCH_DEMAND_CORE_LAYER_ID,
+        type: 'line',
+        source: SEARCH_DEMAND_SOURCE_ID,
+        paint: {
+          'line-color': demandColorExpression,
+          'line-opacity': 0,
+          'line-width': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10,
+            ['+', 6, ['*', ['get', 'intensity'], 1.6]],
+            14,
+            ['+', 7.5, ['*', ['get', 'intensity'], 1.9]],
+            17,
+            ['+', 9, ['*', ['get', 'intensity'], 2.2]],
+          ],
+          'line-blur': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10,
+            4,
+            14,
+            5.5,
+            17,
+            7,
+          ],
+          'line-translate': [0, SEARCH_DEMAND_MARKER_TRANSLATE_Y],
+          'line-translate-anchor': 'viewport',
+          'line-emissive-strength': 1,
+        },
+      });
+    }
+    map.setPaintProperty(SEARCH_DEMAND_CORE_LAYER_ID, 'line-color', demandColorExpression);
+  }, []);
+
+  useEffect(() => {
+    const ref = collection(db, 'artifacts', appId, 'public', 'data', SEARCH_PRESENCE_COLLECTION);
+    const unsub = onSnapshot(
+      ref,
+      (snapshot) => {
+        const now = Date.now();
+        const grouped = new Map();
+        const demandAnchors = availableSpots
+          .filter((spot) => isValidCoord(Number(spot?.lng), Number(spot?.lat)))
+          .map((spot) => ({
+            id: String(spot.id || hostKeyForSpot(spot) || `${spot.lng}:${spot.lat}`),
+            lng: Number(spot.lng),
+            lat: Number(spot.lat),
+          }));
+
+        if (!demandAnchors.length) {
+          setSearchDemandZones([]);
+          return;
+        }
+
+        snapshot.forEach((entry) => {
+          const data = entry.data() || {};
+          const updatedAtMs = Number(data.updatedAtMs);
+          const serverUpdatedAtMs = typeof data.updatedAt?.toMillis === 'function' ? data.updatedAt.toMillis() : null;
+          const lastSeenMs = Number.isFinite(updatedAtMs) ? updatedAtMs : serverUpdatedAtMs;
+          if (!Number.isFinite(lastSeenMs) || now - lastSeenMs > SEARCH_PRESENCE_STALE_MS) return;
+
+          const fallbackLng = Number(data.centerLng);
+          const fallbackLat = Number(data.centerLat);
+          if (!isValidCoord(fallbackLng, fallbackLat)) return;
+
+          let nearestAnchor = null;
+          let nearestDistance = Infinity;
+          demandAnchors.forEach((anchor) => {
+            const distance = getDistanceMetersBetween(
+              { lng: fallbackLng, lat: fallbackLat },
+              { lng: anchor.lng, lat: anchor.lat },
+            );
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestAnchor = anchor;
+            }
+          });
+
+          if (!nearestAnchor || nearestDistance > SEARCH_DEMAND_SPOT_RADIUS_M) return;
+
+          const freshness = 1 - clamp((now - lastSeenMs) / SEARCH_PRESENCE_STALE_MS, 0, 1);
+          const weight = 0.35 + freshness * 0.65;
+          const existing = grouped.get(nearestAnchor.id) || {
+            key: nearestAnchor.id,
+            lng: nearestAnchor.lng,
+            lat: nearestAnchor.lat,
+            count: 0,
+            score: 0,
+          };
+
+          existing.count += 1;
+          existing.score += weight;
+          grouped.set(nearestAnchor.id, existing);
+        });
+
+        const rankedZones = [...grouped.values()]
+          .sort((a, b) => b.score - a.score || b.count - a.count)
+          .slice(0, SEARCH_DEMAND_MAX_VISIBLE_ZONES);
+
+        if (!rankedZones.length) {
+          setSearchDemandZones([]);
+          return;
+        }
+
+        const weakestScore = Math.max(0.35, rankedZones[rankedZones.length - 1]?.score || 0.35);
+        const redCount = Math.max(1, Math.ceil(rankedZones.length * 0.25));
+        const orangeCount = rankedZones.length <= 1 ? 0 : Math.max(1, Math.ceil(rankedZones.length * 0.35));
+
+        setSearchDemandZones(
+          rankedZones.map((zone, index) => {
+            const rawGrowthPct = Math.max(0, ((zone.score - weakestScore) / weakestScore) * 100);
+            const rankPct = rankedZones.length === 1 ? 100 : ((rankedZones.length - index - 1) / (rankedZones.length - 1)) * 100;
+            const growthPct = Math.round(Math.max(rawGrowthPct, rankPct));
+            const level = index < redCount ? 'red' : index < redCount + orangeCount ? 'orange' : 'orange';
+            const intensity = Number(clamp(1 - index / Math.max(2, rankedZones.length + 1), 0.35, 1).toFixed(3));
+
+            return {
+              ...zone,
+              level,
+              growthPct,
+              intensity,
+            };
+          }),
+        );
+      },
+      (err) => {
+        console.error('Error reading search demand presence:', err);
+      },
+    );
+
+    return () => unsub();
+  }, [availableSpots]);
+
+  useEffect(() => {
+    if (!currentUserId) return undefined;
+
+    return () => {
+      lastSearchPresenceSignatureRef.current = '';
+      searchPresenceWriteQueuedRef.current = null;
+      void deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', SEARCH_PRESENCE_COLLECTION, currentUserId)).catch(() => {
+        // ignore cleanup failures for stale-presence fallback
+      });
+    };
+  }, [currentUserId]);
+
   useEffect(() => {
     const safeLng = Number(userCoords?.lng);
     const safeLat = Number(userCoords?.lat);
@@ -862,6 +1429,45 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   }, [mapLoaded, userCoords?.lng, userCoords?.lat]);
 
   useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !currentUserId) return undefined;
+
+    const map = mapRef.current;
+    const publishPresence = (force = false) => {
+      const center = map.getCenter();
+      persistSearchPresence({ lng: center.lng, lat: center.lat }, { force });
+    };
+
+    publishPresence(true);
+
+    const handleMoveEnd = () => publishPresence(false);
+    const heartbeatId = window.setInterval(() => publishPresence(true), SEARCH_PRESENCE_HEARTBEAT_MS);
+
+    map.on('moveend', handleMoveEnd);
+    return () => {
+      map.off('moveend', handleMoveEnd);
+      window.clearInterval(heartbeatId);
+    };
+  }, [mapLoaded, currentUserId, persistSearchPresence]);
+
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current) return undefined;
+
+    const map = mapRef.current;
+    const applyLayers = () => syncSearchDemandLayers(map, searchDemandGeoJson);
+
+    if (typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : false) {
+      applyLayers();
+    } else {
+      map.once('style.load', applyLayers);
+    }
+
+    map.on('style.load', applyLayers);
+    return () => {
+      map.off('style.load', applyLayers);
+    };
+  }, [mapLoaded, searchDemandGeoJson, syncSearchDemandLayers]);
+
+  useEffect(() => {
     if (!mapLoaded || !mapRef.current || !showPublicParkings) return;
     const map = mapRef.current;
     let pending = null;
@@ -893,7 +1499,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
     const nextIds = new Set();
-    filteredSpots.forEach((spot, idx) => {
+    displaySpots.forEach((spot, idx) => {
       const lng = Number(spot?.lng);
       const lat = Number(spot?.lat);
       if (!isValidCoord(lng, lat)) return;
@@ -958,7 +1564,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         popup.on('close', () => {
           popupModeRef.current.delete(id);
         });
-        bindSpotPopupHandlers(popup, id, spot, accentColor);
+        bindSpotPopupHandlers(popup, id, spot, accentColor, {
+          allowAction: !spot?.syntheticPreview,
+          onAction: spot?.syntheticPreview ? () => {} : handleReserveSpot,
+        });
         const marker = new mapboxgl.Marker({
           element: el,
           rotationAlignment: 'viewport',
@@ -977,7 +1586,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           enhancePopupAnimation(popup);
           registerSinglePopup(popup);
           popup.setHTML(popupHtml);
-          bindSpotPopupHandlers(popup, id, spot, accentColor);
+          bindSpotPopupHandlers(popup, id, spot, accentColor, {
+            allowAction: !spot?.syntheticPreview,
+            onAction: spot?.syntheticPreview ? () => {} : handleReserveSpot,
+          });
         }
       }
     });
@@ -988,7 +1600,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         popupModeRef.current.delete(id);
       }
     }
-  }, [mapLoaded, filteredSpots, spreadPositions, popupAccentByHost, isDark, t, nowMs]);
+  }, [mapLoaded, displaySpots, spreadPositions, popupAccentByHost, isDark, t, nowMs]);
 
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
@@ -1296,7 +1908,10 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
         </div>
       )}
       {actionToast ? (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[130] pointer-events-none">
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-[130] pointer-events-none"
+          style={{ top: 'var(--top-toast-offset)' }}
+        >
           <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">
             {actionToast}
           </div>
@@ -1314,7 +1929,7 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
           className={`absolute left-6 right-6 transition-all duration-200 origin-top ${
             showRadiusPicker ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
           }`}
-          style={{ top: filtersPanelTopPx == null ? 'calc(64px + 50px)' : `${filtersPanelTopPx}px` }}
+          style={{ top: filtersPanelTopPx == null ? 'var(--top-panel-offset)' : `${filtersPanelTopPx}px` }}
         >
           <div className="flex flex-col space-y-4">
             <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">

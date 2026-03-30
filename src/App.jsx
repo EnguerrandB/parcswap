@@ -33,6 +33,7 @@ import BottomNav from './components/BottomNav';
 import TapDebugOverlay from './components/TapDebugOverlay';
 import FirestoreDebugOverlay from './components/FirestoreDebugOverlay';
 import ActiveViewNameOverlay from './components/ActiveViewNameOverlay';
+import AppLoadingScreen from './components/AppLoadingScreen';
 import SearchView from './views/SearchView';
 import ProposeView from './views/ProposeView';
 import ProfileView from './views/ProfileView';
@@ -111,6 +112,29 @@ const updateAdminLocation = (enabled) => {
   }
 
   window.history.pushState({}, document.title, url.toString());
+};
+
+const TEST_MODE_STORAGE_KEY = 'parkswap_test_mode_enabled';
+const TEST_MODE_MIN_SPOTS = 3;
+const TEST_MODE_MAX_SPOTS = 10;
+const TEST_MODE_REFRESH_INTERVAL_MS = 10_000;
+
+const readTestModePreference = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage?.getItem(TEST_MODE_STORAGE_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+};
+
+const persistTestModePreference = (enabled) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage?.setItem(TEST_MODE_STORAGE_KEY, enabled ? '1' : '0');
+  } catch (_) {
+    // ignore storage errors
+  }
 };
 
 const hashSeed = (str) => {
@@ -256,6 +280,51 @@ const getRandomNearbyLocation = (center, minDistanceMeters = 200, maxDistanceMet
     lat: lat + deltaLat,
     lng: lng + deltaLng,
   };
+};
+
+const buildTestModeSpots = (center, cycleKey) => {
+  const fallbackCenter = { lat: 48.8738, lng: 2.295 };
+  const origin = isValidLatLng(center) ? center : fallbackCenter;
+  const lat = safeCoord(origin.lat, fallbackCenter.lat);
+  const lng = safeCoord(origin.lng, fallbackCenter.lng);
+  const rng = mulberry32(hashSeed(`${lat.toFixed(5)}:${lng.toFixed(5)}:${cycleKey}`));
+  const count = TEST_MODE_MIN_SPOTS + Math.floor(rng() * (TEST_MODE_MAX_SPOTS - TEST_MODE_MIN_SPOTS + 1));
+  const carModels = ['Clio', '208', 'Model 3', 'Golf', 'Yaris', 'Captur', 'C3'];
+  const metersPerDegLat = 111_111;
+  const now = Date.now();
+
+  return Array.from({ length: count }, (_, index) => {
+    const angle = rng() * Math.PI * 2;
+    const distanceMeters = 120 + rng() * 680;
+    const deltaLat = (distanceMeters * Math.cos(angle)) / metersPerDegLat;
+    const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos((lat * Math.PI) / 180));
+    const deltaLng = (distanceMeters * Math.sin(angle)) / metersPerDegLng;
+    const createdAt = now - Math.round(rng() * 4 * 60_000);
+    const time = 12 + Math.floor(rng() * 28);
+    const isFree = rng() < 0.18;
+    const price = isFree ? 0 : Number((0.5 + rng() * 5.5).toFixed(2));
+
+    return {
+      id: `test-spot-${cycleKey}-${index}`,
+      hostId: `test-host-${cycleKey}-${index}`,
+      hostName: `Test ${index + 1}`,
+      carModel: carModels[Math.floor(rng() * carModels.length)] || 'Test car',
+      hostVehiclePlate: null,
+      hostVehicleId: null,
+      time,
+      price,
+      length: null,
+      x: safeCoord(50 + (rng() * 40 - 20), 50),
+      y: safeCoord(50 + (rng() * 40 - 20), 50),
+      lat: safeCoord(lat + deltaLat, fallbackCenter.lat),
+      lng: safeCoord(lng + deltaLng, fallbackCenter.lng),
+      status: 'available',
+      createdAt,
+      address: 'Mode Test',
+      syntheticTest: true,
+      testMode: true,
+    };
+  });
 };
 
 const ConfettiOverlay = ({ seedKey }) => {
@@ -507,7 +576,7 @@ const VIEW_BREADCRUMB_STYLES = {
 };
 
 const IOS_DEBUG_BUILD = 'IOS_DEBUG_2026_03_25_15';
-const IOS_PATCH_LABEL = 'PATCH 15';
+const APP_BOOT_SPLASH_EXIT_MS = 720;
 
 const logIosAuthDebug = (step, payload = {}) => {
   if (typeof console === 'undefined') return;
@@ -543,6 +612,8 @@ export default function LoloParkApp() {
   const RENEW_WAVE_DURATION_MS = 650;
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  const [bootSplashVisible, setBootSplashVisible] = useState(true);
+  const [bootSplashPhase, setBootSplashPhase] = useState('active');
   const [activeTab, setActiveTab] = useState('search');
   const [adminMode, setAdminMode] = useState(readAdminModeFromLocation);
   const proposeViewRef = useRef(null);
@@ -786,6 +857,8 @@ export default function LoloParkApp() {
   const [selectedSearchSpot, setSelectedSearchSpot] = useState(null);
   const [searchMapOpen, setSearchMapOpen] = useState(false);
   const [showPublicParkings, setShowPublicParkings] = useState(true);
+  const [testModeEnabled, setTestModeEnabled] = useState(() => readTestModePreference());
+  const [testModeSpots, setTestModeSpots] = useState([]);
   const searchMapPrefRef = useRef('list');
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
@@ -863,6 +936,31 @@ export default function LoloParkApp() {
   }, [walletTopupPending, user?.uid]);
 
   useEffect(() => {
+    persistTestModePreference(testModeEnabled);
+  }, [testModeEnabled]);
+
+  useEffect(() => {
+    if (!testModeEnabled) {
+      setTestModeSpots([]);
+      return undefined;
+    }
+
+    const refreshTestModeSpots = () => {
+      const origin =
+        (isValidLatLng(userCoords) && userCoords) ||
+        (isValidLatLng(lastKnownLocationRef.current) && lastKnownLocationRef.current) ||
+        { lat: 48.8738, lng: 2.295 };
+      const cycleKey = Math.floor(Date.now() / TEST_MODE_REFRESH_INTERVAL_MS);
+      setTestModeSpots(buildTestModeSpots(origin, cycleKey));
+    };
+
+    refreshTestModeSpots();
+    const timer = window.setInterval(refreshTestModeSpots, TEST_MODE_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [testModeEnabled, userCoords]);
+
+  useEffect(() => {
     if (!walletTopupToast || !user) return;
     const id = window.setTimeout(() => setWalletTopupToast(''), 2200);
     return () => window.clearTimeout(id);
@@ -872,11 +970,15 @@ export default function LoloParkApp() {
     () => spots.filter((spot) => getRemainingMs(spot) > 0),
     [spots],
   );
+  const effectiveVisibleSpots = useMemo(
+    () => [...visibleSpots, ...testModeSpots],
+    [visibleSpots, testModeSpots],
+  );
 
   const findSpotById = (spotId) => {
     if (myActiveSpot?.id === spotId) return myActiveSpot;
     if (bookedSpot?.id === spotId) return bookedSpot;
-    return visibleSpots.find((s) => s.id === spotId);
+    return effectiveVisibleSpots.find((s) => s.id === spotId);
   };
 	  const [showAccountSheet, setShowAccountSheet] = useState(false);
 	  const [accountSheetOffset, setAccountSheetOffset] = useState(0);
@@ -1142,6 +1244,22 @@ export default function LoloParkApp() {
     document.body.dataset.theme = theme;
     window.localStorage?.setItem('theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (initializing) {
+      setBootSplashVisible(true);
+      setBootSplashPhase('active');
+      return undefined;
+    }
+
+    setBootSplashPhase('exit');
+    const timer = window.setTimeout(() => {
+      setBootSplashVisible(false);
+      setBootSplashPhase('active');
+    }, APP_BOOT_SPLASH_EXIT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [initializing]);
 
   useEffect(() => {
     if (!initializing) return undefined;
@@ -3011,6 +3129,10 @@ export default function LoloParkApp() {
     persistShowPublicParkingsPreference(next);
   };
 
+  const toggleTestMode = () => {
+    setTestModeEnabled((prev) => !prev);
+  };
+
   const openSearchMap = () => {
     setSearchMapOpen(true);
     if (searchMapPrefRef.current !== 'map') {
@@ -3139,7 +3261,7 @@ export default function LoloParkApp() {
       return (
         <div className="h-full w-full">
           <SearchView
-            spots={visibleSpots}
+            spots={effectiveVisibleSpots}
             bookedSpot={bookedSpot}
             currency={user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en')}
             onCompleteSwap={handleCompleteSwap}
@@ -3231,38 +3353,19 @@ export default function LoloParkApp() {
     }
   }, [user?.language]);
 
-  if (initializing) {
-  // 🔥 IMPORTANT : on attend Firebase avant d'afficher AuthView
-  return (
-    <div
-      className={`relative h-screen w-full ${
-        theme === 'dark' ? 'bg-[#0b1220] text-slate-100 app-surface' : 'text-slate-950 app-surface'
-      }`}
-    >
-      <div className="absolute inset-0 flex items-center justify-center px-6">
-        <div
-          className={`w-full max-w-sm rounded-[28px] border px-6 py-7 text-center shadow-[0_30px_90px_rgba(15,23,42,0.16)] ${
-            theme === 'dark' ? 'border-white/10 bg-slate-950/70' : 'border-white/70 bg-white/85'
-          }`}
-          style={{ backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
-        >
-          <div className="mx-auto mb-4 h-11 w-11 rounded-full border-2 border-orange-400/30 border-t-orange-500 animate-spin" />
-          <div className={`text-[11px] font-semibold uppercase tracking-[0.24em] ${theme === 'dark' ? 'text-orange-300' : 'text-orange-600'}`}>
-            ParkSwap
-          </div>
-          <h1 className="mt-3 text-2xl font-black tracking-tight">Opening the app</h1>
-          <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-slate-300/85' : 'text-slate-600'}`}>
-            Checking your session and preparing nearby spots.
-          </p>
-          <div className={`mt-4 inline-flex rounded-full px-3 py-1 text-[10px] font-black tracking-[0.2em] ${theme === 'dark' ? 'border border-white/10 bg-white/5 text-orange-200' : 'border border-orange-100 bg-orange-50 text-orange-700'}`}>
-            {IOS_PATCH_LABEL}
-          </div>
-        </div>
-      </div>
-      <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
+  const bootSplashOverlay = !initializing && bootSplashVisible ? (
+    <div className="fixed inset-0 z-[12000] pointer-events-none">
+      <AppLoadingScreen phase={bootSplashPhase} />
     </div>
-  );
-}
+  ) : null;
+
+  if (initializing) {
+    return (
+      <div className="relative h-screen w-full overflow-hidden">
+        <AppLoadingScreen />
+      </div>
+    );
+  }
 
   if (!user) {
     logViewBreadcrumb({ from: 'app', to: 'auth', meta: 'user not connected' });
@@ -3277,6 +3380,7 @@ export default function LoloParkApp() {
       <AuthView noticeMessage={authNotice} />
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
        {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
+       {bootSplashOverlay}
        <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
       </div>
     );
@@ -3308,6 +3412,7 @@ export default function LoloParkApp() {
             </div>
           </div>
         </div>
+        {bootSplashOverlay}
         <FirestoreDebugOverlay />
         <TapDebugOverlay />
         <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
@@ -3323,6 +3428,7 @@ export default function LoloParkApp() {
           theme={theme}
           onExit={() => changeAdminMode(false)}
         />
+        {bootSplashOverlay}
         <FirestoreDebugOverlay />
         <TapDebugOverlay />
         <ActiveViewNameOverlay activeViewName={getActiveViewName()} />
@@ -3372,6 +3478,7 @@ export default function LoloParkApp() {
           : 'text-slate-950 app-surface'
       }`}
     >
+      {bootSplashOverlay}
       {loggingIn && <AuthTransitionOverlay theme={theme} mode="in" name={loginOverlayName} variant={loginOverlayVariant} />}
       {loggingOut && <AuthTransitionOverlay theme={theme} mode="out" />}
       {renewWave ? (
@@ -3399,7 +3506,10 @@ export default function LoloParkApp() {
         />
       ) : null}
       {walletTopupToast ? (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[140] pointer-events-none">
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-[140] pointer-events-none"
+          style={{ top: 'var(--top-toast-offset)' }}
+        >
           <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm shadow-lg">
             {walletTopupToast}
           </div>
@@ -3407,9 +3517,10 @@ export default function LoloParkApp() {
       ) : null}
 	      {activeTab === 'search' && !searchFiltersOpen && !isHostSelectionFlow && (
 	        <div
-	          className={`fixed top-4 left-4 z-[90] transition-opacity duration-300 ${
+	          className={`fixed left-4 z-[90] transition-opacity duration-300 ${
 	            hideNav ? 'opacity-0 pointer-events-none' : 'opacity-100'
 	          }`}
+	          style={{ top: 'var(--top-floating-offset)' }}
 	        >
           <div className="flex flex-col">
             <button
@@ -3447,7 +3558,7 @@ export default function LoloParkApp() {
             <div
               id="top-left-actions"
               className={`flex flex-col gap-3 overflow-hidden transition-all duration-300 ${
-                topMenuOpen ? 'max-h-64 opacity-100 pt-3' : 'max-h-0 opacity-0 pointer-events-none pt-0'
+                topMenuOpen ? 'max-h-80 opacity-100 pt-3' : 'max-h-0 opacity-0 pointer-events-none pt-0'
               }`}
             >
               {user?.isAdmin ? (
@@ -3526,6 +3637,40 @@ export default function LoloParkApp() {
               <button
                 type="button"
                 onClick={() => {
+                  toggleTestMode();
+                  setTopMenuOpen(false);
+                }}
+                className={`relative min-h-12 px-3 rounded-2xl shadow-sm transition active:scale-95 flex items-center justify-center border ${
+                  theme === 'dark'
+                    ? testModeEnabled
+                      ? 'bg-slate-900/80 text-amber-200 border-amber-400/40 hover:bg-slate-800'
+                      : 'bg-slate-900/60 text-slate-400 border-white/10 hover:bg-slate-800/70'
+                    : testModeEnabled
+                      ? 'bg-white/70 text-amber-700 border-amber-200/80 hover:bg-white'
+                      : 'bg-white/60 text-slate-500 border-white/60 hover:bg-white'
+                }`}
+                style={{ backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)' }}
+                aria-label={
+                  testModeEnabled
+                    ? i18n.t('disableTestMode', 'Désactiver mode Test')
+                    : i18n.t('enableTestMode', 'Activer mode Test')
+                }
+                title={
+                  testModeEnabled
+                    ? i18n.t('disableTestMode', 'Désactiver mode Test')
+                    : i18n.t('enableTestMode', 'Activer mode Test')
+                }
+              >
+                <span className="text-[13px] font-black uppercase tracking-[0.08em]">T</span>
+                {testModeEnabled ? (
+                  <span className="pointer-events-none absolute -top-1.5 -right-1.5 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-black uppercase text-slate-950 shadow-sm">
+                    On
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   togglePublicParkings();
                   setTopMenuOpen(false);
                 }}
@@ -3549,7 +3694,7 @@ export default function LoloParkApp() {
                     ? i18n.t('hideParkings', 'Masquer parkings')
                     : i18n.t('showParkings', 'Afficher parkings')
                 }
-              >
+                >
                 <span className="text-lg font-extrabold">P</span>
                 {!showPublicParkings ? (
                   <span
@@ -3861,7 +4006,7 @@ export default function LoloParkApp() {
       )}
       {activeTab === 'search' && searchMapOpen && !insufficientFundsModal && (
         <MapSearchView
-          spots={visibleSpots}
+          spots={effectiveVisibleSpots}
           currency={user?.currency || getDefaultCurrencyForLanguage(user?.language || i18n.language || 'en')}
           userCoords={userCoords}
           currentUserId={user?.uid || null}
@@ -3871,6 +4016,7 @@ export default function LoloParkApp() {
           setSelectedSpot={setSelectedSearchSpot}
           premiumParks={user?.premiumParks ?? PREMIUM_PARKS_MAX}
           showPublicParkings={showPublicParkings}
+          testModeEnabled={testModeEnabled}
         />
       )}
       <FirestoreDebugOverlay />

@@ -117,7 +117,9 @@ const updateAdminLocation = (enabled) => {
 const TEST_MODE_STORAGE_KEY = 'parkswap_test_mode_enabled';
 const TEST_MODE_MIN_SPOTS = 3;
 const TEST_MODE_MAX_SPOTS = 10;
-const TEST_MODE_REFRESH_INTERVAL_MS = 10_000;
+const TEST_MODE_REFRESH_INTERVAL_MS = 60_000;
+const TEST_MODE_COUNT_STEP_MAX = 2;
+const TEST_MODE_REBUILD_DISTANCE_M = 300;
 
 const readTestModePreference = () => {
   if (typeof window === 'undefined') return false;
@@ -264,6 +266,26 @@ const isValidLatLng = (coords) => {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 };
 
+const getDistanceMetersBetween = (a, b) => {
+  if (!isValidLatLng(a) || !isValidLatLng(b)) return Number.POSITIVE_INFINITY;
+  const lat1 = (Number(a.lat) * Math.PI) / 180;
+  const lat2 = (Number(b.lat) * Math.PI) / 180;
+  const deltaLat = lat2 - lat1;
+  const deltaLng = ((Number(b.lng) - Number(a.lng)) * Math.PI) / 180;
+  const sinLat = Math.sin(deltaLat / 2);
+  const sinLng = Math.sin(deltaLng / 2);
+  const haversine = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(haversine)));
+};
+
+const getTestModeSeedKey = (center) => {
+  const fallbackCenter = { lat: 48.8738, lng: 2.295 };
+  const origin = isValidLatLng(center) ? center : fallbackCenter;
+  const lat = safeCoord(origin.lat, fallbackCenter.lat);
+  const lng = safeCoord(origin.lng, fallbackCenter.lng);
+  return `${lat.toFixed(4)}:${lng.toFixed(4)}`;
+};
+
 const getRandomNearbyLocation = (center, minDistanceMeters = 200, maxDistanceMeters = 900) => {
   const fallbackCenter = { lat: 48.8738, lng: 2.295 };
   const origin = isValidLatLng(center) ? center : fallbackCenter;
@@ -282,49 +304,70 @@ const getRandomNearbyLocation = (center, minDistanceMeters = 200, maxDistanceMet
   };
 };
 
-const buildTestModeSpots = (center, cycleKey) => {
+const buildTestModeSpot = (center, seedKey, index) => {
   const fallbackCenter = { lat: 48.8738, lng: 2.295 };
   const origin = isValidLatLng(center) ? center : fallbackCenter;
   const lat = safeCoord(origin.lat, fallbackCenter.lat);
   const lng = safeCoord(origin.lng, fallbackCenter.lng);
-  const rng = mulberry32(hashSeed(`${lat.toFixed(5)}:${lng.toFixed(5)}:${cycleKey}`));
-  const count = TEST_MODE_MIN_SPOTS + Math.floor(rng() * (TEST_MODE_MAX_SPOTS - TEST_MODE_MIN_SPOTS + 1));
+  const rng = mulberry32(hashSeed(`${seedKey}:${index}`));
   const carModels = ['Clio', '208', 'Model 3', 'Golf', 'Yaris', 'Captur', 'C3'];
   const metersPerDegLat = 111_111;
   const now = Date.now();
+  const angle = rng() * Math.PI * 2;
+  const distanceMeters = 120 + rng() * 680;
+  const deltaLat = (distanceMeters * Math.cos(angle)) / metersPerDegLat;
+  const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos((lat * Math.PI) / 180));
+  const deltaLng = (distanceMeters * Math.sin(angle)) / metersPerDegLng;
+  const createdAt = now - Math.round(rng() * 4 * 60_000);
+  const time = 12 + Math.floor(rng() * 28);
+  const isFree = rng() < 0.18;
+  const price = isFree ? 0 : Number((0.5 + rng() * 5.5).toFixed(2));
+  const sanitizedSeedKey = String(seedKey).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-  return Array.from({ length: count }, (_, index) => {
-    const angle = rng() * Math.PI * 2;
-    const distanceMeters = 120 + rng() * 680;
-    const deltaLat = (distanceMeters * Math.cos(angle)) / metersPerDegLat;
-    const metersPerDegLng = Math.max(1, metersPerDegLat * Math.cos((lat * Math.PI) / 180));
-    const deltaLng = (distanceMeters * Math.sin(angle)) / metersPerDegLng;
-    const createdAt = now - Math.round(rng() * 4 * 60_000);
-    const time = 12 + Math.floor(rng() * 28);
-    const isFree = rng() < 0.18;
-    const price = isFree ? 0 : Number((0.5 + rng() * 5.5).toFixed(2));
+  return {
+    id: `test-spot-${sanitizedSeedKey}-${index}`,
+    hostId: `test-host-${sanitizedSeedKey}-${index}`,
+    hostName: `Test ${index + 1}`,
+    carModel: carModels[Math.floor(rng() * carModels.length)] || 'Test car',
+    hostVehiclePlate: null,
+    hostVehicleId: null,
+    time,
+    price,
+    length: null,
+    x: safeCoord(50 + (rng() * 40 - 20), 50),
+    y: safeCoord(50 + (rng() * 40 - 20), 50),
+    lat: safeCoord(lat + deltaLat, fallbackCenter.lat),
+    lng: safeCoord(lng + deltaLng, fallbackCenter.lng),
+    status: 'available',
+    createdAt,
+    address: 'Mode Test',
+    syntheticTest: true,
+    testMode: true,
+  };
+};
 
-    return {
-      id: `test-spot-${cycleKey}-${index}`,
-      hostId: `test-host-${cycleKey}-${index}`,
-      hostName: `Test ${index + 1}`,
-      carModel: carModels[Math.floor(rng() * carModels.length)] || 'Test car',
-      hostVehiclePlate: null,
-      hostVehicleId: null,
-      time,
-      price,
-      length: null,
-      x: safeCoord(50 + (rng() * 40 - 20), 50),
-      y: safeCoord(50 + (rng() * 40 - 20), 50),
-      lat: safeCoord(lat + deltaLat, fallbackCenter.lat),
-      lng: safeCoord(lng + deltaLng, fallbackCenter.lng),
-      status: 'available',
-      createdAt,
-      address: 'Mode Test',
-      syntheticTest: true,
-      testMode: true,
-    };
-  });
+const buildTestModeSpots = (center, count) => {
+  const seedKey = getTestModeSeedKey(center);
+  return Array.from({ length: count }, (_, index) => buildTestModeSpot(center, seedKey, index));
+};
+
+const getInitialTestModeSpotCount = (center) => {
+  const seedKey = getTestModeSeedKey(center);
+  const rng = mulberry32(hashSeed(`${seedKey}:count`));
+  return TEST_MODE_MIN_SPOTS + Math.floor(rng() * (TEST_MODE_MAX_SPOTS - TEST_MODE_MIN_SPOTS + 1));
+};
+
+const getNextTestModeSpotCount = (currentCount) => {
+  if (!Number.isFinite(currentCount) || currentCount <= TEST_MODE_MIN_SPOTS) {
+    return Math.min(TEST_MODE_MAX_SPOTS, TEST_MODE_MIN_SPOTS + 1);
+  }
+  if (currentCount >= TEST_MODE_MAX_SPOTS) {
+    return Math.max(TEST_MODE_MIN_SPOTS, TEST_MODE_MAX_SPOTS - 1);
+  }
+
+  const delta = 1 + Math.floor(Math.random() * TEST_MODE_COUNT_STEP_MAX);
+  const direction = Math.random() < 0.5 ? -1 : 1;
+  return Math.max(TEST_MODE_MIN_SPOTS, Math.min(TEST_MODE_MAX_SPOTS, currentCount + direction * delta));
 };
 
 const ConfettiOverlay = ({ seedKey }) => {
@@ -859,6 +902,8 @@ export default function LoloParkApp() {
   const [showPublicParkings, setShowPublicParkings] = useState(true);
   const [testModeEnabled, setTestModeEnabled] = useState(() => readTestModePreference());
   const [testModeSpots, setTestModeSpots] = useState([]);
+  const testModeOriginRef = useRef(null);
+  const latestUserCoordsRef = useRef(null);
   const searchMapPrefRef = useRef('list');
   const [hideNav, setHideNav] = useState(false); // kept for compatibility but forced to false now
   const [searchFiltersOpen, setSearchFiltersOpen] = useState(false);
@@ -940,25 +985,47 @@ export default function LoloParkApp() {
   }, [testModeEnabled]);
 
   useEffect(() => {
+    latestUserCoordsRef.current = userCoords;
+  }, [userCoords]);
+
+  useEffect(() => {
     if (!testModeEnabled) {
+      testModeOriginRef.current = null;
       setTestModeSpots([]);
       return undefined;
     }
 
     const refreshTestModeSpots = () => {
       const origin =
-        (isValidLatLng(userCoords) && userCoords) ||
+        (isValidLatLng(latestUserCoordsRef.current) && latestUserCoordsRef.current) ||
         (isValidLatLng(lastKnownLocationRef.current) && lastKnownLocationRef.current) ||
         { lat: 48.8738, lng: 2.295 };
-      const cycleKey = Math.floor(Date.now() / TEST_MODE_REFRESH_INTERVAL_MS);
-      setTestModeSpots(buildTestModeSpots(origin, cycleKey));
+      setTestModeSpots((currentSpots) => {
+        const currentOrigin = testModeOriginRef.current;
+        const shouldRebuild =
+          !currentSpots.length ||
+          !isValidLatLng(currentOrigin) ||
+          getDistanceMetersBetween(origin, currentOrigin) > TEST_MODE_REBUILD_DISTANCE_M;
+
+        if (shouldRebuild) {
+          testModeOriginRef.current = origin;
+          return buildTestModeSpots(origin, getInitialTestModeSpotCount(origin));
+        }
+
+        const nextCount = getNextTestModeSpotCount(currentSpots.length);
+        if (nextCount === currentSpots.length) return currentSpots;
+        if (nextCount < currentSpots.length) return currentSpots.slice(0, nextCount);
+
+        const nextSpots = buildTestModeSpots(currentOrigin, nextCount);
+        return [...currentSpots, ...nextSpots.slice(currentSpots.length)];
+      });
     };
 
     refreshTestModeSpots();
     const timer = window.setInterval(refreshTestModeSpots, TEST_MODE_REFRESH_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
-  }, [testModeEnabled, userCoords]);
+  }, [testModeEnabled]);
 
   useEffect(() => {
     if (!walletTopupToast || !user) return;

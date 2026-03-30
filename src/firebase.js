@@ -269,17 +269,22 @@ const useEmulators =
   isLocalhost;
 
 // Robust Firestore initialization
-// Firestore's default browser transport can fail behind some proxies/CDNs with
-// opaque CORS errors on hosted builds. Force long-polling and disable fetch
-// streams outside localhost to use the most compatible transport.
+// Let the SDK choose the transport by default. Recent Firestore versions already
+// auto-detect when long-polling is needed, and forcing it can trigger hosted
+// CORS failures on some browsers/CDNs.
 let db;
+const shouldForceLongPolling =
+  import.meta.env.VITE_FIRESTORE_FORCE_LONG_POLLING === "true";
+
 const firestoreSettings =
   useEmulators || isLocalhost
     ? {}
-    : {
-        experimentalForceLongPolling: true,
-        useFetchStreams: false,
-      };
+    : shouldForceLongPolling
+      ? {
+          experimentalForceLongPolling: true,
+          useFetchStreams: false,
+        }
+      : {};
 
 try {
   db = initializeFirestore(app, firestoreSettings);

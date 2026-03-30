@@ -318,6 +318,7 @@ const MapInner = ({
   const otherUserProfilesRef = useRef(new globalThis.Map());
   const otherUserProfileFetchRef = useRef(new globalThis.Map());
   const watchIdRef = useRef(null);
+  const previewMarkerRef = useRef(null);
   const speechStateRef = useRef({ text: '', index: -1, at: 0 });
   const speechVoicesRef = useRef([]);
   const speechPrimedRef = useRef(false);
@@ -330,6 +331,11 @@ const MapInner = ({
     const candidate = userLoc || userCoords;
     viewerCoordsRef.current =
       candidate && isValidCoord(candidate.lng, candidate.lat) ? { lng: candidate.lng, lat: candidate.lat } : null;
+  }, [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
+
+  const effectiveUserCoords = useMemo(() => {
+    const candidate = userLoc || userCoords;
+    return candidate && isValidCoord(candidate.lng, candidate.lat) ? candidate : null;
   }, [userLoc?.lat, userLoc?.lng, userCoords?.lat, userCoords?.lng]);
 
 
@@ -676,7 +682,7 @@ useEffect(() => {
   const mapLabelLanguageRef = useRef(mapLabelLanguage);
   const canSpeakNav = typeof window !== 'undefined' && !!window.speechSynthesis;
   const [navVoiceEnabled, setNavVoiceEnabled] = useState(true);
-  const shouldUseMapboxNav = !!mapboxToken && !!userLoc && isValidCoord(spot?.lng, spot?.lat);
+  const shouldUseMapboxNav = !!mapboxToken && !!effectiveUserCoords && isValidCoord(spot?.lng, spot?.lat);
   const fallbackOtherPositions = useMemo(
     () => [
       { lng: 2.2945, lat: 48.8584 }, // Tour Eiffel
@@ -965,14 +971,14 @@ setAcceptingNav(false);
   // --- Fetch Directions ---
   useEffect(() => {
     // FIX 1: Prevent duplicate requests by checking ref and removing userLoc dependency
-    if (!navReady || !shouldUseMapboxNav || !userLoc || routeFetchedRef.current) return undefined;
+    if (!navReady || !shouldUseMapboxNav || !effectiveUserCoords || routeFetchedRef.current) return undefined;
     
     const controller = new AbortController();
     
     const fetchDirections = async () => {
       routeFetchedRef.current = true;
       try {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLoc.lng},${userLoc.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&language=${encodeURIComponent(navLanguage)}&access_token=${mapboxToken}`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${effectiveUserCoords.lng},${effectiveUserCoords.lat};${spot.lng},${spot.lat}?geometries=polyline6&steps=true&overview=full&language=${encodeURIComponent(navLanguage)}&access_token=${mapboxToken}`;
         const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) throw new Error('Directions request failed');
         const data = await res.json();
@@ -981,8 +987,7 @@ setAcceptingNav(false);
         if (!route || !polyline) throw new Error('No route');
         
         let geometry = decodePolyline(polyline, 6);
-        // Prepend user location to ensure connection, but don't rely on it for bearing
-        // if (userLoc) geometry = [[userLoc.lng, userLoc.lat], ...geometry];
+        geometry = [[effectiveUserCoords.lng, effectiveUserCoords.lat], ...geometry];
         geometry.push([spot.lng, spot.lat]);
 
         setNavGeometry(geometry);
@@ -998,7 +1003,7 @@ setAcceptingNav(false);
     };
     fetchDirections();
     return () => controller.abort();
-  }, [navReady, shouldUseMapboxNav, spot, mapboxToken, navLanguage]);
+  }, [navReady, shouldUseMapboxNav, effectiveUserCoords?.lat, effectiveUserCoords?.lng, spot, mapboxToken, navLanguage]);
 
   // --- Map Init ---
   useEffect(() => {
@@ -1237,6 +1242,37 @@ useEffect(() => {
   });
 }, [mapLoaded, showRoute, spot?.lng, spot?.lat]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return undefined;
+
+    if (showRoute || !effectiveUserCoords) {
+      if (previewMarkerRef.current) {
+        previewMarkerRef.current.remove();
+        previewMarkerRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (!previewMarkerRef.current) {
+      const el = document.createElement('div');
+      el.style.width = '18px';
+      el.style.height = '18px';
+      el.style.borderRadius = '9999px';
+      el.style.background = '#2563eb';
+      el.style.border = '3px solid white';
+      el.style.boxShadow = '0 0 0 6px rgba(37, 99, 235, 0.22)';
+
+      previewMarkerRef.current = new mapboxgl.Marker({ element: el })
+        .setLngLat([effectiveUserCoords.lng, effectiveUserCoords.lat])
+        .addTo(map);
+    } else {
+      previewMarkerRef.current.setLngLat([effectiveUserCoords.lng, effectiveUserCoords.lat]);
+    }
+
+    return undefined;
+  }, [effectiveUserCoords?.lat, effectiveUserCoords?.lng, mapLoaded, showRoute]);
+
 // --- Destination Marker & Modern Popup (AJOUT) ---
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || !spot || !isValidCoord(spot.lng, spot.lat)) return;
@@ -1350,6 +1386,11 @@ useEffect(() => {
     if (navReady && navGeometry.length > 1) {
       const map = mapRef.current;
 
+      if (previewMarkerRef.current) {
+        previewMarkerRef.current.remove();
+        previewMarkerRef.current = null;
+      }
+
       // --- Fonction utilitaire pour interpoler des points le long de la ligne ---
       const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
         const points = [];
@@ -1380,8 +1421,13 @@ useEffect(() => {
       // --- Ajout des sources et layers ---
       
       // 1. La ligne de route statique (orange)
+      const routeData = {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: navGeometry },
+      };
+
       if (!map.getSource('route')) {
-        map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: navGeometry } } });
+        map.addSource('route', { type: 'geojson', data: routeData });
         
         map.addLayer({
           id: 'route-line',
@@ -1423,6 +1469,8 @@ useEffect(() => {
             'line-emissive-strength': 1,
           },
         }, 'route-line');
+      } else {
+        map.getSource('route').setData(routeData);
       }
 
       // 2. La source pour les boules animées
@@ -1718,6 +1766,12 @@ useEffect(() => {
        }
 
         // Nettoyage des layers/sources si nécessaire lors du démontage complet
+           if (mapRef.current && mapRef.current.getLayer('route-line')) {
+             mapRef.current.removeLayer('route-line');
+            }
+           if (mapRef.current && mapRef.current.getLayer('route-glow')) {
+             mapRef.current.removeLayer('route-glow');
+            }
         if (mapRef.current && mapRef.current.getLayer('route-dots-layer')) {
              mapRef.current.removeLayer('route-dots-layer');
             }
@@ -1729,6 +1783,9 @@ useEffect(() => {
             }
         if (mapRef.current && mapRef.current.getSource('route-dots')) {
              mapRef.current.removeSource('route-dots');
+            }
+        if (mapRef.current && mapRef.current.getSource('route')) {
+             mapRef.current.removeSource('route');
             }
       };
     }

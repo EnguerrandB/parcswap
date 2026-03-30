@@ -269,9 +269,9 @@ const useEmulators =
   isLocalhost;
 
 // Robust Firestore initialization
-// Let the SDK choose the transport by default. Recent Firestore versions already
-// auto-detect when long-polling is needed, and forcing it can trigger hosted
-// CORS failures on some browsers/CDNs.
+// Recent Firestore SDK versions already auto-detect when long-polling is needed.
+// For hosted web builds, forcing long-polling can itself cause CORS failures, so
+// keep it opt-in only for targeted network workarounds.
 let db;
 const shouldForceLongPolling =
   import.meta.env.VITE_FIRESTORE_FORCE_LONG_POLLING === "true";

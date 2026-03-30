@@ -447,11 +447,11 @@ const MapInner = ({
   const routeFetchedRef = useRef(false);
   const lastPersistTsRef = useRef(0);
 
-  const isValidCoord = (lng, lat) => (
-    typeof lng === 'number' && typeof lat === 'number' &&
-    !isNaN(lng) && !isNaN(lat) &&
-    Math.abs(lng) <= 180 && Math.abs(lat) <= 90
-  );
+  function isValidCoord(lng, lat) {
+    return typeof lng === 'number' && typeof lat === 'number'
+      && !isNaN(lng) && !isNaN(lat)
+      && Math.abs(lng) <= 180 && Math.abs(lat) <= 90;
+  }
 
   const getSafeCenter = () => {
     const candidate = userLoc || userCoords;

@@ -351,6 +351,57 @@ const buildTestModeSpots = (center, count) => {
   return Array.from({ length: count }, (_, index) => buildTestModeSpot(center, seedKey, index));
 };
 
+const isSyntheticTestSpot = (spot) => {
+  if (!spot) return false;
+  if (spot.syntheticTest || spot.testMode) return true;
+  return typeof spot.id === 'string' && spot.id.startsWith('test-spot-');
+};
+
+const buildBookedTestModeSpot = ({ spot, user, selectedVehicle, bookingSessionId }) => ({
+  ...spot,
+  status: 'booked',
+  bookingSessionId,
+  bookedAt: Date.now(),
+  bookerId: user?.uid || null,
+  bookerName: user?.displayName || 'Seeker',
+  bookerAccepted: false,
+  bookerAcceptedAt: null,
+  bookerVehiclePlate: selectedVehicle?.plate || null,
+  bookerVehicleId: selectedVehicle?.id || null,
+});
+
+const buildAvailableTestModeSpot = (spot) => ({
+  ...spot,
+  status: 'available',
+  bookingSessionId: null,
+  bookedAt: null,
+  bookOpId: null,
+  bookOpAt: null,
+  navOpId: null,
+  navOpAt: null,
+  bookerId: null,
+  bookerName: null,
+  bookerAccepted: false,
+  bookerAcceptedAt: null,
+  bookerVehiclePlate: null,
+  bookerVehicleId: null,
+  hostVerifiedBookerPlate: false,
+  hostVerifiedBookerPlateAt: null,
+  hostConfirmedBookerPlate: null,
+  hostConfirmedBookerPlateNorm: null,
+  bookerVerifiedHostPlate: false,
+  bookerVerifiedHostPlateAt: null,
+  bookerConfirmedHostPlate: null,
+  bookerConfirmedHostPlateNorm: null,
+  plateConfirmed: false,
+  completedAt: null,
+  cancelledAt: null,
+  cancelledBy: null,
+  cancelledByRole: null,
+  cancelledFor: null,
+  cancelledForName: null,
+});
+
 const getInitialTestModeSpotCount = (center) => {
   const seedKey = getTestModeSeedKey(center);
   const rng = mulberry32(hashSeed(`${seedKey}:count`));
@@ -1250,6 +1301,7 @@ export default function LoloParkApp() {
             lat: safeLat,
             lng: safeLng,
             displayName: user.displayName || 'User',
+            vehicleModel: selectedVehicle?.model || null,
             updatedAt: serverTimestamp(),
           },
           { merge: true },
@@ -1702,7 +1754,7 @@ export default function LoloParkApp() {
 		        setMyActiveSpot(mySpot || null);
 
 	        const booked = fetchedSpots.find((s) => s.bookerId === user.uid && s.status !== 'completed' && s.status !== 'cancelled');
-	        setBookedSpot(booked || null);
+            setBookedSpot((prev) => booked || (isSyntheticTestSpot(prev) ? prev : null));
 	      },
       (error) => {
         console.error('Error fetching spots:', error);
@@ -1832,7 +1884,7 @@ export default function LoloParkApp() {
       (err) => console.error('Error watching selection state:', err),
     );
     return () => unsub();
-  }, [user?.uid]);
+  }, [selectedVehicle?.model, user?.displayName, user?.uid]);
 
   // --- Transactions subscription (history) ---
   useEffect(() => {
@@ -2091,6 +2143,38 @@ export default function LoloParkApp() {
 		    }
 
 	    if (!user || !spot?.id) return { ok: false, code: 'missing_input' };
+
+      if (isSyntheticTestSpot(spot)) {
+        const bookingSessionId =
+          typeof meta?.bookingSessionId === 'string' && meta.bookingSessionId
+            ? meta.bookingSessionId
+            : typeof spot?.bookingSessionId === 'string' && spot.bookingSessionId
+              ? spot.bookingSessionId
+              : newId();
+        const navOpId = typeof meta?.opId === 'string' && meta.opId ? meta.opId : bookingSessionId;
+        const nextSpot = {
+          ...spot,
+          status: 'booked',
+          bookingSessionId,
+          navOpId,
+          navOpAt: Date.now(),
+          bookerAccepted: true,
+          bookerAcceptedAt: Date.now(),
+          bookerId: spot?.bookerId || user.uid,
+          bookerName: spot?.bookerName || user.displayName || 'Seeker',
+          bookerVehiclePlate: spot?.bookerVehiclePlate || selectedVehicle?.plate || null,
+          bookerVehicleId: spot?.bookerVehicleId || selectedVehicle?.id || null,
+        };
+        setTestModeSpots((currentSpots) =>
+          currentSpots.map((currentSpot) =>
+            currentSpot.id === nextSpot.id ? { ...currentSpot, ...nextSpot } : currentSpot,
+          ),
+        );
+        setBookedSpot(nextSpot);
+        setSelectedSearchSpot((prev) => (prev?.id === nextSpot.id ? { ...prev, ...nextSpot } : prev));
+        saveSelectionStep(step, nextSpot, { ...meta, bookingSessionId });
+        return { ok: true, bookingSessionId, syntheticTest: true };
+      }
 
 	    const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spot.id);
 	    const bookerRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
@@ -2395,6 +2479,26 @@ export default function LoloParkApp() {
 	      meta,
 	    });
 	    logCurrentLocation('book_spot');
+      if (isSyntheticTestSpot(spot)) {
+        const syntheticBookedSpot = buildBookedTestModeSpot({
+          spot,
+          user,
+          selectedVehicle,
+          bookingSessionId,
+        });
+        setTestModeSpots((currentSpots) =>
+          currentSpots.map((currentSpot) =>
+            currentSpot.id === syntheticBookedSpot.id ? syntheticBookedSpot : currentSpot,
+          ),
+        );
+        setBookedSpot(syntheticBookedSpot);
+        setSelectedSearchSpot((prev) =>
+          prev?.id === syntheticBookedSpot.id ? { ...prev, ...syntheticBookedSpot } : prev,
+        );
+        setActiveTab('search');
+        saveSelectionStep('booked', syntheticBookedSpot, { bookingSessionId });
+        return { ok: true, isFree: isFreeSpot, bookingSessionId, syntheticTest: true };
+      }
 	    try {
 	      const callable = httpsCallable(functions, 'bookSpotSecure');
         const requestPayload = {
@@ -2850,6 +2954,24 @@ export default function LoloParkApp() {
 	    if (!spotId || !user?.uid) return { ok: false, code: 'missing_input' };
 	    const requestedSessionId =
 	      typeof meta?.bookingSessionId === 'string' && meta.bookingSessionId ? meta.bookingSessionId : null;
+
+      if (isSyntheticTestSpot(findSpotById(spotId)) || isSyntheticTestSpot(bookedSpot)) {
+        let nextBookedSpot = null;
+        setTestModeSpots((currentSpots) =>
+          currentSpots.map((currentSpot) => {
+            if (currentSpot.id !== spotId) return currentSpot;
+            const resetSpot = buildAvailableTestModeSpot(currentSpot);
+            nextBookedSpot = resetSpot;
+            return resetSpot;
+          }),
+        );
+        if (selectedSearchSpot?.id === spotId && nextBookedSpot) {
+          setSelectedSearchSpot(nextBookedSpot);
+        }
+        setBookedSpot((prev) => (prev?.id === spotId ? null : prev));
+        saveSelectionStep('cleared', null);
+        return { ok: true, syntheticTest: true, stale: false, requestedSessionId };
+      }
 
 	    try {
 	      const spotRef = doc(db, 'artifacts', appId, 'public', 'data', 'spots', spotId);
@@ -4068,6 +4190,7 @@ export default function LoloParkApp() {
           currentUserId={user?.uid || null}
           currentUserName={user?.displayName || 'User'}
           selectedVehiclePlate={selectedVehicle?.plate || null}
+          selectedVehicleModel={selectedVehicle?.model || null}
           userCoords={userCoords}
         />
       )}

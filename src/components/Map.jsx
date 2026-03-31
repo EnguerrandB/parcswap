@@ -1,24 +1,21 @@
 // src/components/Map.jsx
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import '@google/model-viewer';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Check, X as XIcon, Volume2, VolumeX } from 'lucide-react';
-import { collection, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import i18n from '../i18n/i18n';
 import PremiumParksDeltaToast from './PremiumParksDeltaToast';
 import { newId } from '../utils/ids';
 import carMarker from '../assets/car-marker.png';
-import userCar1 from '../assets/user-car-1.png';
-import userCar2 from '../assets/user-car-2.png';
-import userCar3 from '../assets/user-car-3.png';
-import userCar4 from '../assets/user-car-4.png';
 import userDirectionArrow from '../assets/user-direction-arrow.svg';
 import { buildOtherUserPopupHTML, enhancePopupAnimation, PopUpUsersStyles } from './PopUpUsers';
 import { attachPersistentMapContainer, getPersistentMap, setPersistentMap } from '../utils/persistentMap';
 import { applyMapLabelLanguage, patchSizerankInStyle } from '../utils/mapboxStylePatch';
-import { getCurrentLocationCoordinates } from '../utils/mobile';
+import { clearLocationWatch, getCurrentLocationCoordinates, startLocationWatch } from '../utils/mobile';
 import { getVoicePreference, pickPreferredVoice } from '../utils/voice';
 import {
   formatStoredVehiclePlate,
@@ -48,6 +45,176 @@ const safeCoord = (value, fallback = 0) => {
 
 // --- Helpers ---
 const PERSISTENT_MAP_KEY = 'main-map';
+const ROUTE_FLOW_DASH_FRAMES = [
+  [0, 1.5, 2.4, 6.5],
+  [0.35, 1.5, 2.05, 6.5],
+  [0.7, 1.5, 1.7, 6.5],
+  [1.05, 1.5, 1.35, 6.5],
+  [1.4, 1.5, 1.0, 6.5],
+  [1.75, 1.5, 0.65, 6.5],
+  [2.1, 1.5, 0.3, 6.5],
+  [2.45, 1.5, 0.3, 6.15],
+];
+const ROUTE_FLOW_INTERVAL_MS = 140;
+
+const OTHER_USER_3D_MARKER_CONFIG = {
+  wrapperWidth: '150px',
+  wrapperHeight: '150px',
+  wrapperShadow: 'none',
+  modelFieldOfView: '15deg',
+  modelCameraTarget: '0m 0.1m 0m',
+  modelOrientation: '0deg 18deg 0deg',
+  modelShadowIntensity: '1',
+  modelExposure: '1.05',
+  modelTransform: 'scale(0.5)',
+  markerOffsetY: 'none',
+  rotationAlignment: 'viewport',
+  pitchAlignment: 'viewport',
+  cameraOrbitBaseTheta: 0,
+  cameraOrbitRadius: '10m',
+};
+
+const buildOtherUserCameraOrbit = (bearing = 0, pitch = 45) => {
+  const theta = OTHER_USER_3D_MARKER_CONFIG.cameraOrbitBaseTheta - bearing;
+  const phi = Math.max(10, Math.min(78, pitch + 8));
+  return `${theta}deg ${phi}deg ${OTHER_USER_3D_MARKER_CONFIG.cameraOrbitRadius}`;
+};
+
+const syncAllOtherUserModelViewerOrbits = (wrappersRef, bearing, pitch) => {
+  const orbit = buildOtherUserCameraOrbit(bearing, pitch);
+  for (const wrapper of wrappersRef.values()) {
+    const mv = wrapper.querySelector('model-viewer');
+    if (mv) mv.setAttribute('camera-orbit', orbit);
+  }
+};
+
+const SUV_MODEL_HINTS = [
+  'suv', 'crossover', 'cross', '4x4', 'pickup', 'x5', 'x6', 'x7', 'glc', 'gle', 'gla',
+  'q3', 'q5', 'q7', 'q8', 'tiguan', 'touareg', 't-roc', 't roc', 'kodiaq', 'karoq', 'kamiq',
+  '3008', '5008', '2008', 'captur', 'kadjar', 'arkana', 'scenic', 'koleos', 'mokka',
+  'grandland', 'enyaq', 'yaris cross', 'c-hr', 'chr', 'rav4', 'highlander', 'land cruiser',
+  'sportage', 'sorento', 'niro', 'stonic', 'kona', 'tucson', 'santa fe', 'cx-3', 'cx-5',
+  'cx-30', 'cx-60', 'model x', 'model y', 'mustang mach-e', 'mach-e', 'e-tron', 'etron',
+  'aygo x', 'countryman', 'defender', 'discovery', 'velar', 'cayenne', 'macan', 'urus',
+  'dbx', 'levante', 'stelvio', 'compass', 'renegade', 'cherokee', 'wrangler',
+];
+
+const inferVehicleMarkerKind = (vehicleModel) => {
+  const normalized = String(vehicleModel || '').trim().toLowerCase();
+  if (!normalized) return 'sedan';
+  return SUV_MODEL_HINTS.some((hint) => normalized.includes(hint)) ? 'suv' : 'sedan';
+};
+
+const getVehicleMarkerAsset = (vehicleModel) => {
+  const kind = inferVehicleMarkerKind(vehicleModel);
+  return { kind, src: kind === 'suv' ? '/gps-models/suv.glb' : '/gps-models/sedan.glb' };
+};
+
+const createOtherUserFallbackVehicle = (label) => {
+  const img = document.createElement('img');
+  img.src = carMarker;
+  img.alt = label;
+  img.style.width = '36px';
+  img.style.height = '36px';
+  img.style.transformOrigin = 'center';
+  img.draggable = false;
+  img.style.filter = 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))';
+  img.style.zIndex = '1';
+  img.style.opacity = '1';
+  return img;
+};
+
+const syncOtherUserVehicleVisual = (wrapper, vehicleModel, label) => {
+  if (!wrapper) return;
+
+  const { kind, src } = getVehicleMarkerAsset(vehicleModel);
+  if (wrapper.dataset.vehicleKind === kind && wrapper.querySelector('.user-marker-vehicle-visual')) return;
+
+  wrapper.dataset.vehicleKind = kind;
+  wrapper.querySelector('.user-marker-vehicle-visual')?.remove();
+
+  const visual = document.createElement('div');
+  visual.className = 'user-marker-vehicle-visual';
+  visual.style.width = OTHER_USER_3D_MARKER_CONFIG.wrapperWidth;
+  visual.style.height = OTHER_USER_3D_MARKER_CONFIG.wrapperHeight;
+  visual.style.display = 'flex';
+  visual.style.alignItems = 'center';
+  visual.style.justifyContent = 'center';
+  visual.style.pointerEvents = 'none';
+  visual.style.overflow = 'visible';
+  visual.style.filter = OTHER_USER_3D_MARKER_CONFIG.wrapperShadow;
+
+  const fallback = () => {
+    if (!visual.isConnected) return;
+    visual.replaceChildren(createOtherUserFallbackVehicle(label));
+  };
+
+  if (customElements.get('model-viewer')) {
+    const modelViewer = document.createElement('model-viewer');
+    modelViewer.setAttribute('src', src);
+    modelViewer.setAttribute('alt', label);
+    modelViewer.setAttribute('camera-orbit', buildOtherUserCameraOrbit(0, 45));
+    modelViewer.setAttribute('field-of-view', OTHER_USER_3D_MARKER_CONFIG.modelFieldOfView);
+    modelViewer.setAttribute('camera-target', OTHER_USER_3D_MARKER_CONFIG.modelCameraTarget);
+    modelViewer.setAttribute('orientation', OTHER_USER_3D_MARKER_CONFIG.modelOrientation);
+    modelViewer.setAttribute('shadow-intensity', OTHER_USER_3D_MARKER_CONFIG.modelShadowIntensity);
+    modelViewer.setAttribute('exposure', OTHER_USER_3D_MARKER_CONFIG.modelExposure);
+    modelViewer.setAttribute('interaction-prompt', 'none');
+    modelViewer.setAttribute('disable-zoom', '');
+    modelViewer.setAttribute('disable-pan', '');
+    modelViewer.style.width = '100%';
+    modelViewer.style.height = '100%';
+    modelViewer.style.background = 'transparent';
+    modelViewer.style.pointerEvents = 'none';
+    modelViewer.style.overflow = 'visible';
+    modelViewer.style.transform = OTHER_USER_3D_MARKER_CONFIG.modelTransform;
+    modelViewer.style.setProperty('--poster-color', 'transparent');
+    modelViewer.style.setProperty('--progress-bar-color', 'transparent');
+    modelViewer.addEventListener('error', fallback, { once: true });
+    visual.appendChild(modelViewer);
+  } else {
+    visual.appendChild(createOtherUserFallbackVehicle(label));
+  }
+
+  wrapper.prepend(visual);
+};
+
+const ensureRouteChevronImage = (map) => {
+  if (map.hasImage('route-chevron')) return;
+
+  const width = 56;
+  const height = 28;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.shadowColor = 'rgba(56, 189, 248, 0.35)';
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const drawChevron = (offsetX, stroke, alpha = 1) => {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = stroke;
+    ctx.beginPath();
+    ctx.moveTo(offsetX + 8, 6);
+    ctx.lineTo(offsetX + 18, 14);
+    ctx.lineTo(offsetX + 8, 22);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  drawChevron(0, '#ffffff', 0.98);
+  drawChevron(18, '#e0f2fe', 0.82);
+
+  map.addImage('route-chevron', ctx.getImageData(0, 0, width, height));
+};
 
 const decodePolyline = (str, precision = 6) => {
   let index = 0;
@@ -256,6 +423,7 @@ const MapInner = ({
   currentUserId,
   currentUserName,
   selectedVehiclePlate,
+  selectedVehicleModel,
   userCoords,
 }) => {
   const { t, i18n: i18nInstance } = useTranslation('common');
@@ -312,7 +480,6 @@ const MapInner = ({
   const rainZoomHandlerRef = useRef(null);
   const lastRainCheckRef = useRef({ at: 0, key: null, isRaining: null });
   const otherUserMarkersRef = useRef(new globalThis.Map());
-  const otherUserIconsRef = useRef(new globalThis.Map());
   const otherUserPositionsRef = useRef(new globalThis.Map());
   const otherUserWrappersRef = useRef(new globalThis.Map());
   const otherUserProfilesRef = useRef(new globalThis.Map());
@@ -578,7 +745,7 @@ useEffect(() => {
     setDestInfo(null);
     routeFetchedRef.current = false; // Reset fetch lock
     if (watchIdRef.current) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+      void clearLocationWatch(watchIdRef.current);
         watchIdRef.current = null;
     }
   }, [spot?.id]);
@@ -815,18 +982,55 @@ useEffect(() => {
     speakNavInstruction(currentInstruction);
   }, [showRoute, showSteps, navIndex, currentInstruction, navVoiceEnabled, speakNavInstruction]);
 
+  const buildOtherUserPresencePopup = useCallback(
+    (displayName, lastSeen, vehicleModel = '') => buildOtherUserPopupHTML(
+      t,
+      isDark,
+      displayName,
+      lastSeen,
+      { metaText: vehicleModel || '' },
+    ),
+    [isDark, t],
+  );
+
   const ensureUserProfile = (uid) => {
     if (!uid) return;
     if (otherUserProfilesRef.current.has(uid) || otherUserProfileFetchRef.current.has(uid)) return;
     const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', uid);
-    const fetchPromise = getDoc(userRef)
-      .then((snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data() || {};
-        otherUserProfilesRef.current.set(uid, {
-          displayName: data.displayName || t('user', 'User'),
-          lastSeen: data.updatedAt?.toDate?.() || null,
-        });
+    const vehiclesRef = collection(db, 'artifacts', appId, 'public', 'data', 'users', uid, 'vehicles');
+    const fetchPromise = Promise.all([
+      getDoc(userRef),
+      getDocs(query(vehiclesRef, where('isDefault', '==', true), limit(1))),
+      getDocs(query(vehiclesRef, limit(1))),
+    ])
+      .then(([userSnap, defaultVehicleSnap, fallbackVehicleSnap]) => {
+        const userData = userSnap.exists() ? userSnap.data() || {} : {};
+        const defaultVehicle = defaultVehicleSnap.docs?.[0]?.data?.() || null;
+        const fallbackVehicle = fallbackVehicleSnap.docs?.[0]?.data?.() || null;
+        const vehicleModel = defaultVehicle?.model || fallbackVehicle?.model || null;
+        const previous = otherUserProfilesRef.current.get(uid) || {};
+        const nextProfile = {
+          displayName: userData.displayName || previous.displayName || t('user', 'User'),
+          lastSeen: userData.updatedAt?.toDate?.() || previous.lastSeen || null,
+          vehicleModel: vehicleModel || previous.vehicleModel || null,
+        };
+
+        otherUserProfilesRef.current.set(uid, nextProfile);
+
+        const wrapper = otherUserWrappersRef.current.get(uid);
+        syncOtherUserVehicleVisual(wrapper, nextProfile.vehicleModel, t('otherUser', 'Other user'));
+
+        const marker = otherUserMarkersRef.current.get(uid);
+        const popup = marker?.getPopup?.();
+        if (popup) {
+          popup.setHTML(
+            buildOtherUserPresencePopup(
+              nextProfile.displayName,
+              formatLastSeen(t, nextProfile.lastSeen),
+              nextProfile.vehicleModel,
+            ),
+          );
+        }
       })
       .catch((err) => console.error('Error fetching user profile', err))
       .finally(() => {
@@ -950,6 +1154,7 @@ setAcceptingNav(false);
           lat: safeLat,
           lng: safeLng,
           displayName: currentUserName || 'User',
+          vehicleModel: selectedVehicleModel || null,
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -1131,13 +1336,20 @@ const handleStyleLoad = () => {
       }
     };
     const handleZoom = () => updateOtherMarkersVisibility(map.getZoom());
+    const handleMapCamera = () => {
+      syncAllOtherUserModelViewerOrbits(otherUserWrappersRef.current, map.getBearing(), map.getPitch());
+    };
     map.on('movestart', handleMoveStart);
     map.on('zoom', handleZoom);
+    map.on('rotate', handleMapCamera);
+    map.on('pitch', handleMapCamera);
     mapRef.current = map;
 
     return () => {
       map.off('movestart', handleMoveStart);
       map.off('zoom', handleZoom);
+      map.off('rotate', handleMapCamera);
+      map.off('pitch', handleMapCamera);
       map.off('style.load', handleStyleLoad);
       map.off('load', handleLoad);
       map.off('error', handleError);
@@ -1391,198 +1603,166 @@ useEffect(() => {
         previewMarkerRef.current = null;
       }
 
-      // --- Fonction utilitaire pour interpoler des points le long de la ligne ---
-      const getPathPoints = (geometry, spacingMeters, offsetMeters) => {
-        const points = [];
-        let accumulatedDist = 0;
-        let nextPointDist = offsetMeters;
-        
-        for (let i = 0; i < geometry.length - 1; i++) {
-          const start = geometry[i];
-          const end = geometry[i + 1];
-          // Distance approximative simple (suffisante pour l'animation visuelle)
-          // 1 degré lat ~= 111km -> 111000m. 
-          const dLat = end[1] - start[1];
-          const dLng = (end[0] - start[0]) * Math.cos(start[1] * Math.PI / 180);
-          const dist = Math.sqrt(dLat * dLat + dLng * dLng) * 111000;
-
-          while (nextPointDist <= accumulatedDist + dist) {
-            const ratio = (nextPointDist - accumulatedDist) / dist;
-            const lng = start[0] + (end[0] - start[0]) * ratio;
-            const lat = start[1] + (end[1] - start[1]) * ratio;
-            points.push([lng, lat]);
-            nextPointDist += spacingMeters;
-          }
-          accumulatedDist += dist;
-        }
-        return points;
-      };
+      if (routeAnimRef.current) {
+        window.clearInterval(routeAnimRef.current);
+        routeAnimRef.current = null;
+      }
 
       // --- Ajout des sources et layers ---
-      
-      // 1. La ligne de route statique (orange)
       const routeData = {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: navGeometry },
       };
 
-      if (!map.getSource('route')) {
-        map.addSource('route', { type: 'geojson', data: routeData });
-        
-        map.addLayer({
-          id: 'route-line',
-          type: 'line',
-          source: 'route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': '#ffffff',
-            'line-width': 6,
-            'line-opacity': 0.45,
-            'line-emissive-strength': 1,
-          },
-        });
-
-        // Glow effect (below the core line)
-        map.addLayer({
-          id: 'route-glow',
-          type: 'line',
-          source: 'route',
-          paint: {
-            'line-color': '#ffffff',
-            'line-width': 14,
-            'line-opacity': 0.25,
-            'line-blur': 12,
-            'line-emissive-strength': 1,
-          },
-        }, 'route-line');
-
-        // Dark outline to keep the white line visible over light buildings
-        map.addLayer({
-          id: 'route-outline',
-          type: 'line',
-          source: 'route',
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: {
-            'line-color': 'rgba(0, 0, 0, 0.35)',
-            'line-width': 10,
-            'line-opacity': 1,
-            'line-emissive-strength': 1,
-          },
-        }, 'route-line');
-      } else {
-        map.getSource('route').setData(routeData);
-      }
-
-      // 2. La source pour les boules animées
-
-      
-      if (!map.getSource('route-dots')) {
-
-        if (!map.hasImage('3d-sphere')) {
-    const size = 64;
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-
-    const grad = ctx.createRadialGradient(
-      size * 0.35, size * 0.35, size * 0.05,
-      size * 0.5, size * 0.5, size * 0.5
-    );
-    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    grad.addColorStop(0.5, 'rgba(255, 255, 255, 1)');
-    grad.addColorStop(1, 'rgba(200, 200, 200, 1)');
-
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    map.addImage('3d-sphere', ctx.getImageData(0, 0, size, size));
-  }
-
-
-        map.addSource('route-dots', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-
-        map.addLayer({
-          id: 'route-dots-glow',
-          type: 'circle',
-          source: 'route-dots',
-          paint: {
-            'circle-color': '#ff7a00',
-            'circle-radius': [
-      'interpolate', ['linear'], ['zoom'],
-      10, 2,  // Si dézoomé (vue ville) -> tout petit (2px)
-      15, 6,  // Zoom moyen (ton réglage actuel) -> 6px
-      22, 15  // Zoom max (très proche) -> gros (15px)
-      ],
-            'circle-opacity': 0.55,
-            'circle-blur': 1,
-            'circle-pitch-alignment': 'map',
-            'circle-emissive-strength': 1,
-          }
-        });
-
-        map.addLayer({
-    id: 'route-dots-layer',
-    type: 'symbol', // Type symbol pour afficher l'image
-    source: 'route-dots',
-    layout: {
-      'icon-image': '3d-sphere',
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true,
-      'icon-pitch-alignment': 'viewport', // La bille reste ronde face écran
-      'icon-size': [
-        'interpolate', ['linear'], ['zoom'],
-        13, 0.1,
-        16, 0.25,
-        20, 0.6
-      ]
-    },
-    paint: {
-      'icon-opacity': 1,
-      'icon-emissive-strength': 1
-    }
-  });
-
-        
-      }
-
-	      // --- Animation Loop ---
-	      let startTimestamp = null;
-	      const speed = 25; // Mètres par seconde (vitesse de l'animation)
-	      const spacing = 14; // Beaucoup plus rapprochées
-
-      const animateDots = (timestamp) => {
-        if (!startTimestamp) startTimestamp = timestamp;
-        const progress = (timestamp - startTimestamp) / 1000; // secondes
-        
-        // Calcul du décalage actuel (boucle infinie grâce au modulo)
-        const currentOffset = (progress * speed) % spacing;
-
-        // Génération des points
-        const dotCoords = getPathPoints(navGeometry, spacing, currentOffset);
-
-        // Mise à jour de la source GeoJSON
-        if (map.getSource('route-dots')) {
-          map.getSource('route-dots').setData({
-            type: 'FeatureCollection',
-            features: dotCoords.map(coord => ({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: coord }
-            }))
-          });
+      ['route-arrows', 'route-flow', 'route-line', 'route-glow', 'route-outline', 'route-dots-layer', 'route-dots-glow'].forEach((layerId) => {
+        if (map.getLayer(layerId)) {
+          map.removeLayer(layerId);
         }
+      });
+      ['route-dots', 'route'].forEach((sourceId) => {
+        if (map.getSource(sourceId)) {
+          map.removeSource(sourceId);
+        }
+      });
 
-        routeAnimRef.current = requestAnimationFrame(animateDots);
-      };
+      map.addSource('route', {
+        type: 'geojson',
+        data: routeData,
+        lineMetrics: true,
+      });
 
-      if (!routeAnimRef.current) {
-        routeAnimRef.current = requestAnimationFrame(animateDots);
-      }
+      map.addLayer({
+        id: 'route-glow',
+        type: 'line',
+        source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#7dd3fc',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 14,
+            15, 18,
+            19, 24,
+          ],
+          'line-opacity': 0.24,
+          'line-blur': 14,
+          'line-emissive-strength': 1,
+        },
+      });
+
+      map.addLayer({
+        id: 'route-outline',
+        type: 'line',
+        source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': 'rgba(255, 255, 255, 0.92)',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 8,
+            15, 10,
+            19, 14,
+          ],
+          'line-opacity': 1,
+          'line-emissive-strength': 1,
+        },
+      });
+
+      map.addLayer({
+        id: 'route-line',
+        type: 'line',
+        source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#38bdf8',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 4,
+            15, 5.4,
+            19, 7,
+          ],
+          'line-opacity': 0.96,
+          'line-emissive-strength': 1,
+        },
+      });
+
+      map.addLayer({
+        id: 'route-flow',
+        type: 'line',
+        source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 2.4,
+            15, 2.8,
+            19, 3.8,
+          ],
+          'line-opacity': 1,
+          'line-blur': 0.1,
+          'line-dasharray': ROUTE_FLOW_DASH_FRAMES[0],
+          'line-gradient': [
+            'interpolate',
+            ['linear'],
+            ['line-progress'],
+            0,
+            '#ffffff',
+            0.14,
+            '#ffffff',
+            0.34,
+            '#e0f2fe',
+            0.5,
+            '#7dd3fc',
+            0.8,
+            '#38bdf8',
+            1,
+            '#22c55e',
+          ],
+          'line-emissive-strength': 1,
+        },
+      });
+
+      ensureRouteChevronImage(map);
+      map.addLayer({
+        id: 'route-arrows',
+        type: 'symbol',
+        source: 'route',
+        layout: {
+          'symbol-placement': 'line',
+          'symbol-spacing': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 72,
+            15, 58,
+            19, 46,
+          ],
+          'icon-image': 'route-chevron',
+          'icon-size': [
+            'interpolate', ['linear'], ['zoom'],
+            11, 0.38,
+            15, 0.48,
+            19, 0.62,
+          ],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'map',
+          'symbol-z-order': 'source',
+        },
+        paint: {
+          'icon-opacity': 0.98,
+          'icon-emissive-strength': 1,
+        },
+      });
+
+      let dashFrameIndex = 0;
+      routeAnimRef.current = window.setInterval(() => {
+        const currentMap = mapRef.current;
+        if (!currentMap || !currentMap.getLayer('route-flow')) {
+          return;
+        }
+        dashFrameIndex = (dashFrameIndex + 1) % ROUTE_FLOW_DASH_FRAMES.length;
+        currentMap.setPaintProperty('route-flow', 'line-dasharray', ROUTE_FLOW_DASH_FRAMES[dashFrameIndex]);
+      }, ROUTE_FLOW_INTERVAL_MS);
 
 
 
@@ -1635,133 +1815,120 @@ useEffect(() => {
          markerPopupRef.current = popup;
       }
       
-      // ... suite du code (watchPosition, etc.) ...
+      let trackingCancelled = false;
+      const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
+      let prevCoords = null;
+      let currentBearing = 0;
 
+      const startPoint = navGeometry[0] || [spot.lng, spot.lat];
+      const startBearing =
+        navGeometry.length > 1 ? computeBearing(navGeometry[0], navGeometry[1]) : 0;
+      map.flyTo({
+        center: startPoint,
+        zoom: 19.2,
+        pitch: 50,
+        bearing: startBearing,
+        padding: getUserAnchorPadding(),
+        duration: 2000,
+      });
 
-       // --- START TRACKING ---
-       if (navigator.geolocation) {
-           const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
-           
-           let prevCoords = null; 
-           let currentBearing = 0; // Stocke le dernier cap connu pour éviter les sauts
+      const startTracking = async () => {
+        const watchHandle = await startLocationWatch(
+          (pos, coordObj) => {
+            if (trackingCancelled || !pos?.coords) return;
 
-           // FlyTo initial pour se placer
-           const startPoint = navGeometry[0] || [spot.lng, spot.lat];
-           const startBearing =
-             navGeometry.length > 1 ? computeBearing(navGeometry[0], navGeometry[1]) : 0;
-           map.flyTo({ 
-               center: startPoint, 
-               zoom: 19.2, 
-               pitch: 50,
-               bearing: startBearing,
-               padding: getUserAnchorPadding(),
-               duration: 2000 
+            const { latitude, longitude, heading, speed } = pos.coords;
+            const newCoords = [longitude, latitude];
+            const { index: closestIdx } = findClosestPointIndex(navGeometry, longitude, latitude);
+
+            let routeBearing = null;
+            if (closestIdx < navGeometry.length - 1) {
+              const p1 = navGeometry[closestIdx];
+              const p2 = navGeometry[closestIdx + 1];
+              routeBearing = computeBearing(p1, p2);
+            } else if (navGeometry.length > 1) {
+              const p1 = navGeometry[navGeometry.length - 2];
+              const p2 = navGeometry[navGeometry.length - 1];
+              routeBearing = computeBearing(p1, p2);
+            }
+
+            updateRouteProgress(longitude, latitude);
+
+            if (!prevCoords) {
+              prevCoords = newCoords;
+              markerRef.current?.setLngLat(newCoords);
+              if (markerPopupRef.current) {
+                markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
+              }
+              setUserLoc(coordObj);
+              persistUserLocation(coordObj);
+
+              if (routeBearing !== null) currentBearing = routeBearing;
+              else if (heading !== null && !Number.isNaN(heading)) currentBearing = heading;
+              return;
+            }
+
+            const distMoved = getDistanceFromLatLonInKm(prevCoords[1], prevCoords[0], latitude, longitude);
+
+            if (routeBearing !== null) {
+              currentBearing = routeBearing;
+            } else if (heading !== null && !Number.isNaN(heading) && (speed === null || speed > 1)) {
+              currentBearing = heading;
+            } else if (distMoved > 0.003) {
+              currentBearing = computeBearing(prevCoords, newCoords);
+            }
+
+            const mapBearing = routeBearing !== null ? routeBearing : currentBearing;
+            map.easeTo({
+              center: newCoords,
+              zoom: 19.4,
+              pitch: 55,
+              bearing: mapBearing,
+              padding: getUserAnchorPadding(),
+              duration: 1000,
+              easing: (t) => t,
             });
 
-           watchIdRef.current = navigator.geolocation.watchPosition(
-  (pos) => {
-    // 1. AJOUT : Récupérer heading et speed ici
-    const { latitude, longitude, heading, speed } = pos.coords;
-    const newCoords = [longitude, latitude];
+            if (markerRef.current) {
+              markerRef.current.setLngLat(newCoords);
+              markerRef.current.setRotation(mapBearing);
+              if (markerPopupRef.current) {
+                markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
+              }
+            }
 
-    const { index: closestIdx } = findClosestPointIndex(navGeometry, longitude, latitude);
+            setUserLoc(coordObj);
+            persistUserLocation(coordObj);
+            prevCoords = newCoords;
+          },
+          (err) => {
+            if (trackingCancelled) return;
+            console.warn('GPS Watch Error', err);
+          },
+          options,
+        );
 
-    // Variable temporaire pour stocker l'angle de la route
-    let routeBearing = null;
+        if (trackingCancelled) {
+          if (watchHandle) {
+            void clearLocationWatch(watchHandle);
+          }
+          return;
+        }
 
-    // 2. Calculer l'angle "idéal" de la route (Lignée de la route)
-    if (closestIdx < navGeometry.length - 1) {
-      const p1 = navGeometry[closestIdx];
-      const p2 = navGeometry[closestIdx + 1];
-      // On calcule l'angle du segment actuel vers le prochain point
-      routeBearing = computeBearing(p1, p2);
-    } else if (navGeometry.length > 1) {
-      const p1 = navGeometry[navGeometry.length - 2];
-      const p2 = navGeometry[navGeometry.length - 1];
-      routeBearing = computeBearing(p1, p2);
-    }
+        watchIdRef.current = watchHandle;
+      };
 
-    updateRouteProgress(longitude, latitude);
-
-    if (!prevCoords) {
-      prevCoords = newCoords;
-                       markerRef.current?.setLngLat(newCoords);
-                       if (markerPopupRef.current) {
-                       markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
-                       }
-                       const coordObj = { lat: latitude, lng: longitude };
-                       setUserLoc(coordObj);
-                       persistUserLocation(coordObj);
-                       
-                       // Si on a déjà un heading GPS valide au démarrage, on l'utilise
-                       if (routeBearing !== null) currentBearing = routeBearing;
-      else if (heading !== null && !isNaN(heading)) currentBearing = heading;
-                       return;
-                   }
-
-                   // Calcul de la distance parcourue depuis le dernier point
-                   const distMoved = getDistanceFromLatLonInKm(prevCoords[1], prevCoords[0], latitude, longitude);
-                   
-                   // --- LOGIQUE WAZE : Orientation basée sur le Cap (Heading) ---
-                   
-                   // 1. Priorité au Heading GPS natif si disponible et qu'on bouge un peu
-                   // (Le heading GPS est souvent null à l'arrêt ou imprécis)
-    if (routeBearing !== null) {
-      // CAS 1 (Le plus important) : On force l'alignement sur la ligne de la route
-      // Cela donne l'effet "Rail" fluide comme sur Waze/Google Maps
-      currentBearing = routeBearing;
-    } 
-    else if (heading !== null && !isNaN(heading) && (speed === null || speed > 1)) {
-      // CAS 2 : Fallback GPS (si on est hors route ou à la toute fin)
-      currentBearing = heading;
-    } 
-    else if (distMoved > 0.003) {
-      // CAS 3 : Fallback Mouvement calculé
-      currentBearing = computeBearing(prevCoords, newCoords);
-    }
-    // Sinon on garde le dernier currentBearing connu pour éviter que la carte ne tourne à l'arrêt.
-
-    const mapBearing = routeBearing !== null ? routeBearing : currentBearing;
-    map.easeTo({
-      center: newCoords,
-      zoom: 19.4,
-      pitch: 55,
-      bearing: mapBearing, // Aligne la caméra sur l'axe de la route
-      padding: getUserAnchorPadding(),
-      duration: 1000,
-      easing: (t) => t,
-    });
-
-    if (markerRef.current) {
-      markerRef.current.setLngLat(newCoords);
-      // Optionnel : Vous pouvez laisser la voiture tourner selon le GPS (heading) 
-      // même si la carte suit la route, pour voir si la voiture "drifte".
-      // Mais pour un rendu propre, utilisez aussi currentBearing :
-      markerRef.current.setRotation(mapBearing);
-                    
-                    if (markerPopupRef.current) {
-                      markerPopupRef.current.setHTML(buildSelfMarkerPopupHTML());
-                    }
-                  }
-                   
-                   const coordObj = { lat: latitude, lng: longitude };
-    setUserLoc(coordObj);
-    persistUserLocation(coordObj);
-    prevCoords = newCoords;
-  },
-  (err) => console.warn('GPS Watch Error', err),
-  options
-);
-       }
+      void startTracking();
 
        return () => {
+        trackingCancelled = true;
         if (routeAnimRef.current) {
-          cancelAnimationFrame(routeAnimRef.current);
+          window.clearInterval(routeAnimRef.current);
           routeAnimRef.current = null;
         }
         // ... (votre nettoyage existant GPS)
        if (watchIdRef.current) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
+          void clearLocationWatch(watchIdRef.current);
           watchIdRef.current = null;
        }
 
@@ -1778,6 +1945,12 @@ useEffect(() => {
         if (mapRef.current && mapRef.current.getLayer('route-dots-glow')) {
              mapRef.current.removeLayer('route-dots-glow');
             }
+           if (mapRef.current && mapRef.current.getLayer('route-arrows')) {
+             mapRef.current.removeLayer('route-arrows');
+            }
+             if (mapRef.current && mapRef.current.getLayer('route-flow')) {
+               mapRef.current.removeLayer('route-flow');
+              }
         if (mapRef.current && mapRef.current.getLayer('route-outline')) {
              mapRef.current.removeLayer('route-outline');
             }
@@ -1834,7 +2007,6 @@ useEffect(() => {
           if (!allowed.has(uid)) {
             marker.remove();
             otherUserMarkersRef.current.delete(uid);
-            otherUserIconsRef.current.delete(uid);
             otherUserPositionsRef.current.delete(uid);
             otherUserWrappersRef.current.delete(uid);
             otherUserProfilesRef.current.delete(uid);
@@ -1848,17 +2020,18 @@ useEffect(() => {
           const updatedAtDate = data.updatedAt?.toDate?.() || null;
           const cachedProfile = otherUserProfilesRef.current.get(uid) || {};
           const displayName = data.displayName || cachedProfile.displayName || t('user', 'User');
-	          const lastSeen = formatLastSeen(t, updatedAtDate || cachedProfile.lastSeen || null);
-	          const isOnline = !!lastSeen?.isOnline;
+          const vehicleModel = data.vehicleModel || cachedProfile.vehicleModel || null;
+          const lastSeen = formatLastSeen(t, updatedAtDate || cachedProfile.lastSeen || null);
+          const isOnline = !!lastSeen?.isOnline;
 
           otherUserProfilesRef.current.set(uid, {
             displayName,
             lastSeen: updatedAtDate || cachedProfile.lastSeen || null,
+            vehicleModel,
           });
           ensureUserProfile(uid);
 
           // Determine display position (jitter off Arc de Triomphe if needed) and stick to it
-          const previousDisplayPos = otherUserPositionsRef.current.get(uid);
           let displayPos = jitterCoordinate(lng, lat, uid, 25);
 
           displayPos = separateIfTooClose(
@@ -1873,13 +2046,13 @@ useEffect(() => {
             existing.setLngLat([displayPos.lng, displayPos.lat]);
             const wrapper = otherUserWrappersRef.current.get(uid);
             if (wrapper) {
-              wrapper.style.transform = 'rotate(0deg)';
+              syncOtherUserVehicleVisual(wrapper, vehicleModel, t('otherUser', 'Other user'));
             }
             const popup = existing.getPopup();
             if (popup) {
               enhancePopupAnimation(popup);
-              popup.setHTML(buildOtherUserPopupHTML(t, isDark, displayName, lastSeen));
-	            }
+              popup.setHTML(buildOtherUserPresencePopup(displayName, lastSeen, vehicleModel));
+            }
             const statusDot = existing.getElement()?.querySelector('.user-marker-presence-dot');
             if (statusDot) {
               statusDot.style.left = '50%';
@@ -1894,19 +2067,11 @@ useEffect(() => {
             return;
           }
 
-          // pick or reuse a random icon for this user
-          let icon = otherUserIconsRef.current.get(uid);
-          if (!icon) {
-            const pool = [userCar1, userCar2, userCar3, userCar4];
-            icon = pool[Math.floor(Math.random() * pool.length)];
-            otherUserIconsRef.current.set(uid, icon);
-          }
-
           const el = document.createElement('div');
           el.style.display = 'flex';
           el.style.alignItems = 'center';
           el.style.justifyContent = 'center';
-          el.style.transform = 'translateY(-6px)';
+          el.style.transform = OTHER_USER_3D_MARKER_CONFIG.markerOffsetY;
           el.style.pointerEvents = 'auto';
           el.style.transformOrigin = 'center center';
 
@@ -1916,17 +2081,8 @@ useEffect(() => {
           imgWrapper.style.alignItems = 'center';
           imgWrapper.style.justifyContent = 'center';
           imgWrapper.style.transformOrigin = 'center center';
-
-          const img = document.createElement('img');
-          img.src = icon;
-	          img.alt = t('otherUser', 'Other user');
-          img.style.width = '36px';
-          img.style.height = '36px';
-          img.style.transformOrigin = 'center';
-          img.draggable = false;
-          img.style.filter = 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))';
-          img.style.zIndex = '1';
-          img.style.opacity = '1';
+          imgWrapper.style.width = OTHER_USER_3D_MARKER_CONFIG.wrapperWidth;
+          imgWrapper.style.height = OTHER_USER_3D_MARKER_CONFIG.wrapperHeight;
 
           const presenceDot = document.createElement('span');
           presenceDot.className = 'user-marker-presence-dot';
@@ -1941,19 +2097,19 @@ useEffect(() => {
           presenceDot.style.border = '2px solid #ffffff';
           presenceDot.style.boxShadow = `0 0 0 6px ${isOnline ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.12)'}`;
 
-          imgWrapper.appendChild(img);
+          syncOtherUserVehicleVisual(imgWrapper, vehicleModel, t('otherUser', 'Other user'));
           imgWrapper.appendChild(presenceDot);
           el.appendChild(imgWrapper);
 
          const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, className: 'user-presence-popup' }).setHTML(
-            buildOtherUserPopupHTML(t, isDark, displayName, lastSeen),
+            buildOtherUserPresencePopup(displayName, lastSeen, vehicleModel),
           );
           enhancePopupAnimation(popup);
           const marker = new mapboxgl.Marker({
             element: el,
-            rotationAlignment: 'viewport',
-            pitchAlignment: 'viewport',
-            anchor: 'bottom',
+            rotationAlignment: OTHER_USER_3D_MARKER_CONFIG.rotationAlignment,
+            pitchAlignment: OTHER_USER_3D_MARKER_CONFIG.pitchAlignment,
+            anchor: 'center',
           })
             .setLngLat([displayPos.lng, displayPos.lat])
             .setPopup(popup)
@@ -1961,7 +2117,10 @@ useEffect(() => {
           otherUserMarkersRef.current.set(uid, marker);
           otherUserWrappersRef.current.set(uid, imgWrapper);
           updateOtherMarkersVisibility(mapRef.current?.getZoom());
-          imgWrapper.style.transform = 'rotate(0deg)';
+          if (mapRef.current) {
+            const mv = imgWrapper.querySelector('model-viewer');
+            if (mv) mv.setAttribute('camera-orbit', buildOtherUserCameraOrbit(mapRef.current.getBearing(), mapRef.current.getPitch()));
+          }
           otherUserPositionsRef.current.set(uid, displayPos);
           return;
         });
@@ -1976,13 +2135,12 @@ useEffect(() => {
         marker.remove();
       }
       otherUserMarkersRef.current.clear();
-      otherUserIconsRef.current.clear();
       otherUserPositionsRef.current.clear();
       otherUserWrappersRef.current.clear();
       otherUserProfilesRef.current.clear();
       otherUserProfileFetchRef.current.clear();
     };
-  }, [mapLoaded, currentUserId, spot?.id, buildSelfMarkerPopupHTML]);
+  }, [mapLoaded, currentUserId, spot?.id, buildOtherUserPresencePopup, buildSelfMarkerPopupHTML, t]);
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm flex items-center justify-center font-sans">

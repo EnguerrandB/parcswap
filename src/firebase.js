@@ -37,6 +37,25 @@ const isNativeApp = (() => {
   }
 })();
 
+const nativeCordovaGlobals =
+  isNativeApp && typeof window !== "undefined"
+    ? {
+        cordova: window.cordova,
+        phonegap: window.phonegap,
+        PhoneGap: window.PhoneGap,
+      }
+    : null;
+
+const restoreNativeCordovaGlobals = () => {
+  if (!nativeCordovaGlobals || typeof window === "undefined") return;
+  if (nativeCordovaGlobals.cordova)
+    window.cordova = nativeCordovaGlobals.cordova;
+  if (nativeCordovaGlobals.phonegap)
+    window.phonegap = nativeCordovaGlobals.phonegap;
+  if (nativeCordovaGlobals.PhoneGap)
+    window.PhoneGap = nativeCordovaGlobals.PhoneGap;
+};
+
 // Capacitor sets window.cordova for backwards-compat with Cordova plugins, but
 // Firebase Auth's internal _isCordova() check sees it and tries Cordova redirect
 // flows that hang in WKWebView.  Remove the shim before Auth initializes.
@@ -218,6 +237,8 @@ try {
   auth = getAuth(app);
   authInitPath = "getAuth:fallback";
 }
+
+restoreNativeCordovaGlobals();
 
 authDebugMeta = {
   authInitPath,

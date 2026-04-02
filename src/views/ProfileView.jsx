@@ -51,6 +51,8 @@ const ProfileView = ({
   highlightVehiclesRequestId = 0,
   onAddWallet,
   walletPending = false,
+  walletTopupMode = 'stripe',
+  walletTopupOptions = [],
 }) => {
   const { t, i18n } = useTranslation('common');
   const isDark = theme === 'dark';
@@ -235,13 +237,20 @@ const ProfileView = ({
     });
   };
 
-  const handleWalletAdd = () => {
+  const handleWalletAdd = async () => {
     if (!onAddWallet) return;
     const normalized = String(walletInput || '').replace(',', '.').replace(/[^0-9.]/g, '');
     const amount = Number.parseFloat(normalized);
     if (!Number.isFinite(amount) || amount < 1 || amount > 100) return;
-    onAddWallet(amount);
+    await onAddWallet(amount);
     setWalletInput('');
+  };
+  const handleWalletPackPurchase = async (option) => {
+    if (!option?.productId || !onAddWallet || walletPending) return;
+    await onAddWallet(option.amount, {
+      productId: option.productId,
+      source: 'ios-iap',
+    });
   };
   const walletValue = Number(user?.wallet);
 
@@ -256,6 +265,8 @@ const ProfileView = ({
     }
   };
   const walletDisplay = Number.isFinite(walletValue) ? walletValue : 0;
+  const isWalletInTestMode = walletTopupMode === 'test';
+  const usesIosWalletIap = walletTopupMode === 'ios-iap';
   const kycBadge = useMemo(() => {
     const statusRaw = String(user?.kycStatus || user?.kyc?.status || 'unverified');
     const status = statusRaw.toLowerCase();
@@ -842,30 +853,69 @@ const ProfileView = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={walletInput}
-                onChange={(e) => setWalletInput(e.target.value)}
-                placeholder={t('walletTopupPlaceholder', { defaultValue: 'Montant à ajouter' })}
-                className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold outline-none border ${
-                  isDark
-                    ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
-                    : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'
-                }`}
-              />
-              <button
-                type="button"
-                onClick={handleWalletAdd}
-                className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
-                  isDark
-                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
-                    : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                }`}
-              >
-                {t('addFunds', { defaultValue: 'Ajouter' })}
-              </button>
-            </div>
+            {usesIosWalletIap ? (
+              <div className="space-y-3">
+                <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                  {t('walletTopupIosHint', { defaultValue: 'Sur iPhone, les recharges passent par l\'App Store.' })}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {walletTopupOptions.map((option) => (
+                    <button
+                      key={option.productId}
+                      type="button"
+                      onClick={() => handleWalletPackPurchase(option)}
+                      disabled={walletPending}
+                      className={`rounded-2xl border px-4 py-3 text-left transition ${
+                        isDark
+                          ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 disabled:opacity-60'
+                          : 'border-gray-200 bg-gray-50 hover:bg-white disabled:opacity-60'
+                      }`}
+                    >
+                      <div className={`text-xs uppercase tracking-[0.16em] ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                        {t('walletTopupPack', { defaultValue: 'Pack credits' })}
+                      </div>
+                      <div className={`mt-1 text-lg font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {formatWallet(option.amount)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>
+                  {isWalletInTestMode
+                    ? t('walletTopupTestHint', { defaultValue: 'Mode Test: les credits sont ajoutes gratuitement.' })
+                    : t('walletTopupStripeHint', { defaultValue: 'La recharge ouvrira le paiement securise.' })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={walletInput}
+                    onChange={(e) => setWalletInput(e.target.value)}
+                    placeholder={t('walletTopupPlaceholder', { defaultValue: 'Montant a ajouter' })}
+                    className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold outline-none border ${
+                      isDark
+                        ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                        : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleWalletAdd}
+                    className={`px-4 py-2 rounded-xl text-sm font-bold transition ${
+                      isDark
+                        ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30'
+                        : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                    }`}
+                  >
+                    {isWalletInTestMode
+                      ? t('addFunds', { defaultValue: 'Ajouter' })
+                      : t('walletTopupContinue', { defaultValue: 'Continuer' })}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

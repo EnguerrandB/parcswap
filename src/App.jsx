@@ -46,7 +46,16 @@ import PremiumParksDeltaToast from './components/PremiumParksDeltaToast';
 import { MapPin, Settings, Shield } from 'lucide-react';
 import { newId } from './utils/ids';
 import { formatCurrencyAmount, getDefaultCurrencyForLanguage } from './utils/currency';
-import { buildCurrentShareUrl, copyText, getCurrentLocationCoordinates, shareContent } from './utils/mobile';
+import {
+  buildCurrentShareUrl,
+  buildReturnUrl,
+  copyText,
+  getCurrentLocationCoordinates,
+  isNativeIosApp,
+  openExternalUrl,
+  shareContent,
+} from './utils/mobile';
+import { IOS_WALLET_TOPUP_PRODUCTS, purchaseIosWalletTopup } from './utils/inAppPurchases';
 import {
   restoreNativeSessionToWeb,
   shouldUseNativeFirebaseAuth,
@@ -175,6 +184,12 @@ const walletReservedCentsFromData = (data) => {
 const walletCentsToEuros = (cents) => {
   const n = Number(cents);
   return Number.isFinite(n) ? n / 100 : 0;
+};
+
+const walletTopupModeFromContext = (testModeEnabled) => {
+  if (testModeEnabled) return 'test';
+  if (isNativeIosApp()) return 'ios-iap';
+  return 'stripe';
 };
 
 const isLikelyFirstLogin = (fbUser) => {
@@ -3188,51 +3203,144 @@ export default function LoloParkApp() {
     return { needsEmailVerify: verificationEmailSent, reauthRequired };
   };
 
-  const handleAddWallet = async (amount) => {
+  const applyWalletTopupCents = async ({ amountCents, topupId, source, metadata = {} }) => {
+    if (!user?.uid) return { ok: false };
+
+    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    const topupRef = doc(db, 'artifacts', appId, 'public', 'data', 'walletTopups', topupId);
+    let nextAvailable = null;
+
+    await runTransaction(db, async (tx) => {
+      const topupSnap = await tx.get(topupRef);
+      const userSnap = await tx.get(userRef);
+      const userData = userSnap.exists() ? userSnap.data() : {};
+      const currentAvailable = walletCentsFromData(userData);
+      const currentReserved = walletReservedCentsFromData(userData);
+
+      if (topupSnap.exists()) {
+        nextAvailable = currentAvailable;
+        return;
+      }
+
+      nextAvailable = currentAvailable + amountCents;
+
+      tx.set(
+        topupRef,
+        {
+          uid: user.uid,
+          amountCents,
+          source,
+          status: 'paid',
+          createdAt: serverTimestamp(),
+          ...metadata,
+        },
+        { merge: true },
+      );
+
+      tx.set(
+        userRef,
+        {
+          walletAvailableCents: nextAvailable,
+          walletReservedCents: currentReserved,
+          walletVersion: 1,
+          wallet: nextAvailable / 100,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    });
+
+    setUser((prev) => {
+      if (!prev || !Number.isFinite(nextAvailable)) return prev;
+      return {
+        ...prev,
+        walletCents: nextAvailable,
+        wallet: nextAvailable / 100,
+      };
+    });
+
+    return { ok: true, nextAvailable };
+  };
+
+  const handleAddWallet = async (amount, options = {}) => {
     if (!user?.uid) return { ok: false };
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return { ok: false };
     if (value < 1 || value > 100) return { ok: false };
 
     const amountCents = Math.round(value * 100);
-    const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+    const walletTopupMode = walletTopupModeFromContext(testModeEnabled);
 
-    try {
-      await runTransaction(db, async (tx) => {
-        const snap = await tx.get(userRef);
-        const data = snap.exists() ? snap.data() : {};
-        const currentAvailable = walletCentsFromData(data);
-        const currentReserved = walletReservedCentsFromData(data);
-        const nextAvailable = currentAvailable + amountCents;
-
-        tx.set(
-          userRef,
-          {
-            walletAvailableCents: nextAvailable,
-            walletReservedCents: currentReserved,
-            walletVersion: 1,
-            wallet: nextAvailable / 100,
-            updatedAt: serverTimestamp(),
+    if (walletTopupMode === 'test') {
+      try {
+        const result = await applyWalletTopupCents({
+          amountCents,
+          topupId: `test_${user.uid}_${Date.now()}`,
+          source: 'test_mode',
+          metadata: {
+            testMode: true,
           },
-          { merge: true },
-        );
-      });
+        });
+        setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuee'));
+        return result;
+      } catch (err) {
+        console.error('Error adding wallet funds in test mode:', err);
+        return { ok: false, error: err };
+      }
+    }
 
-      setUser((prev) => {
-        if (!prev) return prev;
-        const current = Number(prev.walletCents) || 0;
-        const next = current + amountCents;
-        return {
-          ...prev,
-          walletCents: next,
-          wallet: next / 100,
-        };
-      });
+    if (walletTopupMode === 'ios-iap') {
+      const productId = String(options?.productId || '').trim();
+      if (!productId) {
+        return { ok: false, error: new Error('wallet_iap_product_missing') };
+      }
 
-      setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuée'));
-      return { ok: true };
+      setWalletTopupPending(true);
+      try {
+        const purchase = await purchaseIosWalletTopup(productId);
+        const transactionId = String(purchase?.transactionId || `${productId}_${Date.now()}`);
+        const result = await applyWalletTopupCents({
+          amountCents,
+          topupId: `ios_${transactionId}`,
+          source: 'ios_iap',
+          metadata: {
+            platform: 'ios',
+            productId,
+            transactionId,
+          },
+        });
+        setWalletTopupPending(false);
+        setWalletTopupToast(i18n.t('walletTopupSuccess', 'Recharge effectuee'));
+        return result;
+      } catch (err) {
+        setWalletTopupPending(false);
+        console.error('Error adding wallet funds with iOS IAP:', {
+          name: err?.name || null,
+          code: err?.code || null,
+          message: err?.message || null,
+          productId: err?.productId || err?.details?.productId || null,
+          platform: err?.platform || err?.details?.platform || null,
+          details: err?.details || null,
+          stack: err?.stack || null,
+        });
+        return { ok: false, error: err };
+      }
+    }
+
+    setWalletTopupPending(true);
+    try {
+      const callable = httpsCallable(functions, 'createWalletTopupSession');
+      const returnUrl = buildReturnUrl('/?native-return=wallet');
+      const result = await callable({ amount: value, returnUrl });
+      const url = result?.data?.url;
+      if (!url) {
+        throw new Error('wallet_stripe_url_missing');
+      }
+      await openExternalUrl(url);
+      return { ok: true, pending: true };
     } catch (err) {
-      console.error('Error adding wallet funds in test mode:', err);
+      setWalletTopupPending(false);
+      console.error('Error starting wallet Stripe topup:', err);
       return { ok: false, error: err };
     }
   };
@@ -3501,6 +3609,8 @@ export default function LoloParkApp() {
           onUpdateProfile={handleUpdateProfile}
           onAddWallet={handleAddWallet}
           walletPending={walletTopupPending}
+          walletTopupMode={walletTopupModeFromContext(testModeEnabled)}
+          walletTopupOptions={IOS_WALLET_TOPUP_PRODUCTS}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}
@@ -3947,6 +4057,8 @@ export default function LoloParkApp() {
           onUpdateProfile={handleUpdateProfile}
           onAddWallet={handleAddWallet}
           walletPending={walletTopupPending}
+          walletTopupMode={walletTopupModeFromContext(testModeEnabled)}
+          walletTopupOptions={IOS_WALLET_TOPUP_PRODUCTS}
           leaderboard={leaderboard}
           transactions={transactions}
           onLogout={handleLogout}

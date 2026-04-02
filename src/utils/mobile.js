@@ -45,6 +45,17 @@ export const isNativeApp = () => {
   }
 };
 
+export const getNativePlatform = () => {
+  try {
+    return Capacitor.getPlatform();
+  } catch (_) {
+    return "web";
+  }
+};
+
+export const isNativeIosApp = () =>
+  isNativeApp() && getNativePlatform() === "ios";
+
 export const buildPublicUrl = (path = "/") => {
   const target = ensureLeadingSlash(path);
   return new URL(target, `${getPublicWebBaseUrl()}/`).toString();

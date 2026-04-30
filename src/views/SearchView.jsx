@@ -1509,11 +1509,13 @@ const SearchView = ({
             >
               {radius == null ? anyLabel : `${radius.toFixed(1)} km`}
             </span>
-            <span
-              className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
-            >
-              {priceMax == null ? anyLabel : `${formatPriceNumber(priceMax)} ${currencySymbol}`}
-            </span>
+            {SHOW_PRICES && (
+              <span
+                className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+              >
+                {priceMax == null ? anyLabel : `${formatPriceNumber(priceMax)} ${currencySymbol}`}
+              </span>
+            )}
 	            </button>
             </div>
           </div>

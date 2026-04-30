@@ -2098,11 +2098,13 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
     </span>
 
     {/* PRIX */}
-    <span
-      className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
-    >
-      {priceMax == null ? anyLabel : `${formatEuro(priceMax, currency)} ${currencySymbol}`}
-    </span>
+    {SHOW_PRICES && (
+      <span
+        className={`block leading-tight font-semibold ${isDark ? 'text-slate-50' : 'text-slate-900'}`}
+      >
+        {priceMax == null ? anyLabel : `${formatEuro(priceMax, currency)} ${currencySymbol}`}
+      </span>
+    )}
   </button>
 </div>
       </div>

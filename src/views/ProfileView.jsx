@@ -24,6 +24,7 @@ import { functions } from '../firebase';
 import { getVoicePreference, pickPreferredVoice, scoreVoice, setVoicePreference } from '../utils/voice';
 import { formatCurrencyAmount } from '../utils/currency';
 import { buildReturnUrl, copyText, openExternalUrl } from '../utils/mobile';
+import { SHOW_WALLET } from '../config/features';
 
 const LANGUAGE_CURRENCY_MAP = {
   en: 'GBP',
@@ -525,42 +526,44 @@ const ProfileView = ({
             iconStyle={iconStyle}
           />
 
-          <button
-            type="button"
-            onClick={() => setShowWalletModal(true)}
-            className={`w-full p-4 flex items-center justify-between text-left transition ${
-              isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <div
-                className={`p-2 rounded-lg border ${
-                  isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'
-                }`}
-              >
-                <Wallet size={20} style={iconStyle('wallet')} />
-              </div>
-              <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
-                {t('wallet', { defaultValue: 'Wallet' })}
-              </span>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
-                {formatWallet(walletDisplay)}
-              </span>
-              {walletPending ? (
-                <span
-                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                    isDark
-                      ? 'text-amber-200 bg-amber-500/20 border-amber-400/30'
-                      : 'text-amber-700 bg-amber-50 border-amber-200'
+          {SHOW_WALLET && (
+            <button
+              type="button"
+              onClick={() => setShowWalletModal(true)}
+              className={`w-full p-4 flex items-center justify-between text-left transition ${
+                isDark ? 'text-slate-100 [@media(hover:hover)]:hover:bg-slate-800' : 'text-gray-900 [@media(hover:hover)]:hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <div
+                  className={`p-2 rounded-lg border ${
+                    isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'
                   }`}
                 >
-                  {t('walletPendingShort', { defaultValue: 'En attente' })}
+                  <Wallet size={20} style={iconStyle('wallet')} />
+                </div>
+                <span className={`font-medium ${isDark ? 'text-slate-50' : 'text-gray-800'}`}>
+                  {t('wallet', { defaultValue: 'Wallet' })}
                 </span>
-              ) : null}
-            </div>
-          </button>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <span className={`text-sm font-bold ${isDark ? 'text-slate-100' : 'text-gray-700'}`}>
+                  {formatWallet(walletDisplay)}
+                </span>
+                {walletPending ? (
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                      isDark
+                        ? 'text-amber-200 bg-amber-500/20 border-amber-400/30'
+                        : 'text-amber-700 bg-amber-50 border-amber-200'
+                    }`}
+                  >
+                    {t('walletPendingShort', { defaultValue: 'En attente' })}
+                  </span>
+                ) : null}
+              </div>
+            </button>
+          )}
 	        </div>
 	      </div>
 

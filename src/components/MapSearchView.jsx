@@ -27,6 +27,7 @@ import { appId, db } from '../firebase';
 import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 import { fetchNearbyPublicParkings } from '../utils/publicParkingApi';
+import { SHOW_PRICES } from '../config/features';
 
 const isValidCoord = (lng, lat) =>
   typeof lng === 'number' &&
@@ -1999,70 +2000,72 @@ const [kmInnerX, setKmInnerX] = useState(0); // anim interne (dans le rail)
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
-                    <span className="text-lg font-bold">{currencySymbol}</span>
+            {SHOW_PRICES && (
+              <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                      <span className="text-lg font-bold">{currencySymbol}</span>
+                    </div>
+                    <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                      {t('priceFilter', { defaultValue: 'Max price' })}
+                    </label>
                   </div>
-                  <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
-                    {t('priceFilter', { defaultValue: 'Max price' })}
-                  </label>
+
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                      {priceMax == null ? anyLabel : formatEuro(priceMax, currency)}
+                    </span>
+                    <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                      {priceMax == null ? '' : currencySymbol}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
-                    {priceMax == null ? anyLabel : formatEuro(priceMax, currency)}
-                  </span>
-                  <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                    {priceMax == null ? '' : currencySymbol}
-                  </span>
+                <div className="relative h-10 flex items-center px-1">
+                  <input
+                    ref={priceSliderRef}
+                    type="range"
+                    min="0"
+                    max={maxSpotPrice}
+                    step="0.5"
+                    value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+                    onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
+                    onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
+                    style={{
+                      backgroundSize: `${
+                        ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
+                        Math.max(1, maxSpotPrice)
+                      }% 100%`,
+                    }}
+                    className="
+                      relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                      bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                      focus:outline-none focus:ring-0
+
+                      [&::-webkit-slider-thumb]:appearance-none
+                      [&::-webkit-slider-thumb]:w-7
+                      [&::-webkit-slider-thumb]:h-7
+                      [&::-webkit-slider-thumb]:bg-white
+                      [&::-webkit-slider-thumb]:rounded-full
+                      [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                      [&::-webkit-slider-thumb]:border-0
+                      [&::-webkit-slider-thumb]:transition-transform
+                      [&::-webkit-slider-thumb]:duration-150
+                      [&::-webkit-slider-thumb]:ease-out
+                      [&::-webkit-slider-thumb]:hover:scale-110
+                      [&::-webkit-slider-thumb]:active:scale-95
+                    "
+                  />
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
+                    {`0 ${currencySymbol}`}
+                  </div>
+                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
+                    {`${formatEuro(maxSpotPrice, currency)} ${currencySymbol}`}
+                  </div>
                 </div>
               </div>
-
-              <div className="relative h-10 flex items-center px-1">
-                <input
-                  ref={priceSliderRef}
-                  type="range"
-                  min="0"
-                  max={maxSpotPrice}
-                  step="0.5"
-                  value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
-                  onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
-                  onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
-                  style={{
-                    backgroundSize: `${
-                      ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
-                      Math.max(1, maxSpotPrice)
-                    }% 100%`,
-                  }}
-                  className="
-                    relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
-                    bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
-                    focus:outline-none focus:ring-0
-
-                    [&::-webkit-slider-thumb]:appearance-none
-                    [&::-webkit-slider-thumb]:w-7
-                    [&::-webkit-slider-thumb]:h-7
-                    [&::-webkit-slider-thumb]:bg-white
-                    [&::-webkit-slider-thumb]:rounded-full
-                    [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
-                    [&::-webkit-slider-thumb]:border-0
-                    [&::-webkit-slider-thumb]:transition-transform
-                    [&::-webkit-slider-thumb]:duration-150
-                    [&::-webkit-slider-thumb]:ease-out
-                    [&::-webkit-slider-thumb]:hover:scale-110
-                    [&::-webkit-slider-thumb]:active:scale-95
-                  "
-                />
-                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
-                  {`0 ${currencySymbol}`}
-                </div>
-                <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
-                  {`${formatEuro(maxSpotPrice, currency)} ${currencySymbol}`}
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ShieldCheck, X } from 'lucide-react';
 import { collection, doc, getCountFromServer, onSnapshot, query, where } from 'firebase/firestore';
 import { appId, db } from '../firebase';
+import { SHOW_PRICES } from '../config/features';
 import BottomNav from '../components/BottomNav';
 
 const rankIcon = (count = 0) => {
@@ -199,10 +200,14 @@ const GotSelectedView = ({ spot, onCancel }) => {
           >
             <h3 className="text-lg font-extrabold">{t('cancelLossTitle', { defaultValue: 'Cancel?' })}</h3>
             <p className={`mt-2 text-sm ${isDark ? 'text-slate-200/80' : 'text-slate-600'}`}>
-              {t('cancelLossConfirm', {
-                amount: formattedPrice,
-                defaultValue: 'You will lose {{amount}} € if you cancel. Continue?',
-              })}
+              {SHOW_PRICES
+                ? t('cancelLossConfirm', {
+                    amount: formattedPrice,
+                    defaultValue: 'You will lose {{amount}} € if you cancel. Continue?',
+                  })
+                : t('cancelConfirm', {
+                    defaultValue: 'Are you sure you want to cancel?',
+                  })}
             </p>
 
             <div className="mt-5 flex gap-3">

@@ -7,6 +7,7 @@ import WaitingView from './WaitingView';
 import useConnectionQuality from '../hooks/useConnectionQuality';
 import { formatCurrencyNumber, getCurrencySymbol } from '../utils/currency';
 import { formatStoredVehiclePlate, inferPlateCountryFromPlate } from '../utils/vehiclePlates';
+import { SHOW_PRICES, DEFAULT_FREE_SPOT_PRICE } from '../config/features';
 
 const ProposeView = forwardRef(({
   myActiveSpot,
@@ -29,7 +30,7 @@ const ProposeView = forwardRef(({
   const [proposeForm, setProposeForm] = useState({
     car: firstVehicle?.model || '',
     time: 5,
-    price: 5,
+    price: SHOW_PRICES ? 5 : DEFAULT_FREE_SPOT_PRICE,
     length: 5,
   });
   const [plateInput, setPlateInput] = useState('');
@@ -396,81 +397,83 @@ const ProposeView = forwardRef(({
         </div>
         
         {/* Price - Same logic/design as "Leaving in" */}
-        <div
-          className={`price-card-surface p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden group ${
-            isFreePrice ? 'price-gold-surface' : ''
-          }`}
-        >
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 flex items-center justify-center rounded-full shadow-sm transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105 ${
-                  isFreePrice
-                    ? 'bg-white/45 text-slate-900 shadow-none ring-1 ring-black/55'
-                    : 'bg-orange-50 text-orange-500 shadow-orange-100/50'
-                }`}
-              >
-                <Euro size={20} strokeWidth={2.5} />
+        {SHOW_PRICES && (
+          <div
+            className={`price-card-surface p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden group ${
+              isFreePrice ? 'price-gold-surface' : ''
+            }`}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 flex items-center justify-center rounded-full shadow-sm transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105 ${
+                    isFreePrice
+                      ? 'bg-white/45 text-slate-900 shadow-none ring-1 ring-black/55'
+                      : 'bg-orange-50 text-orange-500 shadow-orange-100/50'
+                  }`}
+                >
+                  <Euro size={20} strokeWidth={2.5} />
+                </div>
+                <label className={`${isFreePrice ? 'text-slate-900' : 'text-gray-600'} font-semibold text-[15px] tracking-wide`}>
+                  {t('askingPrice', 'Asking Price')}
+                </label>
               </div>
-              <label className={`${isFreePrice ? 'text-slate-900' : 'text-gray-600'} font-semibold text-[15px] tracking-wide`}>
-                {t('askingPrice', 'Asking Price')}
-              </label>
+
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className={`text-4xl font-bold tracking-tight font-sans ${
+                    isFreePrice ? 'text-white drop-shadow-[0_12px_26px_rgba(0,0,0,0.22)]' : 'text-gray-900'
+                  }`}
+                >
+                  {formatCurrencyNumber(proposeForm.price, currency)}
+                </span>
+                <span className={`text-sm font-bold uppercase tracking-wider translate-y-[-2px] ${isFreePrice ? 'text-white/80' : 'text-gray-400'}`}>
+                  {currencySymbol}
+                </span>
+              </div>
             </div>
 
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className={`text-4xl font-bold tracking-tight font-sans ${
-                  isFreePrice ? 'text-white drop-shadow-[0_12px_26px_rgba(0,0,0,0.22)]' : 'text-gray-900'
-                }`}
-              >
-                {formatCurrencyNumber(proposeForm.price, currency)}
-              </span>
-              <span className={`text-sm font-bold uppercase tracking-wider translate-y-[-2px] ${isFreePrice ? 'text-white/80' : 'text-gray-400'}`}>
-                {currencySymbol}
-              </span>
+            <div className="relative h-10 flex items-center px-1">
+              <input
+                ref={priceSliderRef}
+                type="range"
+                min="0"
+                max="20"
+                step="1"
+                value={proposeForm.price}
+                onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, 20, 1, setProposeForm, 'price')}
+                onChange={(e) => setProposeForm((prev) => ({ ...prev, price: parseInt(e.target.value, 10) }))}
+                style={{
+                  backgroundSize: `${(Math.max(0, Math.min(20, proposeForm.price)) * 100) / 20}% 100%`,
+                }}
+                className="
+                  relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                  bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                  focus:outline-none focus:ring-0
+                  
+                  [&::-webkit-slider-thumb]:appearance-none
+                  [&::-webkit-slider-thumb]:w-7
+                  [&::-webkit-slider-thumb]:h-7
+                  [&::-webkit-slider-thumb]:bg-white
+                  [&::-webkit-slider-thumb]:rounded-full
+                  [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                  [&::-webkit-slider-thumb]:border-0
+                  [&::-webkit-slider-thumb]:transition-transform
+                  [&::-webkit-slider-thumb]:duration-150
+                  [&::-webkit-slider-thumb]:ease-out
+                  [&::-webkit-slider-thumb]:hover:scale-110
+                  [&::-webkit-slider-thumb]:active:scale-95
+                "
+              />
+              <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                {`0 ${currencySymbol}`}
+              </div>
+              <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
+                {`20 ${currencySymbol}`}
+              </div>
             </div>
           </div>
-
-          <div className="relative h-10 flex items-center px-1">
-            <input
-              ref={priceSliderRef}
-              type="range"
-              min="0"
-              max="20"
-              step="1"
-              value={proposeForm.price}
-              onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, 20, 1, setProposeForm, 'price')}
-              onChange={(e) => setProposeForm((prev) => ({ ...prev, price: parseInt(e.target.value, 10) }))}
-              style={{
-                backgroundSize: `${(Math.max(0, Math.min(20, proposeForm.price)) * 100) / 20}% 100%`,
-              }}
-              className="
-                relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
-                bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
-                focus:outline-none focus:ring-0
-                
-                [&::-webkit-slider-thumb]:appearance-none
-                [&::-webkit-slider-thumb]:w-7
-                [&::-webkit-slider-thumb]:h-7
-                [&::-webkit-slider-thumb]:bg-white
-                [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
-                [&::-webkit-slider-thumb]:border-0
-                [&::-webkit-slider-thumb]:transition-transform
-                [&::-webkit-slider-thumb]:duration-150
-                [&::-webkit-slider-thumb]:ease-out
-                [&::-webkit-slider-thumb]:hover:scale-110
-                [&::-webkit-slider-thumb]:active:scale-95
-              "
-            />
-            <div className="absolute top-8 left-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              {`0 ${currencySymbol}`}
-            </div>
-            <div className="absolute top-8 right-1 text-[11px] font-semibold text-gray-300 pointer-events-none select-none">
-              {`20 ${currencySymbol}`}
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Length - Same style as "Leaving in" */}
         <div className="bg-white p-6 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">

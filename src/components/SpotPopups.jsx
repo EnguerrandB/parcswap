@@ -1,5 +1,6 @@
 // src/components/SpotPopups.jsx
 import { formatCurrencyAmount } from '../utils/currency';
+import { SHOW_PRICES } from '../config/features';
 
 const formatSpotPrice = (price, currency = 'EUR') => {
   const n = Number(price);
@@ -66,7 +67,8 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
   const remainingMs = getRemainingMs(spot, nowMs);
   const remainingLabel = formatDuration(remainingMs) || '--:--';
-  const priceLabel = formatSpotPrice(spot?.price, currency);
+  const priceLabel = SHOW_PRICES ? formatSpotPrice(spot?.price, currency) : null;
+  const lengthLabel = `${spot?.length ?? 5}m`;
 
   const bg = isDark ? 'rgba(12,16,24,0.88)' : 'rgba(255,255,255,0.9)';
   const shadow = isDark
@@ -112,7 +114,8 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
           ${name}
         </div>
 
-        <!-- price -->
+        <!-- price or length -->
+        ${SHOW_PRICES ? `
         <div style="
           padding: 6px 14px 10px;
           display: flex;
@@ -129,6 +132,33 @@ export const buildSpotPopupHTML = (t, isDark, spot, nowMs = Date.now(), accentCo
             ${priceLabel}
           </div>
         </div>
+        ` : `
+        <div style="
+          padding: 6px 14px 10px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+        ">
+          <div style="
+            font-size: 32px;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            line-height: 1;
+            color: ${priceColor};
+          ">
+            ${lengthLabel}
+          </div>
+          <div style="
+            font-size: 12px;
+            font-weight: 600;
+            color: ${sub};
+          ">
+            ${t('lengthLabel', 'Length')}
+          </div>
+        </div>
+        `}
 
         <!-- divider -->
         <div style="
@@ -166,7 +196,8 @@ export const buildSpotActionPopupHTML = (
   currency = 'EUR',
 ) => {
   const name = spot?.hostName || spot?.host || spot?.displayName || t('user', 'User');
-  const priceLabel = formatSpotPrice(spot?.price, currency);
+  const priceLabel = SHOW_PRICES ? formatSpotPrice(spot?.price, currency) : null;
+  const lengthLabel = `${spot?.length ?? 5}m`;
   const accent = accentColor || (isDark ? '#38bdf8' : '#0ea5e9');
   const accentSoft = toRgba(accent, isDark ? 0.2 : 0.14);
   const accentBorder = toRgba(accent, isDark ? 0.45 : 0.3);
@@ -219,7 +250,7 @@ export const buildSpotActionPopupHTML = (
               letter-spacing: -0.04em;
               line-height: 1;
             ">
-              ${priceLabel}
+              ${SHOW_PRICES ? priceLabel : lengthLabel}
             </div>
           </div>
           <div style="

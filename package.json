@@ -5,9 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:free": "vite --mode free",
+    "dev:paid": "vite --mode paid",
     "build": "vite build",
+    "build:free": "vite build --mode free",
+    "build:paid": "vite build --mode paid",
     "lint": "eslint .",
     "preview": "vite preview",
+    "preview:free": "vite preview --mode free",
+    "preview:paid": "vite preview --mode paid",
     "test": "vitest",
     "test:run": "vitest run"
   },

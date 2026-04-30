@@ -61,6 +61,7 @@ import {
   shouldUseNativeFirebaseAuth,
   signOutFromAllLayers,
 } from './utils/nativeFirebaseAuth';
+import { PAYMENT_ENABLED, SHOW_WALLET, SHOW_PRICES } from './config/features';
 
 const ADMIN_EMAILS = new Set(
   String(import.meta.env.VITE_ADMIN_EMAILS || '')
@@ -187,6 +188,7 @@ const walletCentsToEuros = (cents) => {
 };
 
 const walletTopupModeFromContext = (testModeEnabled) => {
+  if (!PAYMENT_ENABLED) return 'disabled';
   if (testModeEnabled) return 'test';
   if (isNativeIosApp()) return 'ios-iap';
   return 'stripe';
@@ -502,7 +504,9 @@ const AuthTransitionOverlay = ({ theme = 'light', mode = 'out', name = '', varia
     {
       number: '3',
       title: i18n.t('welcomeOnboardingProfileTitle', 'Manage your account'),
-      body: i18n.t('welcomeOnboardingProfileBody', 'Add vehicles, track your wallet, and review your history.'),
+      body: SHOW_WALLET 
+        ? i18n.t('welcomeOnboardingProfileBody', 'Add vehicles, track your wallet, and review your history.')
+        : i18n.t('welcomeOnboardingProfileBodyFree', 'Add vehicles and review your history.'),
     },
   ];
 

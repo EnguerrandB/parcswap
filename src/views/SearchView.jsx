@@ -19,6 +19,7 @@ import {
   isFreeSpot,
   uniqueSpotsByHost,
 } from '../utils/spotColors';
+import { SHOW_PRICES } from '../config/features';
 
 // --- UTILITAIRES ---
 const CARD_EXIT_ROTATION = 90; // degrés d'arc pour l'animation de sortie
@@ -435,11 +436,24 @@ const SwipeCard = forwardRef(({
           </div>
         )}
 
-        <div className="mt-3">
-          <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)] price-pulse">
-            {priceDisplay}
-          </p>
-        </div>
+        {SHOW_PRICES && (
+          <div className="mt-3">
+            <p className="text-white font-extrabold drop-shadow text-[clamp(22px,6vw,34px)] price-pulse">
+              {priceDisplay}
+            </p>
+          </div>
+        )}
+
+        {!SHOW_PRICES && (
+          <div className="mt-3">
+            <p className="text-white font-extrabold drop-shadow text-[clamp(32px,8vw,42px)] tracking-tight">
+              {distanceLabel}
+            </p>
+            <p className="text-white/80 text-[clamp(13px,3.5vw,15px)] font-semibold mt-1">
+              {t('distanceLabel', 'Distance')}
+            </p>
+          </div>
+        )}
 
         <div className={`flex flex-col items-stretch gap-3 w-full ${isRtl ? 'text-right' : 'text-left'}`}>
           {isPublicParking ? (
@@ -465,10 +479,12 @@ const SwipeCard = forwardRef(({
                 <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>🚗</span><span>{t('lengthLabel', 'Length')}</span></div>
                 <div className="text-[clamp(15px,4vw,18px)] font-bold">{t('lengthValue', { value: spot.length ?? 5, defaultValue: '{{value}} meters' })}</div>
               </div>
-              <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
-                <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
-                <div className="text-[clamp(15px,4vw,18px)] font-bold">{distanceLabel}</div>
-              </div>
+              {SHOW_PRICES && (
+                <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
+                  <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>📍</span><span>{t('distanceLabel', 'Distance')}</span></div>
+                  <div className="text-[clamp(15px,4vw,18px)] font-bold">{distanceLabel}</div>
+                </div>
+              )}
               <div className="w-full rounded-2xl bg-white/12 backdrop-blur-sm border border-white/15 px-4 py-3 shadow-md flex items-center justify-between text-white">
                 <div className="flex items-center gap-2 text-[clamp(13px,3.4vw,16px)] font-semibold"><span>⏱️</span><span>{t('leavingInLabel', 'Leaving in')}</span></div>
                 <div className="text-[clamp(15px,4vw,18px)] font-bold">{preciseTime || t('etaFallback', '4:10')}</div>
@@ -1403,70 +1419,72 @@ const SearchView = ({
                 </div>
               </div>
 
-              <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
-                      <Euro size={20} strokeWidth={2.5} />
+              {SHOW_PRICES && (
+                <div className="bg-white p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden group">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center bg-orange-50 rounded-full text-orange-500 shadow-sm shadow-orange-100/50 transition-transform duration-200 ease-out active:scale-95 [@media(hover:hover)]:group-hover:scale-105">
+                        <Euro size={20} strokeWidth={2.5} />
+                      </div>
+                      <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
+                        {t('priceFilter', { defaultValue: 'Max price' })}
+                      </label>
                     </div>
-                    <label className="text-gray-600 font-semibold text-[15px] tracking-wide">
-                      {t('priceFilter', { defaultValue: 'Max price' })}
-                    </label>
+
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
+                        {priceMax == null ? anyLabel : formatPriceNumber(priceMax)}
+                      </span>
+                      <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
+                        {priceMax == null ? '' : currencySymbol}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-3xl font-bold text-gray-900 tracking-tight font-sans">
-                      {priceMax == null ? anyLabel : formatPriceNumber(priceMax)}
-                    </span>
-                    <span className="text-sm font-bold text-gray-400 uppercase tracking-wider translate-y-[-2px]">
-                      {priceMax == null ? '' : currencySymbol}
-                    </span>
+                  <div className="relative h-10 flex items-center px-1">
+                    <input
+                      ref={priceSliderRef}
+                      type="range"
+                      min="0"
+                      max={maxSpotPrice}
+                      step="0.5"
+                      value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
+                      onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
+                      onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
+                      style={{
+                        backgroundSize: `${
+                          ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
+                          Math.max(1, maxSpotPrice)
+                        }% 100%`,
+                      }}
+                      className="
+                        relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
+                        bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
+                        focus:outline-none focus:ring-0
+
+                        [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:w-7
+                        [&::-webkit-slider-thumb]:h-7
+                        [&::-webkit-slider-thumb]:bg-white
+                        [&::-webkit-slider-thumb]:rounded-full
+                        [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
+                        [&::-webkit-slider-thumb]:border-0
+                        [&::-webkit-slider-thumb]:transition-transform
+                        [&::-webkit-slider-thumb]:duration-150
+                        [&::-webkit-slider-thumb]:ease-out
+                        [&::-webkit-slider-thumb]:hover:scale-110
+                        [&::-webkit-slider-thumb]:active:scale-95
+                      "
+                    />
+                    <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
+                      {`0 ${currencySymbol}`}
+                    </div>
+                    <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
+                      {`${formatPriceNumber(maxSpotPrice)} ${currencySymbol}`}
+                    </div>
                   </div>
                 </div>
-
-                <div className="relative h-10 flex items-center px-1">
-                  <input
-                    ref={priceSliderRef}
-                    type="range"
-                    min="0"
-                    max={maxSpotPrice}
-                    step="0.5"
-                    value={priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)}
-                    onPointerDown={(e) => startRangeDrag(e, priceSliderRef, 0, maxSpotPrice, 0.5, setPriceMaxFromRange)}
-                    onChange={(e) => setPriceMaxFromRange(parseFloat(e.target.value))}
-                    style={{
-                      backgroundSize: `${
-                        ((Number(priceMax == null ? maxSpotPrice : Math.min(priceMax, maxSpotPrice)) - 0) * 100) /
-                        Math.max(1, maxSpotPrice)
-                      }% 100%`,
-                    }}
-                    className="
-                      relative w-full h-2.5 bg-gray-100 rounded-full appearance-none cursor-pointer touch-none
-                      bg-[image:linear-gradient(to_right,#f97316,#f97316)] bg-no-repeat
-                      focus:outline-none focus:ring-0
-
-                      [&::-webkit-slider-thumb]:appearance-none
-                      [&::-webkit-slider-thumb]:w-7
-                      [&::-webkit-slider-thumb]:h-7
-                      [&::-webkit-slider-thumb]:bg-white
-                      [&::-webkit-slider-thumb]:rounded-full
-                      [&::-webkit-slider-thumb]:shadow-[0_4px_12px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.05)]
-                      [&::-webkit-slider-thumb]:border-0
-                      [&::-webkit-slider-thumb]:transition-transform
-                      [&::-webkit-slider-thumb]:duration-150
-                      [&::-webkit-slider-thumb]:ease-out
-                      [&::-webkit-slider-thumb]:hover:scale-110
-                      [&::-webkit-slider-thumb]:active:scale-95
-                    "
-                  />
-                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'right-1' : 'left-1'}`}>
-                    {`0 ${currencySymbol}`}
-                  </div>
-                  <div className={`absolute top-8 text-[11px] font-semibold text-gray-300 pointer-events-none select-none ${isRtl ? 'left-1' : 'right-1'}`}>
-                    {`${formatPriceNumber(maxSpotPrice)} ${currencySymbol}`}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
